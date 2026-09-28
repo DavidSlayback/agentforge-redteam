@@ -1,0 +1,110 @@
+"""The Orchestrator prioritizes from state, selects, records decisions, and halts."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
+from redteam.agents.orchestrator.budget import Budget, Governor
+from redteam.agents.orchestrator.candidates import build_candidates
+from redteam.agents.orchestrator.orchestrator import Orchestrator
+from redteam.agents.orchestrator.selector import DeterministicSelector
+from redteam.agents.redteam.agent import RedTeamAgent
+from redteam.agents.judge.judge import Judge
+from redteam.executor.authorization import AuthorizationRegistry
+from redteam.executor.executor import Executor
+from redteam.executor.http_sender import ResponseRecord
+from redteam.store.store import Store
+
+CANNED = (
+    '{"case_id":"x","category":"prompt-injection","owasp":["LLM01"],"target_id":"good",'
+    '"turns":[{"ordinal":1,"method":"POST","route":"/v1/x","body":{}}],'
+    '"oracle":{"marker":"ZZ","foreign_canaries":[],"latency_budget_ms":null},'
+    '"expected_safe":"refuses"}'
+)
+
+
+@dataclass
+class FakeModel:
+    def complete(self, system: str, user: str, **kw: object) -> str:
+        return CANNED
+
+
+def _registry(tmp_path: Path) -> AuthorizationRegistry:
+    p = tmp_path / "auth.yaml"
+    p.write_text("targets:\n  - id: good\n    origin: https://good.example\n    enabled: true\n", encoding="utf-8")
+    return AuthorizationRegistry.load(p)
+
+
+def test_governor_halts_on_each_limit() -> None:
+    g = Governor(Budget(max_campaigns=2, max_usd=99, max_no_signal=99))
+    g.record(produced_finding=False, spend_usd=0)
+    assert not g.should_halt()
+    g.record(produced_finding=False, spend_usd=0)
+    assert g.should_halt() and "campaign budget" in g.halt_reason()
+
+    g2 = Governor(Budget(max_campaigns=99, max_usd=99, max_no_signal=2))
+    g2.record(produced_finding=False, spend_usd=0)
+    g2.record(produced_finding=True, spend_usd=0)   # a finding resets the streak
+    assert not g2.should_halt()
+
+
+def test_candidates_favor_untested_categories(tmp_path: Path) -> None:
+    store = Store.open(tmp_path / "s.db")
+    cats = [("prompt-injection", ["LLM01"]), ("denial-of-service", ["LLM10"])]
+    cands = build_candidates(store, "good", ["/v1/x"], cats)
+    # both untested -> equal score; the list is well-formed and sorted
+    assert cands[0].score >= cands[-1].score
+    assert {c.brief["category"] for c in cands} == {"prompt-injection", "denial-of-service"}
+    store.close()
+
+
+def test_candidates_favor_categories_with_open_findings(tmp_path: Path) -> None:
+    store = Store.open(tmp_path / "s.db")
+    store.insert("findings", {
+        "finding_id": "F-1", "title": "t", "primary_category": "denial-of-service",
+        "status": "new", "dedup_key": "k1", "updated_at": "2026-09-28",
+    })
+    cats = [("prompt-injection", ["LLM01"]), ("denial-of-service", ["LLM10"])]
+    cands = build_candidates(store, "good", ["/v1/x"], cats)
+    assert cands[0].brief["category"] == "denial-of-service"   # exploit weight ranks it first
+    assert cands[0].inputs["open_findings"] == 1
+    store.close()
+
+
+def test_governor_spend_halt() -> None:
+    g = Governor(Budget(max_campaigns=99, max_usd=0.50, max_no_signal=99))
+    g.record(produced_finding=False, spend_usd=0.60)
+    assert g.should_halt() and "spend budget" in g.halt_reason()
+
+
+def test_jev_selector_requires_configuration(monkeypatch) -> None:
+    import pytest
+    from redteam.agents.orchestrator.candidates import Candidate
+    from redteam.agents.orchestrator.selector import JevSelector
+
+    monkeypatch.delenv("AGENTFORGE_REDTEAM_JEV_KEY", raising=False)
+    with pytest.raises(RuntimeError):
+        JevSelector().select([Candidate(brief={}, score=1.0)])
+
+
+def test_orchestrator_runs_and_halts_on_no_signal(tmp_path: Path) -> None:
+    reg = _registry(tmp_path)
+    store = Store.open(tmp_path / "s.db")
+    clean = Executor(reg, lambda u, **k: ResponseRecord(200, "no marker here", 5.0))  # always FAIL
+    orch = Orchestrator(
+        registry=reg, executor=clean, judge=Judge(), store=store,
+        agent=RedTeamAgent(), model=FakeModel(), selector=DeterministicSelector(),
+    )
+    run = orch.run(
+        target_id="good", surfaces=["/v1/x"],
+        categories=[("prompt-injection", ["LLM01"])],
+        budget=Budget(max_campaigns=99, max_usd=99, max_no_signal=3),
+    )
+    assert run.campaigns == 3                 # halted after 3 no-signal campaigns
+    assert run.findings_opened == 0
+    assert "no signal" in run.halt_reason
+    # a select action per campaign + a halt action recorded
+    selects = store.conn.execute("SELECT COUNT(*) AS c FROM agent_actions WHERE agent='orchestrator' AND action='select'").fetchone()["c"]
+    assert selects == 3
+    store.close()
