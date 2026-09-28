@@ -34,3 +34,5 @@ class SeedCase(BaseModel):
     oracle: OracleConfig = Field(default_factory=OracleConfig)
     expected_safe: str       # the safe behavior, in words
     regression: bool = False
+    parent_id: str | None = None   # set on a Red Team variant: the case it was derived from
+    mutation_op: str | None = None
