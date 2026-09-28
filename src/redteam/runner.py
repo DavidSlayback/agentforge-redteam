@@ -1,0 +1,110 @@
+"""The seed-case runner: the live execute -> judge -> record loop (S3).
+
+For each case it resolves the target in the registry, plays the turns through the Executor
+(so the authorization gate applies), builds a deterministic Observation from the final
+response, asks the Judge for a Verdict, and records the Attempt, Verdict, and an ordered
+agent-action into the store. It never reaches a target itself — only through the Executor.
+"""
+
+from __future__ import annotations
+
+import json
+import uuid
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from urllib.parse import urlsplit
+
+from redteam.agents.judge.judge import Judge, Verdict
+from redteam.errors import AuthorizationDenied
+from redteam.evals.case import OracleConfig, SeedCase
+from redteam.executor.executor import Executor
+from redteam.executor.authorization import AuthorizationRegistry
+from redteam.oracles.base import Observation
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _new_id(prefix: str) -> str:
+    return f"{prefix}-{uuid.uuid4().hex[:12]}"
+
+
+def build_observation(record, oracle: OracleConfig, provider_events: tuple[str, ...] = ()) -> Observation:
+    return Observation(
+        response_text=record.text,
+        status_code=record.status_code,
+        latency_ms=record.latency_ms,
+        latency_budget_ms=oracle.latency_budget_ms,
+        injection_marker=oracle.marker,
+        foreign_canaries=frozenset(oracle.foreign_canaries),
+        provider_events=provider_events,
+    )
+
+
+@dataclass
+class RunResult:
+    attempt_id: str
+    verdict: Verdict
+
+
+def run_case(
+    case: SeedCase,
+    registry: AuthorizationRegistry,
+    executor: Executor,
+    judge: Judge,
+    store,
+) -> RunResult:
+    target = registry.by_id(case.target_id)
+    if target is None:
+        raise AuthorizationDenied(case.target_id)
+
+    exchanges: list[dict] = []
+    record = None
+    for turn in sorted(case.turns, key=lambda t: t.ordinal):
+        url = target.origin + turn.route
+        record = executor.request(url, method=turn.method, json=turn.body)
+        exchanges.append({"route": turn.route, "status_code": record.status_code, "latency_ms": record.latency_ms})
+
+    observation = build_observation(record, case.oracle)
+    verdict = judge.judge(observation)
+
+    # Persist the spec this attempt came from, so the attempt's lineage resolves and its
+    # foreign key holds. A seed case is a spec with no campaign or mutation parent.
+    first_route = sorted(case.turns, key=lambda t: t.ordinal)[0].route if case.turns else None
+    store.insert("attack_specs", {
+        "spec_id": case.case_id,
+        "category": case.category,
+        "target_route": first_route,
+        "turns": json.dumps([t.model_dump() for t in case.turns]),
+        "expected_safe_ref": case.expected_safe,
+        "created_at": _now(),
+    })
+
+    attempt_id = _new_id("att")
+    is_local = (urlsplit(target.origin).hostname or "") in {"localhost", "127.0.0.1", "::1"}
+    store.insert("attempts", {
+        "attempt_id": attempt_id,
+        "spec_id": case.case_id,
+        "target_id": target.id,
+        "target_env": "local" if is_local else "deployed",
+        "exchanges": json.dumps(exchanges),
+        "provider_events": json.dumps(list(observation.provider_events)),
+        "started_at": _now(),
+    })
+    verdict_id = _new_id("ver")
+    store.insert("verdicts", {
+        "verdict_id": verdict_id,
+        "attempt_id": attempt_id,
+        "outcome": str(verdict.outcome),
+        "oracle_results": json.dumps([{"oracle": r.oracle, "tier": r.tier, "outcome": str(r.outcome)} for r in verdict.oracle_results]),
+        "judged_at": _now(),
+    })
+    store.insert("agent_actions", {
+        "ts": _now(),
+        "agent": "judge",
+        "action": "verdict",
+        "refs": json.dumps({"case": case.case_id, "attempt": attempt_id, "verdict": verdict_id}),
+        "reason": verdict.reason,
+    })
+    return RunResult(attempt_id=attempt_id, verdict=verdict)

@@ -62,6 +62,17 @@ class Store:
             self.conn.commit()
         return self.schema_version()
 
+    def insert(self, table: str, row: dict[str, object]) -> None:
+        """Insert one row. `table` and column names come from platform code, never user
+        input, so the interpolation here is not an injection surface."""
+        columns = ", ".join(row)
+        placeholders = ", ".join("?" for _ in row)
+        self.conn.execute(f"INSERT INTO {table} ({columns}) VALUES ({placeholders})", tuple(row.values()))
+        self.conn.commit()
+
+    def count(self, table: str) -> int:
+        return int(self.conn.execute(f"SELECT COUNT(*) AS c FROM {table}").fetchone()["c"])
+
     def table_names(self) -> set[str]:
         return {r["name"] for r in self.conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
 

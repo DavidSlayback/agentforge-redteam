@@ -64,6 +64,12 @@ class AuthorizationRegistry:
             )
         return cls(targets)
 
+    def by_id(self, target_id: str) -> Target | None:
+        for target in self.targets.values():
+            if target.id == target_id:
+                return target
+        return None
+
     def authorized(self, url: str) -> bool:
         try:
             origin = normalize_origin(url)
