@@ -231,9 +231,24 @@ classifier): `THREAT_MODEL.md` findings and `evals/` seed content.
 oracles + tier-0 Judge · S3 ✓ *harness* (run loop live-proven; **content pending**) · S4 ✓
 observability queries + report. `uv run pytest` = 38 passed.
 
-**Blocked on David to finish the Tuesday cut:**
-- **S3 content:** seed-case files for ≥3 OWASP categories under `evals/cases/` (shape in
-  `_template.yaml`). Authored by David or an unfiltered model. Turns the live loop into real
-  findings.
-- **S5 Red Team:** needs the Qwen API key + a small spend OK to build+run live. The agent
-  *code* (fake-model tested) can be built without the key.
+**S5 live-demonstrated (2026-09-28):** the full multi-agent loop ran against the **deployed**
+target — Red Team (qwen3.8-flash, target's own endpoint) generated 3 cases across 3 OWASP
+categories, Executor sent them, Judge verdicted, each non-success mutated once; all recorded,
+dashboard rendered. Outcome: **6× FAIL, 0 findings** — every attempt got **HTTP 400**,
+rejected at the target's request-validation layer before reaching the AI. Honest read: the
+loop works end to end; there is nothing to find yet because the attacks are malformed and
+unauthenticated. Store at `var/redteam.db` (gitignored). Key in `.env` (gitignored).
+
+**To turn the loop into real findings (next, classifier-relevant):**
+- **Schema-aware request shaping:** give the Red Team the target's request schemas (already
+  vendored in `vendor/agentforge-schemas/`) so generated turns are well-formed, not 400s.
+- **Demo-context token minting:** call the target's `/v1/demo-context` (synthetic, gated by
+  `AGENTFORGE_SYNTHETIC_CONTEXT`) so attempts carry a valid patient-scoped token and reach
+  the AI. Classifier-safe wiring.
+- **Planted canaries:** seed synthetic per-patient canary markers so the leak oracle can
+  actually fire (cross-patient exfiltration). This is the content/oracle layer.
+- Optional: the LLM rubric Judge tier for criteria no oracle covers.
+
+**Still authored separately (safety classifier):** `THREAT_MODEL.md` findings, and any
+hand-authored `evals/` seed content (the Red Team now generates cases at runtime, so seed
+files are optional, not required, for the demo).
