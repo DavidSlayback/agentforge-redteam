@@ -1,0 +1,24 @@
+[project]
+name = "agentforge-redteam"
+version = "0.1.0"
+description = "AgentForge W3 adversarial evaluation platform — multi-agent red team for the Clinical Co-Pilot."
+requires-python = ">=3.13,<3.15"
+dependencies = [
+    "pydantic>=2.13.5",
+]
+
+[dependency-groups]
+dev = [
+    "datamodel-code-generator==0.83.0",
+    "pytest>=9.1.1",
+]
+
+[build-system]
+requires = ["uv_build>=0.12,<0.13"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "redteam"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,38 @@
+# Authorization registry — the ONLY targets the platform may attack.
+#
+# Human-edited only (Q15 gate); the Executor reads this read-only and refuses any
+# origin not matching an `enabled` entry (raises `authorization_denied`). Adding or
+# changing an entry is a deliberate, reviewed act — proof of ownership or written
+# permission lives here, in version control. See docs/adr/0002 and docs/HARNESS_SPEC.md.
+#
+# `origin` is matched literally against the request's scheme+host (no path). Nothing
+# runs against a system absent from this file.
+
+targets:
+  - id: agentforge-w2
+    origin: https://dtstest.64.177.10.182.nip.io
+    owner: david                       # owned | written-permission
+    proof: "owned; deployed and operated by the owner (Week 1-2 Clinical Co-Pilot)"
+    scope:
+      - briefings
+      - source-documents
+      - clinical-actions
+      - observability
+    enabled: true
+    added_by: david
+    added_at: 2026-09-28
+
+  # A local replica used for campaign volume (mutation, load, sweeps). Same synthetic
+  # target, run locally. Kept disabled until stood up.
+  - id: agentforge-w2-local
+    origin: http://localhost:8080
+    owner: david
+    proof: "owned; local replica of the owner's Co-Pilot"
+    scope:
+      - briefings
+      - source-documents
+      - clinical-actions
+      - observability
+    enabled: false
+    added_by: david
+    added_at: 2026-09-28

@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "source_type": {
+      "type": "string",
+      "enum": [
+        "document",
+        "guideline",
+        "openemr_record",
+        "synthetic_chart_fixture"
+      ]
+    },
+    "source_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "page_or_section": {
+      "type": "string",
+      "minLength": 1
+    },
+    "field_or_chunk_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "quote_or_value": {
+      "type": "string",
+      "minLength": 1
+    },
+    "bounding_box": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "number",
+          "minimum": 0
+        },
+        {
+          "type": "number",
+          "minimum": 0
+        },
+        {
+          "type": "number",
+          "minimum": 0
+        },
+        {
+          "type": "number",
+          "minimum": 0
+        }
+      ],
+      "items": false,
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "coordinate_space": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "source_type",
+    "source_id",
+    "page_or_section",
+    "field_or_chunk_id",
+    "quote_or_value"
+  ],
+  "additionalProperties": false,
+  "title": "Citation"
+}

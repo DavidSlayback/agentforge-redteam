@@ -1,0 +1,816 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "list_date": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "const": "observed"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "citation": {
+              "type": "object",
+              "properties": {
+                "source_type": {
+                  "type": "string",
+                  "enum": [
+                    "document",
+                    "guideline",
+                    "openemr_record",
+                    "synthetic_chart_fixture"
+                  ]
+                },
+                "source_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "page_or_section": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "field_or_chunk_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "quote_or_value": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "bounding_box": {
+                  "type": "array",
+                  "prefixItems": [
+                    {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    {
+                      "type": "number",
+                      "minimum": 0
+                    }
+                  ],
+                  "items": false,
+                  "minItems": 4,
+                  "maxItems": 4
+                },
+                "coordinate_space": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "source_type",
+                "source_id",
+                "page_or_section",
+                "field_or_chunk_id",
+                "quote_or_value"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "status",
+            "value",
+            "confidence",
+            "citation"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "const": "not_found_on_form"
+            },
+            "value": {
+              "type": "null"
+            },
+            "confidence": {
+              "type": "number",
+              "const": 0
+            },
+            "citation": {
+              "type": "null"
+            }
+          },
+          "required": [
+            "status",
+            "value",
+            "confidence",
+            "citation"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "prescriber_or_source": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "const": "observed"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "citation": {
+              "type": "object",
+              "properties": {
+                "source_type": {
+                  "type": "string",
+                  "enum": [
+                    "document",
+                    "guideline",
+                    "openemr_record",
+                    "synthetic_chart_fixture"
+                  ]
+                },
+                "source_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "page_or_section": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "field_or_chunk_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "quote_or_value": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "bounding_box": {
+                  "type": "array",
+                  "prefixItems": [
+                    {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    {
+                      "type": "number",
+                      "minimum": 0
+                    }
+                  ],
+                  "items": false,
+                  "minItems": 4,
+                  "maxItems": 4
+                },
+                "coordinate_space": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "source_type",
+                "source_id",
+                "page_or_section",
+                "field_or_chunk_id",
+                "quote_or_value"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "status",
+            "value",
+            "confidence",
+            "citation"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "const": "not_found_on_form"
+            },
+            "value": {
+              "type": "null"
+            },
+            "confidence": {
+              "type": "number",
+              "const": 0
+            },
+            "citation": {
+              "type": "null"
+            }
+          },
+          "required": [
+            "status",
+            "value",
+            "confidence",
+            "citation"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "patient": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "const": "observed"
+                },
+                "value": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "confidence": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "citation": {
+                  "type": "object",
+                  "properties": {
+                    "source_type": {
+                      "type": "string",
+                      "enum": [
+                        "document",
+                        "guideline",
+                        "openemr_record",
+                        "synthetic_chart_fixture"
+                      ]
+                    },
+                    "source_id": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "page_or_section": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "field_or_chunk_id": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "quote_or_value": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "bounding_box": {
+                      "type": "array",
+                      "prefixItems": [
+                        {
+                          "type": "number",
+                          "minimum": 0
+                        },
+                        {
+                          "type": "number",
+                          "minimum": 0
+                        },
+                        {
+                          "type": "number",
+                          "minimum": 0
+                        },
+                        {
+                          "type": "number",
+                          "minimum": 0
+                        }
+                      ],
+                      "items": false,
+                      "minItems": 4,
+                      "maxItems": 4
+                    },
+                    "coordinate_space": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "source_type",
+                    "source_id",
+                    "page_or_section",
+                    "field_or_chunk_id",
+                    "quote_or_value"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "status",
+                "value",
+                "confidence",
+                "citation"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "const": "not_found_on_form"
+                },
+                "value": {
+                  "type": "null"
+                },
+                "confidence": {
+                  "type": "number",
+                  "const": 0
+                },
+                "citation": {
+                  "type": "null"
+                }
+              },
+              "required": [
+                "status",
+                "value",
+                "confidence",
+                "citation"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "dob": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "const": "observed"
+                },
+                "value": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "confidence": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "citation": {
+                  "type": "object",
+                  "properties": {
+                    "source_type": {
+                      "type": "string",
+                      "enum": [
+                        "document",
+                        "guideline",
+                        "openemr_record",
+                        "synthetic_chart_fixture"
+                      ]
+                    },
+                    "source_id": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "page_or_section": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "field_or_chunk_id": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "quote_or_value": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "bounding_box": {
+                      "type": "array",
+                      "prefixItems": [
+                        {
+                          "type": "number",
+                          "minimum": 0
+                        },
+                        {
+                          "type": "number",
+                          "minimum": 0
+                        },
+                        {
+                          "type": "number",
+                          "minimum": 0
+                        },
+                        {
+                          "type": "number",
+                          "minimum": 0
+                        }
+                      ],
+                      "items": false,
+                      "minItems": 4,
+                      "maxItems": 4
+                    },
+                    "coordinate_space": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "source_type",
+                    "source_id",
+                    "page_or_section",
+                    "field_or_chunk_id",
+                    "quote_or_value"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "status",
+                "value",
+                "confidence",
+                "citation"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "const": "not_found_on_form"
+                },
+                "value": {
+                  "type": "null"
+                },
+                "confidence": {
+                  "type": "number",
+                  "const": 0
+                },
+                "citation": {
+                  "type": "null"
+                }
+              },
+              "required": [
+                "status",
+                "value",
+                "confidence",
+                "citation"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "dob"
+      ],
+      "additionalProperties": false
+    },
+    "medications": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "const": "observed"
+              },
+              "value": {
+                "type": "string",
+                "minLength": 1
+              },
+              "confidence": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              }
+            },
+            "required": [
+              "status",
+              "value",
+              "confidence"
+            ],
+            "additionalProperties": false
+          },
+          "dose": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "observed"
+                  },
+                  "value": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "confidence": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  }
+                },
+                "required": [
+                  "status",
+                  "value",
+                  "confidence"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "not_found_on_form"
+                  },
+                  "value": {
+                    "type": "null"
+                  },
+                  "confidence": {
+                    "type": "number",
+                    "const": 0
+                  }
+                },
+                "required": [
+                  "status",
+                  "value",
+                  "confidence"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "unit": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "observed"
+                  },
+                  "value": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "confidence": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  }
+                },
+                "required": [
+                  "status",
+                  "value",
+                  "confidence"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "not_found_on_form"
+                  },
+                  "value": {
+                    "type": "null"
+                  },
+                  "confidence": {
+                    "type": "number",
+                    "const": 0
+                  }
+                },
+                "required": [
+                  "status",
+                  "value",
+                  "confidence"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "frequency": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "observed"
+                  },
+                  "value": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "confidence": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  }
+                },
+                "required": [
+                  "status",
+                  "value",
+                  "confidence"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "not_found_on_form"
+                  },
+                  "value": {
+                    "type": "null"
+                  },
+                  "confidence": {
+                    "type": "number",
+                    "const": 0
+                  }
+                },
+                "required": [
+                  "status",
+                  "value",
+                  "confidence"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "route": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "observed"
+                  },
+                  "value": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "confidence": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  }
+                },
+                "required": [
+                  "status",
+                  "value",
+                  "confidence"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "not_found_on_form"
+                  },
+                  "value": {
+                    "type": "null"
+                  },
+                  "confidence": {
+                    "type": "number",
+                    "const": 0
+                  }
+                },
+                "required": [
+                  "status",
+                  "value",
+                  "confidence"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "citation": {
+            "type": "object",
+            "properties": {
+              "source_type": {
+                "type": "string",
+                "enum": [
+                  "document",
+                  "guideline",
+                  "openemr_record",
+                  "synthetic_chart_fixture"
+                ]
+              },
+              "source_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "page_or_section": {
+                "type": "string",
+                "minLength": 1
+              },
+              "field_or_chunk_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "quote_or_value": {
+                "type": "string",
+                "minLength": 1
+              },
+              "bounding_box": {
+                "type": "array",
+                "prefixItems": [
+                  {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  {
+                    "type": "number",
+                    "minimum": 0
+                  }
+                ],
+                "items": false,
+                "minItems": 4,
+                "maxItems": 4
+              },
+              "coordinate_space": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "source_type",
+              "source_id",
+              "page_or_section",
+              "field_or_chunk_id",
+              "quote_or_value",
+              "bounding_box"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "name",
+          "dose",
+          "unit",
+          "frequency",
+          "route",
+          "citation"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "list_date",
+    "prescriber_or_source",
+    "patient",
+    "medications"
+  ],
+  "additionalProperties": false,
+  "title": "MedicationList"
+}

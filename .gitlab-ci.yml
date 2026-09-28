@@ -1,0 +1,21 @@
+# CI for the AgentForge Red Team platform (GitLab is the graded source of truth).
+# S0 stub: install with uv and run the test suite, which includes the contract
+# drift gate. Later slices add lint, the regression full-scan SLO, and coverage.
+
+stages:
+  - test
+
+variables:
+  UV_VERSION: "0.12.19"
+
+test:
+  stage: test
+  image: python:3.13-slim
+  before_script:
+    - pip install --no-cache-dir "uv==${UV_VERSION}"
+    - uv sync --frozen --dev
+  script:
+    # Fail if the committed target contracts drift from the vendored snapshot.
+    - uv run python tools/generate_contracts.py
+    - git diff --exit-code -- src/redteam/contracts/target || (echo "contracts stale; regenerate and commit" && exit 1)
+    - uv run pytest -q
