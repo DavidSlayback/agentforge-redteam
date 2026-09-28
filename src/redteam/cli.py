@@ -22,6 +22,14 @@ _OWASP = {
 }
 _DEFAULT_STORE = "var/redteam.db"
 
+# Target-specific: which request field carries the attack payload per route (from recon).
+# Routes not listed here send the model's body as-is.
+_ROUTE_FIELDS = {
+    "/v1/follow-up-evidence": "message",
+    "/v1/scan-supervisor": "message",
+    "/v1/conversations/messages": "message",
+}
+
 
 def _wire(target_id: str):
     """Build the live pieces for an attack command (import-heavy; done lazily)."""
@@ -98,7 +106,8 @@ def cmd_campaign(args: argparse.Namespace) -> int:
     orch = Orchestrator(registry=registry, executor=executor, judge=judge, store=store,
                         agent=agent, model=model, minter=minter, selector=selector)
     run = orch.run(target_id=args.target, surfaces=args.route, categories=categories,
-                   budget=Budget(max_campaigns=args.max_campaigns), patient_uuid=args.patient)
+                   budget=Budget(max_campaigns=args.max_campaigns), patient_uuid=args.patient,
+                   route_fields=_ROUTE_FIELDS)
     print(f"campaign done: campaigns={run.campaigns} findings_opened={run.findings_opened} "
           f"halt={run.halt_reason!r}")
     store.close()

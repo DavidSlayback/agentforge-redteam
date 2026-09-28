@@ -39,10 +39,13 @@ def build_candidates(
     surfaces: list[str],
     categories: list[tuple[str, list[str]]],
     patient_uuid: str | None = None,
+    route_fields: dict[str, str] | None = None,
 ) -> list[Candidate]:
-    """One candidate per (category, surface), highest score first."""
+    """One candidate per (category, surface), highest score first. `route_fields` maps a
+    route to the request field that carries the attack payload (schema-aware shaping)."""
     tried_by_cat = {cat: sum(mix.values()) for cat, mix in pass_fail_by_category(store).items()}
     open_by_cat = _open_findings_by_category(store)
+    route_fields = route_fields or {}
 
     candidates: list[Candidate] = []
     for category, owasp in categories:
@@ -53,5 +56,7 @@ def build_candidates(
             brief = {"category": category, "owasp": owasp, "target_id": target_id, "route": route}
             if patient_uuid:
                 brief["patient_uuid"] = patient_uuid
+            if route in route_fields:
+                brief["input_field"] = route_fields[route]
             candidates.append(Candidate(brief=brief, score=score, inputs={"tried": tried, "open_findings": open_f}))
     return sorted(candidates, key=lambda c: -c.score)

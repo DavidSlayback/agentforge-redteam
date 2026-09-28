@@ -62,13 +62,14 @@ class Orchestrator:
         categories: list[tuple[str, list[str]]],
         budget: Budget,
         patient_uuid: str | None = None,
+        route_fields: dict[str, str] | None = None,
     ) -> OrchestratorRun:
         gov = Governor(budget)
         run = OrchestratorRun()
         findings_start = self.store.count("findings")
 
         while not gov.should_halt():
-            candidates = build_candidates(self.store, target_id, surfaces, categories, patient_uuid)
+            candidates = build_candidates(self.store, target_id, surfaces, categories, patient_uuid, route_fields)
             if not candidates:
                 run.halt_reason = "no candidates"
                 break
