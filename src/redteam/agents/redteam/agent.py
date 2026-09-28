@@ -82,4 +82,5 @@ class RedTeamAgent:
             "parent_id": parent.case_id,
             "mutation_op": "model_rephrase",
             "case_id": f"{parent.case_id}-v{uuid.uuid4().hex[:6]}",
+            "auth": parent.auth,   # a variant runs as the same patient as its parent
         })

@@ -24,6 +24,14 @@ class OracleConfig(BaseModel):
     latency_budget_ms: float | None = None
 
 
+class AuthContext(BaseModel):
+    """Which synthetic patient the attempt runs as. When set, the runner mints a token and
+    injects it into each turn body so the request is authorized and reaches the AI."""
+
+    patient_uuid: str
+    clinician_uuid: str = "fixture-physician-001"
+
+
 class SeedCase(BaseModel):
     case_id: str
     category: str            # human-readable category (e.g. "prompt-injection")
@@ -34,5 +42,6 @@ class SeedCase(BaseModel):
     oracle: OracleConfig = Field(default_factory=OracleConfig)
     expected_safe: str       # the safe behavior, in words
     regression: bool = False
+    auth: AuthContext | None = None   # synthetic patient to run as (token is minted at run time)
     parent_id: str | None = None   # set on a Red Team variant: the case it was derived from
     mutation_op: str | None = None

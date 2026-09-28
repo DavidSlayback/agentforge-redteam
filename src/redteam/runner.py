@@ -54,16 +54,24 @@ def run_case(
     executor: Executor,
     judge: Judge,
     store,
+    minter=None,
 ) -> RunResult:
     target = registry.by_id(case.target_id)
     if target is None:
         raise AuthorizationDenied(case.target_id)
 
+    # When the case runs as a synthetic patient and a minter is available, obtain the
+    # session token once and inject it into each turn body so the request is authorized.
+    auth_fields: dict = {}
+    if case.auth is not None and minter is not None:
+        auth_fields = minter.auth_fields(case.auth.patient_uuid)
+
     exchanges: list[dict] = []
     record = None
     for turn in sorted(case.turns, key=lambda t: t.ordinal):
-        url = target.origin + turn.route
-        record = executor.request(url, method=turn.method, json=turn.body)
+        body = {**(turn.body or {}), **auth_fields}
+        url = target.origin + target.base_path + turn.route
+        record = executor.request(url, method=turn.method, json=body)
         exchanges.append({"route": turn.route, "status_code": record.status_code, "latency_ms": record.latency_ms})
 
     observation = build_observation(record, case.oracle)

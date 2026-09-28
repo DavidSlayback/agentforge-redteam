@@ -11,6 +11,7 @@
 targets:
   - id: agentforge-w2
     origin: https://dtstest.64.177.10.182.nip.io
+    base_path: /agentforge-w2          # the app is served under this path prefix
     owner: david                       # owned | written-permission
     proof: "owned; deployed and operated by the owner (Week 1-2 Clinical Co-Pilot)"
     scope:

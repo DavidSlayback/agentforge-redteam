@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from redteam.agents.judge.judge import Judge, VerdictOutcome
 from redteam.agents.redteam.agent import RedTeamAgent
 from redteam.agents.redteam.model import ModelClient
+from redteam.evals.case import AuthContext
 from redteam.executor.authorization import AuthorizationRegistry
 from redteam.executor.executor import Executor
 from redteam.memory import history_brief
@@ -56,14 +57,18 @@ def run_campaign(
     model: ModelClient,
     campaign_id: str = "adhoc",
     max_mutations: int = 1,
+    minter=None,
 ) -> CampaignSummary:
     summary = CampaignSummary(campaign_id=campaign_id)
     for brief in briefs:
         # Read what has already been tried here so the Red Team varies, not repeats.
         history = history_brief(store, brief["target_id"], brief["category"])
         case = agent.generate(brief, model, history=history)
+        # Run as a synthetic patient when the brief names one (so attempts reach the AI).
+        if brief.get("patient_uuid"):
+            case = case.model_copy(update={"auth": AuthContext(patient_uuid=brief["patient_uuid"])})
         _log_calls(store, campaign_id, "generation", 1)
-        result = run_case(case, registry, executor, judge, store)
+        result = run_case(case, registry, executor, judge, store, minter=minter)
         summary.generated += 1
         summary.outcomes[str(result.verdict.outcome)] += 1
         summary.results.append(result)
@@ -72,7 +77,7 @@ def run_campaign(
         while last.verdict.outcome in _MUTATE_ON and muts < max_mutations:
             variant = agent.mutate(parent, model)
             _log_calls(store, campaign_id, "mutation", 1)
-            last = run_case(variant, registry, executor, judge, store)
+            last = run_case(variant, registry, executor, judge, store, minter=minter)
             summary.variants += 1
             summary.outcomes[str(last.verdict.outcome)] += 1
             summary.results.append(last)

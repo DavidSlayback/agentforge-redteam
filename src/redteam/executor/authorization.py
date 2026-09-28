@@ -40,6 +40,7 @@ class Target:
     proof: str
     scope: tuple[str, ...]
     enabled: bool
+    base_path: str = ""  # path prefix the app is served under, e.g. "/agentforge-w2"
 
 
 @dataclass
@@ -61,6 +62,7 @@ class AuthorizationRegistry:
                 proof=entry.get("proof", ""),
                 scope=tuple(entry.get("scope", [])),
                 enabled=bool(entry.get("enabled", False)),
+                base_path=entry.get("base_path", "").rstrip("/"),
             )
         return cls(targets)
 
