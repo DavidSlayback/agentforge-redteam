@@ -6,3 +6,7 @@ __pycache__/
 .pytest_cache/
 *.log
 .env
+
+# runtime store (holds generated attack content — never commit)
+/var/
+*.db
