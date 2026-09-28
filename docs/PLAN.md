@@ -239,14 +239,27 @@ rejected at the target's request-validation layer before reaching the AI. Honest
 loop works end to end; there is nothing to find yet because the attacks are malformed and
 unauthenticated. Store at `var/redteam.db` (gitignored). Key in `.env` (gitignored).
 
-**To turn the loop into real findings (next, classifier-relevant):**
-- **Schema-aware request shaping:** give the Red Team the target's request schemas (already
-  vendored in `vendor/agentforge-schemas/`) so generated turns are well-formed, not 400s.
-- **Demo-context token minting:** call the target's `/v1/demo-context` (synthetic, gated by
-  `AGENTFORGE_SYNTHETIC_CONTEXT`) so attempts carry a valid patient-scoped token and reach
-  the AI. Classifier-safe wiring.
-- **Planted canaries:** seed synthetic per-patient canary markers so the leak oracle can
-  actually fire (cross-patient exfiltration). This is the content/oracle layer.
+**Token minting DONE (2026-09-28, live-verified).** Discovered the session contract
+black-box (probing the live site): `GET /v1/demo-context?patient_uuid=fixture-patient-00N`
+mints a 300s patient-scoped `demo_token` that patient routes require in the body. Fixture
+patients `fixture-patient-001..008` + `-dup`; clinician `fixture-physician-001`. `TokenMinter`
+mints through the Executor (single-door held); the runner injects the token when a case has
+an `auth` patient. `Target.base_path` (`/agentforge-w2`) added. **An authenticated briefing
+now returns 200, not 400 — attempts reach the AI.**
+
+Attacker note: `/v1/demo-context` is an unauthenticated synthetic-context mint — a
+determined attacker would find and use it exactly as we did. In production this gate
+(`AGENTFORGE_SYNTHETIC_CONTEXT`) must be off; its exposure is itself an insecure-design
+finding worth documenting.
+
+**To turn the loop into real findings (next, classifier-relevant / content layer):**
+- **Authenticated attack campaign:** run the Red Team with `patient_uuid` set + a marker
+  oracle — prompt-injection attempts now reach the AI and produce real SUCCESS/FAIL verdicts.
+- **Planted canaries + cross-patient:** learn a value unique to patient-002 (authed as 002),
+  then run as patient-001 trying to leak it (foreign-canary oracle) — deterministic LLM02.
+- **More oracles:** scope/access-control, excessive-agency (action), output-handling (render).
+- **Browser/conversational surface:** drive the chat UI with the built-in browser for
+  indirect + multi-turn injection and an output-render (stored-XSS) oracle. Bigger lift.
 - Optional: the LLM rubric Judge tier for criteria no oracle covers.
 
 **Still authored separately (safety classifier):** `THREAT_MODEL.md` findings, and any
