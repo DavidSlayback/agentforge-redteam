@@ -225,3 +225,15 @@ Documentation + reports, regression harness + Red Team multi-turn, drill/metrics
 
 Harness spec is decision-complete (D1–D5 resolved). Still authored separately (safety
 classifier): `THREAT_MODEL.md` findings and `evals/` seed content.
+
+**Build status (2026-09-28, pushed to both remotes):** S0 ✓ scaffold · S1 ✓ safety core
+(auth gate + Executor + store, live-proven: unlisted origin blocked, /health 200) · S2 ✓
+oracles + tier-0 Judge · S3 ✓ *harness* (run loop live-proven; **content pending**) · S4 ✓
+observability queries + report. `uv run pytest` = 38 passed.
+
+**Blocked on David to finish the Tuesday cut:**
+- **S3 content:** seed-case files for ≥3 OWASP categories under `evals/cases/` (shape in
+  `_template.yaml`). Authored by David or an unfiltered model. Turns the live loop into real
+  findings.
+- **S5 Red Team:** needs the Qwen API key + a small spend OK to build+run live. The agent
+  *code* (fake-model tested) can be built without the key.
