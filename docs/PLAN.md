@@ -241,12 +241,18 @@ credits); platform is **resilient** to target drops (→ INCONCLUSIVE, not crash
 selector live** (key in .env, `--selector jev`, confidence-band fallback verified 0.23→
 deterministic); **HTML dashboard** (`redteam dashboard --out`). `uv run pytest` = 63.
 
-**The one blocker to REAL findings — schema-aware request shaping.** Two resilient
-authenticated campaigns ran end-to-end; all attempts **400** because the Red Team generates
-request bodies blind to each route's contract. To land: discover each route's injection
-field (probe live, as we did for demo-context) and pass it in the brief so the model fills
-the right field (e.g. `message` on `/v1/scan-supervisor`), not a guessed one. Classifier-safe
-wiring (I supply field names; the model supplies content). This is the next high-value step.
+**Schema-aware shaping DONE — attacks now reach the AI (2026-09-28).** Recon found the
+injection surface: `POST /v1/follow-up-evidence` with a `message` field + token returns 200
+and runs the text through the AI. The Red Team places its payload in the route's known field
+(`_ROUTE_FIELDS` in the CLI → brief `input_field` → per-turn shaping). **First real run: 6
+attacks reached the AI (all HTTP 200), all judged FAIL — the Co-Pilot defended.** Honest
+zero-findings: the target resisted these six, not a plumbing failure.
+
+- **Windows gotcha:** run the CLI with `MSYS_NO_PATHCONV=1` in Git Bash (or from PowerShell)
+  — otherwise a leading-slash `--route /v1/...` is rewritten to a Windows path and 400s.
+- **To find real vulns from here:** more campaigns + multi-turn + the indirect/document
+  surface (upload-borne injection via `/v1/scan-supervisor` after a source doc); stronger
+  Red Team objectives. The loop and oracles are proven; this is attack-strength work.
 
 **Other remaining work needs David (classifier / spend / human):**
 1. **Real findings** — run authed attack campaigns per `docs/HANDOFF-offensive.md`

@@ -13,6 +13,22 @@ target** (`agentforge-w2`), **synthetic data only**, results in the gitignored `
 - The full loop is wired: `redteam.campaign.run_campaign(...)` with a `minter` and briefs
   carrying `patient_uuid` runs authenticated attacks that reach the AI.
 
+## Working command (schema-aware shaping is wired)
+
+The injection surface is `POST /v1/follow-up-evidence` (field `message`). Run:
+
+```bash
+MSYS_NO_PATHCONV=1 uv run redteam --store var/redteam.db campaign \
+  --target agentforge-w2 --category prompt-injection \
+  --route /v1/follow-up-evidence --patient fixture-patient-001 --max-campaigns 8
+```
+
+`MSYS_NO_PATHCONV=1` is required in Git Bash (else the `/v1/...` route is path-mangled).
+First real run: 6 attacks reached the AI (HTTP 200), all FAIL — the Co-Pilot defended. To
+find vulns, raise `--max-campaigns`, add `--selector jev`, vary categories, and add the
+indirect/document surface. Then `redteam dashboard --out dashboard.html` and
+`redteam report`.
+
 ## Task 1 — Authenticated prompt-injection campaign (LLM01)
 
 Run the Red Team with a marker oracle against a route that ingests untrusted text
