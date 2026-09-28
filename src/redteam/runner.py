@@ -74,7 +74,10 @@ def run_case(
     first_route = sorted(case.turns, key=lambda t: t.ordinal)[0].route if case.turns else None
     store.insert("attack_specs", {
         "spec_id": case.case_id,
+        "parent_spec_id": case.parent_id,
+        "mutation_op": case.mutation_op,
         "category": case.category,
+        "owasp": json.dumps(case.owasp),
         "target_route": first_route,
         "turns": json.dumps([t.model_dump() for t in case.turns]),
         "expected_safe_ref": case.expected_safe,

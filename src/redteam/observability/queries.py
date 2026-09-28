@@ -59,6 +59,32 @@ def cost_summary(store: Store) -> dict[str, float]:
     return {"usd": float(r["usd"]), "tokens": int(r["tokens"]), "calls": int(r["calls"])}
 
 
+def owasp_coverage(store: Store) -> dict[str, dict[str, int]]:
+    """Verdict mix per OWASP tag — which taxonomy categories have been exercised (E1).
+
+    A spec may carry several tags; each is counted. Tags come from `attack_specs.owasp`
+    (json). Specs with no verdict yet are omitted.
+    """
+    import json
+
+    out: dict[str, dict[str, int]] = {}
+    rows = store.conn.execute(
+        "SELECT s.owasp AS owasp, v.outcome AS outcome, COUNT(*) AS c "
+        "FROM verdicts v JOIN attempts a ON v.attempt_id = a.attempt_id "
+        "JOIN attack_specs s ON a.spec_id = s.spec_id "
+        "WHERE s.owasp IS NOT NULL GROUP BY s.owasp, v.outcome"
+    )
+    for r in rows:
+        try:
+            tags = json.loads(r["owasp"]) or []
+        except (ValueError, TypeError):
+            tags = []
+        for tag in tags:
+            out.setdefault(tag, {})
+            out[tag][r["outcome"]] = out[tag].get(r["outcome"], 0) + r["c"]
+    return out
+
+
 def agent_trace(store: Store, limit: int = 100) -> list[dict[str, object]]:
     return [
         {"ts": r["ts"], "agent": r["agent"], "action": r["action"], "reason": r["reason"]}

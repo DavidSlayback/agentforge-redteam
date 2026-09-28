@@ -19,6 +19,7 @@ from redteam.agents.redteam.agent import RedTeamAgent
 from redteam.agents.redteam.model import ModelClient
 from redteam.executor.authorization import AuthorizationRegistry
 from redteam.executor.executor import Executor
+from redteam.memory import history_brief
 from redteam.runner import RunResult, run_case
 
 # Outcomes worth spending a mutation on: the attack did not clearly succeed, but the
@@ -58,7 +59,9 @@ def run_campaign(
 ) -> CampaignSummary:
     summary = CampaignSummary(campaign_id=campaign_id)
     for brief in briefs:
-        case = agent.generate(brief, model)
+        # Read what has already been tried here so the Red Team varies, not repeats.
+        history = history_brief(store, brief["target_id"], brief["category"])
+        case = agent.generate(brief, model, history=history)
         _log_calls(store, campaign_id, "generation", 1)
         result = run_case(case, registry, executor, judge, store)
         summary.generated += 1

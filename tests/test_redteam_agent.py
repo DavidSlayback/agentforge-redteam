@@ -31,7 +31,7 @@ class FakeModel:
 def test_generate_parses_a_case() -> None:
     case = RedTeamAgent().generate(BRIEF, FakeModel(CANNED))
     assert isinstance(case, SeedCase)
-    assert case.case_id == "g1"
+    assert case.case_id.startswith("rt-")   # platform-owned id, not the model's "g1"
     assert case.oracle.marker == "ZZ-TOKEN"
 
 
@@ -43,6 +43,24 @@ def test_generate_strips_code_fences() -> None:
 def test_mutate_records_lineage() -> None:
     parent = RedTeamAgent().generate(BRIEF, FakeModel(CANNED))
     child = RedTeamAgent().mutate(parent, FakeModel(CANNED))
-    assert child.parent_id == "g1"
+    assert child.parent_id == parent.case_id
     assert child.mutation_op == "model_rephrase"
+    assert child.case_id.startswith(parent.case_id)
     assert child.case_id != parent.case_id
+
+
+def test_generate_folds_in_history() -> None:
+    class Capturing:
+        def __init__(self) -> None:
+            self.prompts: list[str] = []
+
+        def complete(self, system: str, user: str, **kw: object) -> str:
+            self.prompts.append(user)
+            return CANNED
+
+    m = Capturing()
+    RedTeamAgent().generate(BRIEF, m, history={"tried": 3, "outcomes": {"FAIL": 3}})
+    assert "Prior attempts" in m.prompts[0]
+    m2 = Capturing()
+    RedTeamAgent().generate(BRIEF, m2, history={"tried": 0, "outcomes": {}})
+    assert "Prior attempts" not in m2.prompts[0]
