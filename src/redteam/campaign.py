@@ -61,25 +61,33 @@ def run_campaign(
 ) -> CampaignSummary:
     summary = CampaignSummary(campaign_id=campaign_id)
     for brief in briefs:
-        # Read what has already been tried here so the Red Team varies, not repeats.
-        history = history_brief(store, brief["target_id"], brief["category"])
-        case = agent.generate(brief, model, history=history)
-        # Run as a synthetic patient when the brief names one (so attempts reach the AI).
-        if brief.get("patient_uuid"):
-            case = case.model_copy(update={"auth": AuthContext(patient_uuid=brief["patient_uuid"])})
-        _log_calls(store, campaign_id, "generation", 1)
-        result = run_case(case, registry, executor, judge, store, minter=minter)
-        summary.generated += 1
-        summary.outcomes[str(result.verdict.outcome)] += 1
-        summary.results.append(result)
+        try:
+            # Read what has already been tried here so the Red Team varies, not repeats.
+            history = history_brief(store, brief["target_id"], brief["category"])
+            case = agent.generate(brief, model, history=history)
+            # Run as a synthetic patient when the brief names one (so attempts reach the AI).
+            if brief.get("patient_uuid"):
+                case = case.model_copy(update={"auth": AuthContext(patient_uuid=brief["patient_uuid"])})
+            _log_calls(store, campaign_id, "generation", 1)
+            result = run_case(case, registry, executor, judge, store, minter=minter)
+            summary.generated += 1
+            summary.outcomes[str(result.verdict.outcome)] += 1
+            summary.results.append(result)
 
-        parent, last, muts = case, result, 0
-        while last.verdict.outcome in _MUTATE_ON and muts < max_mutations:
-            variant = agent.mutate(parent, model)
-            _log_calls(store, campaign_id, "mutation", 1)
-            last = run_case(variant, registry, executor, judge, store, minter=minter)
-            summary.variants += 1
-            summary.outcomes[str(last.verdict.outcome)] += 1
-            summary.results.append(last)
-            parent, muts = variant, muts + 1
+            parent, last, muts = case, result, 0
+            while last.verdict.outcome in _MUTATE_ON and muts < max_mutations:
+                variant = agent.mutate(parent, model)
+                _log_calls(store, campaign_id, "mutation", 1)
+                last = run_case(variant, registry, executor, judge, store, minter=minter)
+                summary.variants += 1
+                summary.outcomes[str(last.verdict.outcome)] += 1
+                summary.results.append(last)
+                parent, muts = variant, muts + 1
+        except Exception as exc:  # one bad brief must not end an unattended campaign
+            summary.outcomes["ERROR"] += 1
+            store.insert("agent_actions", {
+                "ts": _now(), "agent": "campaign", "action": "brief_error",
+                "refs": json.dumps({"category": brief.get("category"), "route": brief.get("route")}),
+                "reason": f"{type(exc).__name__}: {exc}"[:300],
+            })
     return summary

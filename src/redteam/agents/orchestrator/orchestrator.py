@@ -80,17 +80,16 @@ class Orchestrator:
             )
 
             before_findings = self.store.count("findings")
-            before_spend = cost_summary(self.store)["usd"]
+            before_calls = cost_summary(self.store)["calls"]
             summary = run_campaign(
                 [chosen.brief], registry=self.registry, executor=self.executor, judge=self.judge,
                 store=self.store, agent=self.agent, model=self.model, minter=self.minter,
                 campaign_id=f"orch-{gov.campaigns + 1}", max_mutations=1,
             )
             produced = self.store.count("findings") > before_findings
-            # Real spend from the cost ledger. usd is 0 until model pricing is wired (S9),
-            # so the spend cap is live-but-inactive until then; campaigns/no-signal still bound it.
-            spend_delta = cost_summary(self.store)["usd"] - before_spend
-            gov.record(produced_finding=produced, spend_usd=spend_delta)
+            # Cost is real model calls from the ledger (generation + mutation).
+            calls_delta = cost_summary(self.store)["calls"] - before_calls
+            gov.record(produced_finding=produced, model_calls=calls_delta)
             run.decisions.append({"brief": chosen.brief, "outcomes": dict(summary.outcomes), "new_finding": produced})
 
         run.campaigns = gov.campaigns

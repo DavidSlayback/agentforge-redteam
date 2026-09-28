@@ -37,15 +37,15 @@ def _registry(tmp_path: Path) -> AuthorizationRegistry:
 
 
 def test_governor_halts_on_each_limit() -> None:
-    g = Governor(Budget(max_campaigns=2, max_usd=99, max_no_signal=99))
-    g.record(produced_finding=False, spend_usd=0)
+    g = Governor(Budget(max_campaigns=2, max_model_calls=999, max_no_signal=99))
+    g.record(produced_finding=False, model_calls=0)
     assert not g.should_halt()
-    g.record(produced_finding=False, spend_usd=0)
+    g.record(produced_finding=False, model_calls=0)
     assert g.should_halt() and "campaign budget" in g.halt_reason()
 
-    g2 = Governor(Budget(max_campaigns=99, max_usd=99, max_no_signal=2))
-    g2.record(produced_finding=False, spend_usd=0)
-    g2.record(produced_finding=True, spend_usd=0)   # a finding resets the streak
+    g2 = Governor(Budget(max_campaigns=99, max_model_calls=999, max_no_signal=2))
+    g2.record(produced_finding=False, model_calls=0)
+    g2.record(produced_finding=True, model_calls=0)   # a finding resets the streak
     assert not g2.should_halt()
 
 
@@ -72,10 +72,10 @@ def test_candidates_favor_categories_with_open_findings(tmp_path: Path) -> None:
     store.close()
 
 
-def test_governor_spend_halt() -> None:
-    g = Governor(Budget(max_campaigns=99, max_usd=0.50, max_no_signal=99))
-    g.record(produced_finding=False, spend_usd=0.60)
-    assert g.should_halt() and "spend budget" in g.halt_reason()
+def test_governor_model_call_halt() -> None:
+    g = Governor(Budget(max_campaigns=99, max_model_calls=5, max_no_signal=99))
+    g.record(produced_finding=False, model_calls=6)
+    assert g.should_halt() and "model-call budget" in g.halt_reason()
 
 
 def test_jev_selector_requires_configuration(monkeypatch) -> None:
@@ -99,7 +99,7 @@ def test_orchestrator_runs_and_halts_on_no_signal(tmp_path: Path) -> None:
     run = orch.run(
         target_id="good", surfaces=["/v1/x"],
         categories=[("prompt-injection", ["LLM01"])],
-        budget=Budget(max_campaigns=99, max_usd=99, max_no_signal=3),
+        budget=Budget(max_campaigns=99, max_model_calls=999, max_no_signal=3),
     )
     assert run.campaigns == 3                 # halted after 3 no-signal campaigns
     assert run.findings_opened == 0

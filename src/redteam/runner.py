@@ -16,7 +16,7 @@ from urllib.parse import urlsplit
 
 from redteam import findings, regression
 from redteam.agents.judge.judge import Judge, Verdict, VerdictOutcome
-from redteam.errors import AuthorizationDenied
+from redteam.errors import AuthorizationDenied, TargetUnreachable
 from redteam.evals.case import OracleConfig, SeedCase
 from redteam.executor.executor import Executor
 from redteam.executor.authorization import AuthorizationRegistry
@@ -61,22 +61,31 @@ def run_case(
     if target is None:
         raise AuthorizationDenied(case.target_id)
 
-    # When the case runs as a synthetic patient and a minter is available, obtain the
-    # session token once and inject it into each turn body so the request is authorized.
-    auth_fields: dict = {}
-    if case.auth is not None and minter is not None:
-        auth_fields = minter.auth_fields(case.auth.patient_uuid)
-
     exchanges: list[dict] = []
     record = None
-    for turn in sorted(case.turns, key=lambda t: t.ordinal):
-        body = {**(turn.body or {}), **auth_fields}
-        url = target.origin + target.base_path + turn.route
-        record = executor.request(url, method=turn.method, json=body)
-        exchanges.append({"route": turn.route, "status_code": record.status_code, "latency_ms": record.latency_ms})
+    unreachable: str | None = None
+    try:
+        # When the case runs as a synthetic patient and a minter is available, obtain the
+        # session token once and inject it into each turn so the request is authorized.
+        auth_fields: dict = {}
+        if case.auth is not None and minter is not None:
+            auth_fields = minter.auth_fields(case.auth.patient_uuid)
+        for turn in sorted(case.turns, key=lambda t: t.ordinal):
+            body = {**(turn.body or {}), **auth_fields}
+            url = target.origin + target.base_path + turn.route
+            record = executor.request(url, method=turn.method, json=body)
+            exchanges.append({"route": turn.route, "status_code": record.status_code, "latency_ms": record.latency_ms})
+    except TargetUnreachable as exc:
+        # A transport failure or a failed mint is not a defense holding — it is INCONCLUSIVE.
+        unreachable = str(exc)
 
-    observation = build_observation(record, case.oracle)
-    verdict = judge.judge(observation)
+    if unreachable is not None:
+        verdict = Verdict(VerdictOutcome.INCONCLUSIVE, (), f"target unreachable: {unreachable}")
+        provider_events = ["target_unreachable"]
+    else:
+        observation = build_observation(record, case.oracle)
+        verdict = judge.judge(observation)
+        provider_events = list(observation.provider_events)
 
     # Persist the spec this attempt came from, so the attempt's lineage resolves and its
     # foreign key holds. A seed case is a spec with no campaign or mutation parent.
@@ -101,7 +110,7 @@ def run_case(
         "target_id": target.id,
         "target_env": "local" if is_local else "deployed",
         "exchanges": json.dumps(exchanges),
-        "provider_events": json.dumps(list(observation.provider_events)),
+        "provider_events": json.dumps(provider_events),
         "started_at": _now(),
     })
     verdict_id = _new_id("ver")

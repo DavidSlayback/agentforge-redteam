@@ -52,6 +52,18 @@ def cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_dashboard(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from redteam.observability import dashboard
+
+    store = Store.open(args.store)
+    Path(args.out).write_text(dashboard.render_html(store), encoding="utf-8")
+    store.close()
+    print(f"wrote {args.out}")
+    return 0
+
+
 def cmd_approve(args: argparse.Namespace) -> int:
     from redteam.agents.documentation.agent import DocumentationAgent
 
@@ -97,6 +109,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("report", help="print the observability dashboard").set_defaults(func=cmd_report)
+
+    db = sub.add_parser("dashboard", help="write a self-contained HTML dashboard")
+    db.add_argument("--out", default="dashboard.html")
+    db.set_defaults(func=cmd_dashboard)
 
     ap = sub.add_parser("approve", help="approve a held critical/high report")
     ap.add_argument("report_id")

@@ -11,6 +11,8 @@ from typing import Any
 
 import httpx
 
+from redteam.errors import TargetUnreachable
+
 
 @dataclass(frozen=True)
 class ResponseRecord:
@@ -19,13 +21,18 @@ class ResponseRecord:
     latency_ms: float
 
 
-def http_sender(url: str, /, *, method: str = "GET", timeout: float = 30.0, **kwargs: Any) -> ResponseRecord:
+def http_sender(url: str, /, *, method: str = "GET", timeout: float = 90.0, **kwargs: Any) -> ResponseRecord:
     """Send one request and record status, body, and wall latency.
 
     `kwargs` pass through to httpx (json=, headers=, content=, params=). Only ever called
-    by the Executor, and only after the origin has been authorized.
+    by the Executor, and only after the origin has been authorized. A transport failure
+    (timeout, dropped connection, refused) becomes a typed TargetUnreachable so the runner
+    records it as INCONCLUSIVE instead of crashing the campaign.
     """
     start = time.perf_counter()
-    resp = httpx.request(method, url, timeout=timeout, **kwargs)
+    try:
+        resp = httpx.request(method, url, timeout=timeout, **kwargs)
+    except httpx.HTTPError as exc:
+        raise TargetUnreachable(f"{method} {url}: {type(exc).__name__}: {exc}") from exc
     latency_ms = (time.perf_counter() - start) * 1000.0
     return ResponseRecord(status_code=resp.status_code, text=resp.text, latency_ms=latency_ms)
