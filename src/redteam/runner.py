@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
-from redteam import findings
+from redteam import findings, regression
 from redteam.agents.judge.judge import Judge, Verdict, VerdictOutcome
 from redteam.errors import AuthorizationDenied
 from redteam.evals.case import OracleConfig, SeedCase
@@ -120,7 +120,8 @@ def run_case(
         "reason": verdict.reason,
     })
 
-    # A confirmed exploit graduates into a deduplicated Finding.
+    # A confirmed exploit graduates into a deduplicated Finding, and a new Finding is
+    # frozen into the regression suite so future builds are checked against it.
     if verdict.outcome is VerdictOutcome.SUCCESS:
         finding_id, is_new = findings.promote(store, case, verdict, verdict_id)
         store.insert("agent_actions", {
@@ -128,4 +129,6 @@ def run_case(
             "refs": json.dumps({"finding": finding_id, "verdict": verdict_id}),
             "reason": f"{'new' if is_new else 'duplicate'} finding {finding_id}",
         })
+        if is_new:
+            regression.freeze(store, finding_id, case)
     return RunResult(attempt_id=attempt_id, verdict=verdict)
