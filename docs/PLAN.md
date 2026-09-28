@@ -226,10 +226,28 @@ Documentation + reports, regression harness + Red Team multi-turn, drill/metrics
 Harness spec is decision-complete (D1–D5 resolved). Still authored separately (safety
 classifier): `THREAT_MODEL.md` findings and `evals/` seed content.
 
-**Build status (2026-09-28, pushed to both remotes):** S0 ✓ scaffold · S1 ✓ safety core
-(auth gate + Executor + store, live-proven: unlisted origin blocked, /health 200) · S2 ✓
-oracles + tier-0 Judge · S3 ✓ *harness* (run loop live-proven; **content pending**) · S4 ✓
-observability queries + report. `uv run pytest` = 38 passed.
+**Build status (2026-09-28, pushed to both remotes). `uv run pytest` = 60 passed.**
+S0 ✓ scaffold · S1 ✓ safety core (live: unlisted origin blocked, /health 200) · S2 ✓
+oracles + tier-0 Judge · S3 ✓ run loop + token minting (live: authed briefing 200) · S4 ✓
+observability · S5 ✓ Red Team + campaign + attack memory (live: multi-agent loop ran) ·
+S6 ✓ Orchestrator (ranker + budget/halt; Jev selector gated on a key) · S7 ✓ finding
+promotion + Documentation agent + human gate · S8 ✓ regression harness · CLI ✓ (`redteam`
+report/approve/regression/campaign) · USERS.md ✓ · KEY_METRICS.md ✓. Each behavior slice
+reviewed (self or subagent) and its findings applied. ADR 0001–0004, harness spec,
+architecture doc + shareable page, requirements matrix, offensive handoff all in.
+
+**All remaining work needs David (classifier / keys / spend / human):**
+1. **Real findings** — run authed attack campaigns per `docs/HANDOFF-offensive.md`
+   (`redteam campaign --target agentforge-w2 --category prompt-injection --patient
+   fixture-patient-001 --route /v1/scan-supervisor`). Needs an unfiltered model/David to
+   author+drive attack content. Turns the green harness into findings + vuln reports.
+2. **THREAT_MODEL.md findings** (Stage 2 hard gate) — authored outside this assistant.
+3. **Benign + calibration sets** — for KEY_METRICS #4 (over-refusal) and #5 (judge κ).
+4. **Jev key** (optional) — `AGENTFORGE_REDTEAM_JEV_KEY` + `typesafe-sdk` to activate the
+   Jev selector; deterministic selector is the live default otherwise.
+5. **Cost pricing (S9)** — wire qwen3.8-flash price so `cost_summary` reports USD and the
+   AI Cost Analysis is real.
+6. **Submission** — demo video, social post; confirm local-time deadlines in the portal.
 
 **S5 live-demonstrated (2026-09-28):** the full multi-agent loop ran against the **deployed**
 target — Red Team (qwen3.8-flash, target's own endpoint) generated 3 cases across 3 OWASP
