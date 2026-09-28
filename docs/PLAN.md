@@ -217,8 +217,11 @@ decisions: Red Team model bake-off (Q5) and Judge bake-off (Q8′/Q14).
 
 ## Execution slices
 
-To be defined during architecture design. Candidate order: (S0) confirm live target +
-requirements matrix; (S1) threat model; (S2) architecture + contracts; (S3) one live
-agent role + seed evals across 3 categories; (S4) judge + regression harness; (S5)
-orchestrator + observability; (S6) documentation agent + reports; (S7) hardening drill,
-metrics, cost analysis, deploy, demo.
+Specced in `docs/HARNESS_SPEC.md` (S0–S9, mapped to requirement IDs). **Tuesday cut: S0–S5**
+— scaffold, safety core (authorization.yaml + Executor + store), oracles + Judge, seed evals
+(≥3 OWASP categories, content authored unfiltered), dashboard, and a minimal Red Team — so
+Red Team + Judge both run live against the deployed target. **Friday: S6–S9** — Orchestrator,
+Documentation + reports, regression harness + Red Team multi-turn, drill/metrics/cost/deploy.
+
+Harness spec is decision-complete (D1–D5 resolved). Still authored separately (safety
+classifier): `THREAT_MODEL.md` findings and `evals/` seed content.
