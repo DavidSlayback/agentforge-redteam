@@ -1,0 +1,8 @@
+# Local, non-shared working material
+.scratch/
+node_modules/
+__pycache__/
+.venv/
+.pytest_cache/
+*.log
+.env
