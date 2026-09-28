@@ -14,7 +14,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
-from redteam.agents.judge.judge import Judge, Verdict
+from redteam import findings
+from redteam.agents.judge.judge import Judge, Verdict, VerdictOutcome
 from redteam.errors import AuthorizationDenied
 from redteam.evals.case import OracleConfig, SeedCase
 from redteam.executor.executor import Executor
@@ -118,4 +119,13 @@ def run_case(
         "refs": json.dumps({"case": case.case_id, "attempt": attempt_id, "verdict": verdict_id}),
         "reason": verdict.reason,
     })
+
+    # A confirmed exploit graduates into a deduplicated Finding.
+    if verdict.outcome is VerdictOutcome.SUCCESS:
+        finding_id, is_new = findings.promote(store, case, verdict, verdict_id)
+        store.insert("agent_actions", {
+            "ts": _now(), "agent": "runner", "action": "finding" if is_new else "finding_dedup",
+            "refs": json.dumps({"finding": finding_id, "verdict": verdict_id}),
+            "reason": f"{'new' if is_new else 'duplicate'} finding {finding_id}",
+        })
     return RunResult(attempt_id=attempt_id, verdict=verdict)

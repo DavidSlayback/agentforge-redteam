@@ -40,10 +40,14 @@ def test_queries_aggregate_a_run(tmp_path: Path) -> None:
     assert queries.cases_per_category(store) == {"prompt-injection": 2}
     pf = queries.pass_fail_by_category(store)["prompt-injection"]
     assert pf == {"FAIL": 1, "SUCCESS": 1}
-    assert len(queries.agent_trace(store)) == 2
+    # two verdict actions + one finding action (the SUCCESS promoted to a Finding)
+    actions = queries.agent_trace(store)
+    assert len(actions) == 3
+    assert any(a["action"] == "finding" for a in actions)
+    assert store.count("findings") == 1
 
-    # findings and cost start empty; the render still succeeds
-    assert queries.findings_by_status(store) == {}
+    # the SUCCESS produced one new finding; run_case logs no cost (the campaign does)
+    assert queries.findings_by_status(store) == {"new": 1}
     assert queries.cost_summary(store)["usd"] == 0.0
     md = report.render_markdown(store)
     assert "Pass/fail by category" in md and "SUCCESS=1" in md
