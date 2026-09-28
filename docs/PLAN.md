@@ -20,6 +20,33 @@ each, alphabetical order. David presents and defends this architecture live. `AR
 "Known tradeoffs / failure modes" is written to serve that Q&A (why-X-over-Y, failure
 modes, edge cases). Source: `~/Downloads/architecture_review_guide (2).pdf`.
 
+## Course clarifications (kickoff call, 2026-09-28)
+
+From the recorded intro call (Byron). These override convenience where they narrow scope.
+
+- **Scope = the LLM/agent layer, not OpenEMR.** Byron twice: most interested in *LLM and
+  agent vulnerabilities* (prompt injection, PHI/cross-patient leakage, tool/action misuse,
+  multi-turn state), **not** the OpenEMR PHP or dependency/supply-chain scanning. The
+  threat model and seed evals center on the AI surface. Classic web/OWASP rows stay only
+  where they touch that surface.
+- **Black-box confirmed.** Assume **no** target codebase access; hit the chatbot over HTTP
+  only. The platform should in principle be pointable at another chatbot. Matches the
+  single-Executor / HTTP-only design.
+- **Fixes are REQUIRED, not stretch.** "When you find a vulnerability, fix it and show that
+  you fixed it." Elevates the fix → regression-holds loop (P5) to a graded requirement.
+- **Auto-fix is a bonus, not required.** Surface the bug + proposed fix; do not auto-apply
+  unless deliberately wired. Matches the "platform never applies fixes to the target" gate.
+- **Separate/greenfield repo is allowed and encouraged.** Our standalone repo is right.
+- **Deadlines show in LOCAL time (portal bug), not Central.** Early = **Tue midnight**,
+  final = **Fri noon** — confirm the local offset in the portal. (SC1/SC2.)
+- **Model refusals are expected by design.** Frontier models refuse offensive-security work
+  and are too costly to run continuously → open-weights attacker on a cheap key. This is
+  also why detailed offensive content trips output safety classifiers in *this* assistant
+  session; the specific offensive text (threat-model findings, attack seeds) is authored by
+  David or a model without that filter. See `[[claude-safety-blocks-w3]]`.
+- **Architecture Defense:** today 2:30 CT, via the portal (not Google Meet), **plan-only
+  and ungraded** (reflective survey), one-slide norm. David is handling it.
+
 ## Source record
 
 | Source | Path |
