@@ -1,4 +1,41 @@
 # Key metrics
 
-> **STATUS: STUB — not started.** This is a required PRD hard-gate deliverable.
-> Metrics + rationale you would defend to a hospital CTO. See [KICKOFF.md](KICKOFF.md) and [docs/PLAN.md](docs/PLAN.md).
+A small set of numbers we would defend to a hospital CTO: not "we measure a lot," but "we
+know what we claim and can show it's true." Each metric names what it proves, how it is
+computed from the store, and its current status (measured now vs. needs a component).
+
+## The metrics
+
+| # | Metric | What it proves | Source | Status |
+|---|---|---|---|---|
+| 1 | **Attack success rate by category, per target build** | Whether the Co-Pilot resists each attack class, and whether it is getting more or less resilient over versions | `queries.pass_fail_by_category` / `owasp_coverage` / `outcomes_by_sha` | measured |
+| 2 | **Unique findings after dedup** | Real distinct weaknesses, not repeated noise — the number leadership acts on | `findings` deduped by `(oracle, sink, category)` | measured |
+| 3 | **Fix-holds rate under mutation** | A fix generalizes past the exact string — the regression truly passed | regression `replay`: `held` vs `reappeared` across variants | measured (harness); needs mutated variants per finding |
+| 4 | **Over-refusal / benign pass rate** | Fixes don't break the clinician — security gains aren't paid for in utility | a benign clinician + XSTest-style set on the same SHA | needs a benign eval set |
+| 5 | **Judge agreement (Cohen's κ) & pair-disagreement rate** | The verdicts are trustworthy and the Judge isn't drifting | a human-labeled calibration set; two-judge disagreement over time | needs calibration set + rubric judge |
+| 6 | **Coverage vector** (categories × routes × oracles × access modes) | What has and has *not* been exercised — honest about blind spots | `owasp_coverage` + recon inventory | partial (category/verdict now) |
+| 7 | **Cost per finding & cost per run, projected to scale** | The platform is economically sustainable to run continuously | `cost_summary` (calls now; USD when pricing lands) | partial (calls; USD pending) |
+| 8 | **Time-to-first-finding & planted-vuln recall** | The platform actually finds real bugs, fast, in an unattended drill | drill scoring (reached/triggered/detected) | needs the drill |
+
+## Rationale for the set
+
+- **1–3 are the core promise:** find weaknesses, confirm they're real and distinct, and
+  prove fixes hold. Without #3 measured under mutation, a green regression is not evidence.
+- **4 is the clinician's guardrail.** The PRD's bar is "without breaking the clinician";
+  a platform that only measured attack success could recommend fixes that quietly raise
+  over-refusal. #4 keeps the safety/utility trade-off visible.
+- **5 is what makes every other number believable.** If the Judge drifts, metrics 1–3 are
+  noise. Deterministic oracles carry most verdicts (no drift by construction); κ and the
+  two-judge disagreement rate quantify the residual LLM-judged fraction.
+- **6 prevents a false sense of security.** A high pass rate over three routes says nothing
+  about the other twenty-seven. Coverage is a vector, never a single percentage.
+- **7 is the difference between a demo and a service.** Continuous testing is only viable
+  if cost per finding stays bounded as run volume grows — hence the 100/1K/10K/100K
+  projection (AI Cost Analysis), not per-token × n.
+
+## Thresholds
+
+Pass thresholds (e.g., an over-refusal ceiling, a minimum κ, a fix-holds bar) are set once
+the calibration and benign sets exist; the prior-art review deliberately declines to fix
+numbers from the teaser alone. Until then, metrics are reported as trends and per-case
+evidence, never as a single headline score.
