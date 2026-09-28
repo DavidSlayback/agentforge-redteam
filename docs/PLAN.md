@@ -236,7 +236,19 @@ report/approve/regression/campaign) · USERS.md ✓ · KEY_METRICS.md ✓. Each 
 reviewed (self or subagent) and its findings applied. ADR 0001–0004, harness spec,
 architecture doc + shareable page, requirements matrix, offensive handoff all in.
 
-**All remaining work needs David (classifier / keys / spend / human):**
+**Unblocked 2026-09-28 (session 2):** cost is in **model calls, not USD** (Qwen bills in
+credits); platform is **resilient** to target drops (→ INCONCLUSIVE, not crash); **Jev
+selector live** (key in .env, `--selector jev`, confidence-band fallback verified 0.23→
+deterministic); **HTML dashboard** (`redteam dashboard --out`). `uv run pytest` = 63.
+
+**The one blocker to REAL findings — schema-aware request shaping.** Two resilient
+authenticated campaigns ran end-to-end; all attempts **400** because the Red Team generates
+request bodies blind to each route's contract. To land: discover each route's injection
+field (probe live, as we did for demo-context) and pass it in the brief so the model fills
+the right field (e.g. `message` on `/v1/scan-supervisor`), not a guessed one. Classifier-safe
+wiring (I supply field names; the model supplies content). This is the next high-value step.
+
+**Other remaining work needs David (classifier / spend / human):**
 1. **Real findings** — run authed attack campaigns per `docs/HANDOFF-offensive.md`
    (`redteam campaign --target agentforge-w2 --category prompt-injection --patient
    fixture-patient-001 --route /v1/scan-supervisor`). Needs an unfiltered model/David to
