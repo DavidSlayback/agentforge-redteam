@@ -14,6 +14,10 @@ dev = [
     "datamodel-code-generator==0.83.0",
     "pytest>=9.1.1",
 ]
+# Optional: the Jev (TypeSafe) orchestrator selector. `uv sync --group jev`.
+jev = [
+    "typesafe-sdk>=0.7.2",
+]
 
 [project.scripts]
 redteam = "redteam.cli:main"

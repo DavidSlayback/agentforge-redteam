@@ -89,12 +89,14 @@ def cmd_regression(args: argparse.Namespace) -> int:
 def cmd_campaign(args: argparse.Namespace) -> int:
     from redteam.agents.orchestrator.budget import Budget
     from redteam.agents.orchestrator.orchestrator import Orchestrator
+    from redteam.agents.orchestrator.selector import DeterministicSelector, JevSelector
 
     registry, _target, executor, minter, judge, agent, model = _wire(args.target)
     store = Store.open(args.store)
     categories = [(c, _OWASP.get(c, [])) for c in args.category]
+    selector = JevSelector() if args.selector == "jev" else DeterministicSelector()
     orch = Orchestrator(registry=registry, executor=executor, judge=judge, store=store,
-                        agent=agent, model=model, minter=minter)
+                        agent=agent, model=model, minter=minter, selector=selector)
     run = orch.run(target_id=args.target, surfaces=args.route, categories=categories,
                    budget=Budget(max_campaigns=args.max_campaigns), patient_uuid=args.patient)
     print(f"campaign done: campaigns={run.campaigns} findings_opened={run.findings_opened} "
@@ -130,6 +132,7 @@ def build_parser() -> argparse.ArgumentParser:
     cp.add_argument("--route", action="append", default=[], help="repeatable target route")
     cp.add_argument("--patient", default=None, help="synthetic patient to run as")
     cp.add_argument("--max-campaigns", type=int, default=5, dest="max_campaigns")
+    cp.add_argument("--selector", choices=["deterministic", "jev"], default="deterministic")
     cp.set_defaults(func=cmd_campaign)
     return parser
 

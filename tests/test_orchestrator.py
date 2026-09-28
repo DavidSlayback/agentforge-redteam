@@ -88,6 +88,22 @@ def test_jev_selector_requires_configuration(monkeypatch) -> None:
         JevSelector().select([Candidate(brief={}, score=1.0)])
 
 
+def test_jev_confidence_bands() -> None:
+    from redteam.agents.orchestrator.candidates import Candidate
+    from redteam.agents.orchestrator.selector import _apply_bands
+
+    top = [Candidate(brief={"category": "a"}, score=2.0), Candidate(brief={"category": "b"}, score=1.0)]
+    # confident: take Jev's pick (index 1)
+    chosen, fell_back = _apply_bands(top, jev_index=1, confidence=0.9, threshold=0.5)
+    assert chosen is top[1] and not fell_back
+    # low confidence: fall back to the deterministic top-1
+    chosen, fell_back = _apply_bands(top, jev_index=1, confidence=0.3, threshold=0.5)
+    assert chosen is top[0] and fell_back
+    # out-of-range index: fall back, never crash
+    chosen, fell_back = _apply_bands(top, jev_index=9, confidence=0.9, threshold=0.5)
+    assert chosen is top[0] and fell_back
+
+
 def test_orchestrator_runs_and_halts_on_no_signal(tmp_path: Path) -> None:
     reg = _registry(tmp_path)
     store = Store.open(tmp_path / "s.db")
