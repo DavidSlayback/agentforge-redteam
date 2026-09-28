@@ -1,0 +1,389 @@
+<title>Red Team Platform Architecture</title>
+<meta name="description" content="The multi-agent adversarial evaluation platform: architectures considered, the one chosen, and why — with a click-to-pin interaction diagram.">
+<style>
+  :root{
+    --bg:#f6f5f2; --surface:#fffdfa; --surface-2:#f0eee9; --ink:#1c1b19; --muted:#6b675f;
+    --line:#d9d5cc; --line-strong:#b9b3a7; --accent:#b4531f;
+    --c-orch:#2563eb; --c-red:#d6402c; --c-judge:#0d8a7a; --c-doc:#7c3aed;
+    --c-exec:#b4691a; --c-det:#5b6472; --c-store:#334155; --c-target:#7a8290; --c-human:#b8860b;
+    --shadow:0 1px 2px rgba(28,27,25,.06),0 6px 20px rgba(28,27,25,.06);
+    font-synthesis-weight:none;
+  }
+  :root:not([data-theme="light"]){ @media (prefers-color-scheme: dark){
+    --bg:#16171a; --surface:#1e2024; --surface-2:#25282d; --ink:#e9e7e2; --muted:#a2a09a;
+    --line:#33363c; --line-strong:#484c54; --accent:#e8895a; color-scheme:dark;
+    --c-orch:#6ea8fe; --c-red:#f0806e; --c-judge:#3fc7b4; --c-doc:#b699f5;
+    --c-exec:#e0a244; --c-det:#9aa4b2; --c-store:#c7cfda; --c-target:#9aa4b2; --c-human:#e6c34d;
+  }}
+  :root[data-theme="dark"]{
+    --bg:#16171a; --surface:#1e2024; --surface-2:#25282d; --ink:#e9e7e2; --muted:#a2a09a;
+    --line:#33363c; --line-strong:#484c54; --accent:#e8895a; color-scheme:dark;
+    --c-orch:#6ea8fe; --c-red:#f0806e; --c-judge:#3fc7b4; --c-doc:#b699f5;
+    --c-exec:#e0a244; --c-det:#9aa4b2; --c-store:#c7cfda; --c-target:#9aa4b2; --c-human:#e6c34d;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--ink);
+    font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;line-height:1.55}
+  .wrap{max-width:1080px;margin:0 auto;padding-block:40px;padding-inline:20px}
+  .ui{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  h1{font-size:clamp(28px,4.5vw,44px);line-height:1.08;margin:0 0 10px;letter-spacing:-.01em;text-wrap:balance}
+  .lede{font-size:clamp(16px,2vw,19px);color:var(--muted);margin:0 0 20px;max-width:60ch}
+  .meta{display:flex;flex-wrap:wrap;gap:8px 18px;font-family:ui-sans-serif,system-ui,sans-serif;
+    font-size:12.5px;color:var(--muted);border-top:1px solid var(--line);border-bottom:1px solid var(--line);
+    padding:12px 0;margin-bottom:28px}
+  .meta b{color:var(--ink);font-weight:600}
+  .eyebrow{font-family:ui-sans-serif,system-ui,sans-serif;font-size:12px;font-weight:700;
+    letter-spacing:.09em;text-transform:uppercase;color:var(--accent);margin:0 0 6px}
+  h2{font-size:22px;margin:38px 0 6px;letter-spacing:-.01em}
+  .sub{color:var(--muted);font-size:14.5px;margin:0 0 16px;max-width:66ch}
+  figure{margin:0}
+  .stage{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:14px;
+    box-shadow:var(--shadow);padding:14px}
+  svg.diagram{display:block;width:100%;height:auto}
+  .legend{display:flex;flex-wrap:wrap;gap:6px 14px;margin:12px 2px 0;
+    font-family:ui-sans-serif,system-ui,sans-serif;font-size:12px;color:var(--muted)}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .legend i{width:11px;height:11px;border-radius:3px;display:inline-block;border:1.5px solid}
+  figcaption{color:var(--muted);font-size:13px;margin-top:12px;font-family:ui-sans-serif,system-ui,sans-serif}
+  .hint{font-family:ui-sans-serif,system-ui,sans-serif;font-size:12.5px;color:var(--accent);
+    margin:10px 2px 0;display:flex;align-items:center;gap:7px}
+  .hint svg{flex:none}
+  /* nodes */
+  .node{cursor:pointer}
+  .node .box{fill:var(--surface);stroke-width:2;transition:filter .12s}
+  .node .ttl{font-family:ui-sans-serif,system-ui,sans-serif;font-weight:700;font-size:14px;fill:var(--ink)}
+  .node .tag{font-family:ui-sans-serif,system-ui,sans-serif;font-weight:600;font-size:10.5px;letter-spacing:.03em}
+  .node:hover .box{filter:brightness(1.02) saturate(1.06)}
+  .node:focus{outline:none}
+  .node:focus .box{stroke-dasharray:0;filter:drop-shadow(0 0 0 2px var(--accent))}
+  .node.active .box{stroke-width:3.5}
+  .hub .box{fill:var(--store);stroke:var(--store)}
+  .hub .ttl,.hub .tag{fill:#fff}
+  :root[data-theme="dark"] .hub .ttl,:root[data-theme="dark"] .hub .tag{fill:#16171a}
+  :root:not([data-theme="light"]) .hub .ttl,:root:not([data-theme="light"]) .hub .tag{fill:#16171a}
+  .edge{fill:none;stroke:var(--line-strong);stroke-width:1.6}
+  .edge.data{stroke:var(--muted)}
+  .elab{font-family:ui-sans-serif,system-ui,sans-serif;font-size:11px;fill:var(--muted)}
+  .elab.key{fill:var(--accent);font-weight:600}
+  .boundary{fill:none;stroke:var(--c-exec);stroke-width:1.6;stroke-dasharray:6 5;rx:14}
+  .blab{font-family:ui-sans-serif,system-ui,sans-serif;font-size:11px;font-weight:700;fill:var(--c-exec);letter-spacing:.02em}
+  /* tooltip */
+  .tip{position:absolute;z-index:5;max-width:290px;background:var(--surface);color:var(--ink);
+    border:1px solid var(--line-strong);border-radius:12px;box-shadow:var(--shadow);
+    padding:13px 14px 14px;font-family:ui-sans-serif,system-ui,sans-serif;opacity:0;visibility:hidden;
+    transform:translateY(4px);transition:opacity .13s,transform .13s}
+  .tip.show{opacity:1;visibility:visible;transform:none}
+  .tip h3{margin:0 0 2px;font-size:14.5px;display:flex;align-items:center;gap:8px}
+  .tip .dot{width:10px;height:10px;border-radius:3px;border:1.5px solid;flex:none}
+  .tip .trust{font-size:11px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;margin:0 0 9px}
+  .tip dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:12.5px}
+  .tip dt{color:var(--muted);font-weight:600}
+  .tip dd{margin:0;color:var(--ink)}
+  .tip .close{position:absolute;top:8px;right:9px;border:0;background:transparent;color:var(--muted);
+    font-size:17px;line-height:1;cursor:pointer;padding:2px 4px;border-radius:6px}
+  .tip .close:hover{background:var(--surface-2);color:var(--ink)}
+  /* tables */
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+  @media(max-width:720px){.grid2{grid-template-columns:1fr}}
+  table{width:100%;border-collapse:collapse;font-family:ui-sans-serif,system-ui,sans-serif;font-size:13px}
+  .tscroll{overflow-x:auto}
+  th,td{text-align:left;padding:9px 11px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);font-weight:700}
+  td b{font-weight:600}
+  .verdict{font-weight:700}
+  .verdict.no{color:var(--c-red)}
+  .verdict.yes{color:var(--c-judge)}
+  .qid{font-variant-numeric:tabular-nums;color:var(--accent);font-weight:700;white-space:nowrap}
+  .foot{margin-top:34px;padding-top:16px;border-top:1px solid var(--line);
+    font-family:ui-sans-serif,system-ui,sans-serif;font-size:12.5px;color:var(--muted)}
+  .foot b{color:var(--ink)}
+  code{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:.92em;
+    background:var(--surface-2);padding:1px 5px;border-radius:5px}
+</style>
+
+<div class="wrap">
+  <p class="eyebrow">AgentForge Red Team · Architecture decision</p>
+  <h1>How the platform is shaped, and why</h1>
+  <p class="lede">A multi-agent system that continuously attacks one authorized target — the AgentForge Clinical Co-Pilot — and proves whether its weaknesses are found, fixed, and stay fixed. This page shows the shapes we considered, the one we chose, and the fifteen decisions behind it.</p>
+  <div class="meta ui">
+    <span><b>Decided</b> 2026-09-28</span>
+    <span><b>Source</b> grilling session Q1–Q15</span>
+    <span><b>Records</b> ADR 0001 · 0002 · 0003</span>
+    <span><b>Scope</b> synthetic data · one authorized target</span>
+  </div>
+
+  <p class="eyebrow">The mechanism</p>
+  <h2>One control plane, one store, isolated agents</h2>
+  <p class="sub">A deterministic controller coordinates four LLM agents and three deterministic services over a single SQLite store that is at once the work queue, the audit trail, and the data the Orchestrator reads. <b>Click any box to pin its role, inputs and outputs, and trust level.</b></p>
+
+  <figure>
+    <div class="stage" id="stage">
+      <svg class="diagram" viewBox="0 0 1040 600" role="img" aria-label="Interaction diagram: the Orchestrator writes campaigns to the central store; the Red Team agent, which has no network access, writes attack specifications as data; the Executor is the only component that reaches the Target and checks authorization on every request; the Judge scores attempts; the Documentation agent writes reports behind a human approval gate; Recon and the Regression runner feed the store.">
+        <defs>
+          <marker id="ah" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0.5,0.5 L9,5 L0.5,9.5" fill="none" stroke="context-stroke" stroke-width="1.6"/>
+          </marker>
+        </defs>
+
+        <!-- trust boundary around Executor + Target -->
+        <rect class="boundary" x="806" y="30" width="212" height="356" rx="14"/>
+        <text class="blab" x="912" y="20" text-anchor="middle">only path to the Target</text>
+        <text class="blab" x="912" y="402" text-anchor="middle" style="font-weight:600;fill:var(--muted)">authorization checked per request</text>
+
+        <!-- edges (drawn before nodes) -->
+        <!-- Orchestrator <-> Store (corridor at x252, clear of Recon) -->
+        <path class="edge data" d="M230,108 L252,108 L252,292 L268,292" marker-end="url(#ah)" marker-start="url(#ah)"/>
+        <text class="elab key" x="150" y="200">state / campaign</text>
+        <!-- Recon -> Store -->
+        <path class="edge" d="M212,314 L268,314" marker-end="url(#ah)"/>
+        <text class="elab" x="150" y="334">routes · SHA</text>
+        <!-- Store -> Red Team (up) -->
+        <path class="edge" d="M470,246 L470,152" marker-end="url(#ah)"/>
+        <text class="elab" x="430" y="205">brief</text>
+        <!-- Red Team -> Store (down) -->
+        <path class="edge data" d="M540,152 L540,246" marker-end="url(#ah)"/>
+        <text class="elab key" x="548" y="205">specs (data)</text>
+        <!-- Store -> Executor (specs) -->
+        <path class="edge data" d="M672,288 L822,288" marker-end="url(#ah)"/>
+        <text class="elab" x="712" y="280">specs</text>
+        <!-- Executor -> Store (attempts) -->
+        <path class="edge data" d="M822,322 L672,322" marker-end="url(#ah)"/>
+        <text class="elab key" x="706" y="340">attempts</text>
+        <!-- Executor <-> Target -->
+        <path class="edge" d="M912,258 L912,152" marker-end="url(#ah)" marker-start="url(#ah)"/>
+        <text class="elab" x="920" y="208">HTTP</text>
+        <!-- Store -> Dashboard -->
+        <path class="edge" d="M616,246 L686,144" marker-end="url(#ah)"/>
+        <text class="elab" x="628" y="200">read-only</text>
+        <!-- Store -> Judge (down) -->
+        <path class="edge data" d="M420,356 L420,450" marker-end="url(#ah)"/>
+        <text class="elab" x="428" y="406">attempts</text>
+        <!-- Judge -> Store (up) -->
+        <path class="edge data" d="M360,450 L360,356" marker-end="url(#ah)"/>
+        <text class="elab key" x="300" y="406">verdicts</text>
+        <!-- Store -> Documentation -->
+        <path class="edge data" d="M600,354 L700,450" marker-end="url(#ah)"/>
+        <text class="elab key" x="628" y="404">findings</text>
+        <!-- Documentation -> Human gate -->
+        <path class="edge" d="M812,496 L892,496" marker-end="url(#ah)"/>
+        <text class="elab" x="812" y="486">crit/high</text>
+        <!-- Regression -> Store (replay on new SHA) -->
+        <path class="edge" d="M212,472 L296,356" marker-end="url(#ah)"/>
+        <text class="elab" x="150" y="430">on new SHA</text>
+
+        <!-- NODES -->
+        <!-- Store hub -->
+        <g class="node hub" id="n-store" tabindex="0" role="button" aria-label="SQLite store">
+          <rect class="box" x="270" y="246" width="402" height="108" rx="12"/>
+          <text class="ttl" x="471" y="288" text-anchor="middle">SQLite store</text>
+          <text class="tag" x="471" y="312" text-anchor="middle">queue · audit trail · observability</text>
+          <text class="tag" x="471" y="330" text-anchor="middle" style="opacity:.8">single source of truth</text>
+        </g>
+
+        <!-- Orchestrator -->
+        <g class="node" id="n-orch" tabindex="0" role="button" aria-label="Orchestrator agent" data-c="--c-orch">
+          <rect class="box" x="30" y="66" width="200" height="84" rx="11" style="stroke:var(--c-orch)"/>
+          <text class="ttl" x="46" y="98">Orchestrator</text>
+          <text class="tag" x="46" y="120" style="fill:var(--c-orch)">AGENT · deterministic + Jev</text>
+          <text class="tag" x="46" y="137" style="fill:var(--muted)">picks what to attack next</text>
+        </g>
+
+        <!-- Red Team -->
+        <g class="node" id="n-red" tabindex="0" role="button" aria-label="Red Team agent" data-c="--c-red">
+          <rect class="box" x="370" y="66" width="200" height="84" rx="11" style="stroke:var(--c-red)"/>
+          <text class="ttl" x="386" y="98">Red Team</text>
+          <text class="tag" x="386" y="120" style="fill:var(--c-red)">AGENT · least trusted</text>
+          <text class="tag" x="386" y="137" style="fill:var(--muted)">no network · no credentials</text>
+        </g>
+
+        <!-- Target -->
+        <g class="node" id="n-target" tabindex="0" role="button" aria-label="Target Clinical Co-Pilot" data-c="--c-target">
+          <rect class="box" x="822" y="66" width="180" height="84" rx="11" style="stroke:var(--c-target);stroke-dasharray:5 4"/>
+          <text class="ttl" x="838" y="98">Target</text>
+          <text class="tag" x="838" y="120" style="fill:var(--c-target)">EXTERNAL · authorized</text>
+          <text class="tag" x="838" y="137" style="fill:var(--muted)">Clinical Co-Pilot</text>
+        </g>
+
+        <!-- Recon -->
+        <g class="node" id="n-recon" tabindex="0" role="button" aria-label="Recon service" data-c="--c-det">
+          <rect class="box" x="30" y="258" width="182" height="84" rx="11" style="stroke:var(--c-det)"/>
+          <text class="ttl" x="46" y="290">Recon</text>
+          <text class="tag" x="46" y="312" style="fill:var(--c-det)">DETERMINISTIC</text>
+          <text class="tag" x="46" y="329" style="fill:var(--muted)">routes · polls SHA</text>
+        </g>
+
+        <!-- Executor -->
+        <g class="node" id="n-exec" tabindex="0" role="button" aria-label="Executor service" data-c="--c-exec">
+          <rect class="box" x="822" y="258" width="180" height="84" rx="11" style="stroke:var(--c-exec)"/>
+          <text class="ttl" x="838" y="290">Executor</text>
+          <text class="tag" x="838" y="312" style="fill:var(--c-exec)">DETERMINISTIC · the gate</text>
+          <text class="tag" x="838" y="329" style="fill:var(--muted)">holds credentials</text>
+        </g>
+
+        <!-- Dashboard -->
+        <g class="node" id="n-dash" tabindex="0" role="button" aria-label="Dashboard" data-c="--c-det">
+          <rect class="box" x="624" y="70" width="150" height="74" rx="11" style="stroke:var(--c-det)"/>
+          <text class="ttl" x="640" y="100">Dashboard</text>
+          <text class="tag" x="640" y="121" style="fill:var(--c-det)">DETERMINISTIC</text>
+          <text class="tag" x="640" y="137" style="fill:var(--muted)">read-only view</text>
+        </g>
+
+        <!-- Regression -->
+        <g class="node" id="n-reg" tabindex="0" role="button" aria-label="Regression runner" data-c="--c-det">
+          <rect class="box" x="30" y="454" width="182" height="84" rx="11" style="stroke:var(--c-det)"/>
+          <text class="ttl" x="46" y="486">Regression</text>
+          <text class="tag" x="46" y="508" style="fill:var(--c-det)">DETERMINISTIC</text>
+          <text class="tag" x="46" y="525" style="fill:var(--muted)">replays on new SHA</text>
+        </g>
+
+        <!-- Judge -->
+        <g class="node" id="n-judge" tabindex="0" role="button" aria-label="Judge agent" data-c="--c-judge">
+          <rect class="box" x="300" y="454" width="220" height="84" rx="11" style="stroke:var(--c-judge)"/>
+          <text class="ttl" x="316" y="486">Judge</text>
+          <text class="tag" x="316" y="508" style="fill:var(--c-judge)">AGENT · independent</text>
+          <text class="tag" x="316" y="525" style="fill:var(--muted)">oracles first, then rubric</text>
+        </g>
+
+        <!-- Documentation -->
+        <g class="node" id="n-doc" tabindex="0" role="button" aria-label="Documentation agent" data-c="--c-doc">
+          <rect class="box" x="600" y="454" width="212" height="84" rx="11" style="stroke:var(--c-doc)"/>
+          <text class="ttl" x="616" y="486">Documentation</text>
+          <text class="tag" x="616" y="508" style="fill:var(--c-doc)">AGENT</text>
+          <text class="tag" x="616" y="525" style="fill:var(--muted)">writes vuln reports</text>
+        </g>
+
+        <!-- Human gate -->
+        <g class="node" id="n-human" tabindex="0" role="button" aria-label="Human approval gate" data-c="--c-human">
+          <rect class="box" x="892" y="454" width="118" height="84" rx="11" style="stroke:var(--c-human)"/>
+          <text class="ttl" x="908" y="486" style="font-size:13px">Human</text>
+          <text class="tag" x="908" y="507" style="fill:var(--c-human)">CLI approval</text>
+          <text class="tag" x="908" y="524" style="fill:var(--muted)">crit/high</text>
+        </g>
+      </svg>
+
+      <div class="tip" id="tip" role="dialog" aria-live="polite">
+        <button class="close" id="tipClose" aria-label="Close">×</button>
+        <h3><span class="dot" id="tipDot"></span><span id="tipTitle"></span></h3>
+        <p class="trust" id="tipTrust"></p>
+        <dl>
+          <dt>Role</dt><dd id="tipRole"></dd>
+          <dt>In → out</dt><dd id="tipIO"></dd>
+          <dt>Why here</dt><dd id="tipWhy"></dd>
+        </dl>
+      </div>
+    </div>
+
+    <div class="legend ui" aria-hidden="true">
+      <span><i style="border-color:var(--c-orch);background:color-mix(in srgb,var(--c-orch) 22%,transparent)"></i>Orchestrator</span>
+      <span><i style="border-color:var(--c-red);background:color-mix(in srgb,var(--c-red) 22%,transparent)"></i>Red Team (least trusted)</span>
+      <span><i style="border-color:var(--c-judge);background:color-mix(in srgb,var(--c-judge) 22%,transparent)"></i>Judge (independent)</span>
+      <span><i style="border-color:var(--c-doc);background:color-mix(in srgb,var(--c-doc) 22%,transparent)"></i>Documentation</span>
+      <span><i style="border-color:var(--c-exec);background:color-mix(in srgb,var(--c-exec) 22%,transparent)"></i>Executor (the gate)</span>
+      <span><i style="border-color:var(--c-det);background:color-mix(in srgb,var(--c-det) 22%,transparent)"></i>Deterministic service</span>
+      <span><i style="border-color:var(--c-store);background:var(--c-store)"></i>Store</span>
+      <span><i style="border-color:var(--c-target);background:transparent;border-style:dashed"></i>External target</span>
+      <span><i style="border-color:var(--c-human);background:color-mix(in srgb,var(--c-human) 22%,transparent)"></i>Human gate</span>
+    </div>
+    <p class="hint ui" id="hint">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 11.5 4 6.5m0 0V11m0-4.5H8.5M13 5l7 7-3.2.9 2.2 4-2.4 1.3-2.2-4L12 18z"/></svg>
+      Click a box to pin its details. Click again, press Esc, or click empty space to dismiss.
+    </p>
+    <figcaption>The hinge of the design: the <b>Executor</b> is the only component that can reach the Target, and it checks the authorization registry on every request. The <b>Red Team</b> emits attack text as data and never touches the network — so pointing the platform at an unauthorized system is impossible by construction, not by policy.</figcaption>
+  </figure>
+
+  <p class="eyebrow" style="margin-top:44px">The choice</p>
+  <h2>Architectures we considered</h2>
+  <p class="sub">Every rejected shape failed a requirement the PRD states outright. The comparison is not five options in a vacuum — it is which requirement each one breaks.</p>
+  <div class="tscroll">
+  <table>
+    <thead><tr><th>Shape</th><th style="width:1%">Verdict</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td><b>Static test runner / LLM pipeline</b></td><td class="verdict no">Rejected</td><td>PRD: a single-agent or pipeline architecture will not satisfy the assignment. Cannot mutate, prioritize, or adapt.</td></tr>
+      <tr><td><b>One agent that attacks and judges</b></td><td class="verdict no">Rejected</td><td>Generating and grading in one context is “compromised by design.” Breaks Judge independence.</td></tr>
+      <tr><td><b>Conversational multi-agent</b> (AutoGen, CrewAI)</td><td class="verdict no">Rejected</td><td>Shared conversation lets the Judge see the attacker’s reasoning; turn-taking is nondeterministic and costly.</td></tr>
+      <tr><td><b>Graph framework</b> (LangGraph)</td><td class="verdict no">Rejected*</td><td>Viable, but its checkpointer is a second state store beside the one the Orchestrator must read. Revisit if roles grow.</td></tr>
+      <tr><td><b>Configure one red-team tool</b> (PyRIT, garak)</td><td class="verdict no">Rejected</td><td>None provides an orchestrator, regression harness, or documentation agent. Used as components instead.</td></tr>
+      <tr><td><b>Control plane + shared store + isolated agents</b></td><td class="verdict yes">Chosen</td><td>One source of truth; independence and authorization are structural, not conventional.</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p class="eyebrow" style="margin-top:44px">The reasoning</p>
+  <h2>Fifteen decisions</h2>
+  <p class="sub">Settled in one grilling session. Each links to the requirement it serves; the measurements marked “bake-off” are deferred until the shape is built, not left open.</p>
+  <div class="tscroll">
+  <table>
+    <thead><tr><th style="width:1%">Q</th><th>Decision</th><th>Because</th></tr></thead>
+    <tbody>
+      <tr><td class="qid">Q1</td><td><b>Lifecycle vocabulary</b>: seed case → variant → attempt → verdict → finding → report → regression case</td><td>Separating the weakness (finding) from its evidence (attempts) makes dedup and “fix held across variants” expressible.</td></tr>
+      <tr><td class="qid">Q2</td><td><b>Custom control plane</b> over shared SQLite</td><td>One store carries handoffs, audit, and the Orchestrator’s signals as the same rows.</td></tr>
+      <tr><td class="qid">Q3·Q12</td><td><b>Local replica for volume</b>, deployed SHA for confirmation; move Target embeddings off the free-tier quota</td><td>The deployed Target’s quota can’t sustain campaigns; degraded retrieval is marked inconclusive, never a pass.</td></tr>
+      <tr><td class="qid">Q4·Q13</td><td><b>Hybrid Orchestrator</b>: deterministic ranking + hard budget/halt; Jev picks among top-k with confidence bands</td><td>Real decision authority with auditable inputs; safety controls stay deterministic; never stalls overnight.</td></tr>
+      <tr><td class="qid">Q5</td><td><b>Red Team on Qwen</b> (direct key); model chosen by a measured bake-off</td><td>Cheapest option; refusal and filter-block rates are measured, not assumed.</td></tr>
+      <tr><td class="qid">Q6·Q15</td><td><b>Human gates</b>: publish crit/high, review inconclusive & clinical-harm, registry changes; CLI approval; read-only dashboard</td><td>Humans sit where a wrong autonomous call is costly; the platform never applies fixes to the Target.</td></tr>
+      <tr><td class="qid">Q7</td><td><b>Designed for an unattended drill</b>, not built for one</td><td>One command, bounded, resumable, real exit code — costs little beyond what the PRD already needs.</td></tr>
+      <tr><td class="qid">Q8′·Q14</td><td><b>Judge</b>: deterministic oracles first; LLM rubric tier chosen by bake-off; possible two-judge pairing</td><td>Pinned weights prevent silent drift; the disagreement rate between two judges is a continuous drift alarm.</td></tr>
+      <tr><td class="qid">Q9</td><td><b>One Executor</b> is the only path to the Target</td><td>The least-trusted agent never holds network access or credentials; authorization can’t be bypassed.</td></tr>
+      <tr><td class="qid">Q10</td><td><b>Lineage on demand</b>, including the decisions behind each record</td><td>Any finding can be explained back to the campaign that surfaced it; full transcripts kept only where audit needs them.</td></tr>
+      <tr><td class="qid">Q11</td><td><b>Container beside the Target</b> polling its SHA; scheduled jobs acceptable for now</td><td>Regression triggers on Target change without cross-repo CI coupling.</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p class="foot ui">
+    <b>Boundary.</b> One authorized target, gated by an authorization registry with recorded proof. <b>Synthetic data only</b> — no real PHI is processed, logged, or stored. A <b>provider block</b> (an upstream content filter stopping a generation or response) is a distinct outcome, never evidence that a defense held. Full records: <code>docs/adr/0001–0003</code> and <code>docs/PLAN.md</code>.
+  </p>
+</div>
+
+<script>
+(function(){
+  var DATA={
+    "n-store":{c:"--c-store",trust:"Coordination substrate",role:"The single source of truth. Holds the work queue, the ordered audit trail, and the observability data the Orchestrator reads.",io:"Every agent reads tasks from it and writes typed results back (JSON Schemas in /contracts).",why:"One store means handoffs, audit, and orchestration signals are the same rows — no second state store to reconcile."},
+    "n-orch":{c:"--c-orch",trust:"Trusted decision agent",role:"Chooses the next campaign: which surface, which cases, what budget. A deterministic ranker scores candidates; Jev (pinned) picks among the top-k and logs per-option probabilities.",io:"In: coverage, open findings, regressions, cost from the store. Out: a campaign.",why:"Real authority in its choice, but budget, halt, and authorization stay deterministic and replayable."},
+    "n-red":{c:"--c-red",trust:"Least-trusted agent",role:"Generates novel adversarial inputs, mutates partial successes, and specifies multi-turn sequences. Runs on Qwen.",io:"In: a campaign brief. Out: attack specifications as data.",why:"It writes adversarial text by design, so it gets no network access and no credentials — it cannot send a request itself."},
+    "n-judge":{c:"--c-judge",trust:"Independent verifier",role:"Rules on each attempt: success, partial, fail, or inconclusive. Deterministic oracles decide first; an LLM rubric tier (different family from the attacker) handles only what no oracle can.",io:"In: attempts. Out: verdicts with the evidence used.",why:"Independence from the attack engine is a hard requirement; a pinned, non-Qwen model plus a calibration set is how drift is caught."},
+    "n-doc":{c:"--c-doc",trust:"Reporting agent",role:"Turns a confirmed finding into a professional, reproducible vulnerability report — no human writing it.",io:"In: findings. Out: reports; critical/high held for approval.",why:"A report a security engineer who wasn’t present can reproduce, validate, and fix."},
+    "n-exec":{c:"--c-exec",trust:"Deterministic gate",role:"The only component that opens a connection to the Target. Checks the authorization registry on every request, holds credentials and synthetic identities, plays out multi-turn specs, and records each exchange.",io:"In: attack specs. Out: attempts (exact requests and responses).",why:"With one door, authorization is structural — the platform cannot be turned against a system it should not attack."},
+    "n-target":{c:"--c-target",trust:"External · authorized only",role:"The AgentForge Clinical Co-Pilot. A local replica carries campaign volume; the deployed build (identified by git SHA) confirms every finding.",io:"Reached over HTTP by the Executor only.",why:"Runs only if it is in the authorization registry with recorded proof of ownership or written permission."},
+    "n-recon":{c:"--c-det",trust:"Deterministic service",role:"Inventories routes and reads the Target’s build SHA; polls /health so a new deploy is noticed.",io:"Out: routes and SHA into the store.",why:"Prioritization signals must come from target-visible data, not guesses."},
+    "n-reg":{c:"--c-det",trust:"Deterministic service",role:"Replays frozen regression cases against every new Target build; detects reappearance and flags cross-category regressions.",io:"In: regression cases + a new SHA. Runs through the Executor.",why:"A test that passes because behavior shifted — not because the weakness was fixed — is worse than none."},
+    "n-dash":{c:"--c-det",trust:"Read-only output",role:"Surfaces coverage per category, pass/fail over versions, resilience trend, open findings, and cost.",io:"In: reads the store. No writes.",why:"A red-team tool with a writable web UI is itself a target; approvals go through the CLI instead."},
+    "n-human":{c:"--c-human",trust:"Human approval",role:"An operator approves critical/high reports and reviews inconclusive or clinical-harm verdicts. Approval writes a record into the lineage.",io:"In: pending reports. Out: an approval or rejection record.",why:"Humans sit exactly where a wrong autonomous call is expensive."}
+  };
+  var stage=document.getElementById('stage'), tip=document.getElementById('tip'), active=null;
+  var css=getComputedStyle(document.documentElement);
+  function place(node){
+    var d=DATA[node.id]; if(!d)return;
+    document.getElementById('tipTitle').textContent=node.getAttribute('aria-label');
+    document.getElementById('tipTrust').textContent=d.trust;
+    document.getElementById('tipRole').textContent=d.role;
+    document.getElementById('tipIO').textContent=d.io;
+    document.getElementById('tipWhy').textContent=d.why;
+    var col=css.getPropertyValue(d.c).trim()||'currentColor';
+    document.getElementById('tipTrust').style.color=col;
+    var dot=document.getElementById('tipDot'); dot.style.borderColor=col;
+    dot.style.background=(d.c==='--c-store')?col:'color-mix(in srgb,'+col+' 24%,transparent)';
+    // show to measure, then position within the stage
+    tip.classList.add('show');
+    var sr=stage.getBoundingClientRect(), nr=node.getBoundingClientRect(), tr=tip.getBoundingClientRect();
+    var pad=10;
+    var left=(nr.left-sr.left)+nr.width/2-tr.width/2;
+    left=Math.max(pad,Math.min(left,sr.width-tr.width-pad));
+    var top=(nr.bottom-sr.top)+10;
+    if(top+tr.height>sr.height-pad) top=(nr.top-sr.top)-tr.height-10;   // flip above
+    if(top<pad) top=pad;
+    tip.style.left=left+'px'; tip.style.top=top+'px';
+  }
+  function open(node){ if(active)active.classList.remove('active'); active=node; node.classList.add('active'); place(node); }
+  function close(){ tip.classList.remove('show'); if(active){active.classList.remove('active'); active=null;} }
+  Object.keys(DATA).forEach(function(id){
+    var n=document.getElementById(id); if(!n)return;
+    n.addEventListener('click',function(e){ e.stopPropagation(); (active===n)?close():open(n); });
+    n.addEventListener('keydown',function(e){ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); (active===n)?close():open(n);} });
+  });
+  document.getElementById('tipClose').addEventListener('click',function(e){e.stopPropagation();close();});
+  document.addEventListener('click',function(e){ if(active&&!tip.contains(e.target)) close(); });
+  document.addEventListener('keydown',function(e){ if(e.key==='Escape')close(); });
+  window.addEventListener('resize',function(){ if(active)place(active); });
+})();
+</script>
