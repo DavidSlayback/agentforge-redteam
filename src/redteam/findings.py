@@ -59,7 +59,9 @@ def dedup_key(oracle: str, sink: str, category: str) -> str:
 
 
 def provisional_severity(category: str) -> tuple[str, float]:
-    return _PROVISIONAL.get(category, ("medium", 5.0))
+    # Fail closed: an unmapped category is a coverage gap, not a low-risk finding — treat it as
+    # critical so it is gated for human triage rather than silently auto-published (role-review T1.5).
+    return _PROVISIONAL.get(category, ("critical", 9.0))
 
 
 def _classify(case: SeedCase, verdict: Verdict) -> tuple[str, str, list[str]]:

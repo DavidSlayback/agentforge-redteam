@@ -74,6 +74,37 @@ def test_documentation_gate_and_approval(tmp_path: Path) -> None:
     store.close()
 
 
+def test_every_category_has_a_provisional_severity() -> None:
+    # T1.5: an unmapped category would fail the gate open. Guard that every category a finding
+    # can carry is mapped, so the fail-closed default is a safety net, not the normal path.
+    from redteam.findings import _OPPORTUNISTIC, _PROVISIONAL
+    from redteam.owasp import STRATEGIES
+
+    expected = set(STRATEGIES) | {"broken-object-authorization", "broken-authentication"} \
+        | {cat for cat, _ in _OPPORTUNISTIC.values()}
+    missing = expected - set(_PROVISIONAL)
+    assert not missing, f"categories without a provisional severity (would fail the gate open): {missing}"
+
+
+def test_unmapped_category_is_gated_not_auto_published(tmp_path: Path) -> None:
+    # T1.5: even if an unmapped category slips through, its report must be held, not published.
+    import json
+
+    reg = _registry(tmp_path)
+    store = Store.open(tmp_path / "s.db")
+    echo = Executor(reg, lambda u, **k: ResponseRecord(200, f"ok {MARK}", 4.0))
+    run_case(_case("c1"), reg, echo, Judge(), store)
+    fid = store.conn.execute("SELECT finding_id FROM findings").fetchone()["finding_id"]
+    # forge an unmapped category + severity with no known level
+    store.conn.execute("UPDATE findings SET primary_category = 'brand-new-category', "
+                       "severity = ? WHERE finding_id = ?", (json.dumps({"note": "no level"}), fid))
+    store.conn.commit()
+    report_id = DocumentationAgent().document(store, fid)
+    status = store.conn.execute("SELECT status FROM vuln_reports WHERE report_id = ?", (report_id,)).fetchone()["status"]
+    assert status == "pending_approval"   # fail closed on unknown/malformed severity
+    store.close()
+
+
 def test_opportunistic_crash_is_classified_as_dos_not_the_attack_category(tmp_path: Path) -> None:
     # A prompt-injection whose marker never appears but whose target 500s must be filed as the
     # crash it is (denial-of-service / LLM10), not as a prompt-injection finding.

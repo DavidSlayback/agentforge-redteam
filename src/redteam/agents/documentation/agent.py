@@ -13,7 +13,6 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-_GATED_LEVELS = {"high", "critical"}
 _REQUIRED = ("finding_id", "primary_category", "severity", "dedup_key")
 
 _REMEDIATION = {
@@ -115,10 +114,17 @@ class DocumentationAgent:
         if existing is not None:
             return existing["report_id"]
 
-        level = json.loads(finding["severity"]).get("provisional_level", "medium")
-        gated = level in _GATED_LEVELS
+        try:
+            level = json.loads(finding["severity"]).get("provisional_level", "")
+        except (ValueError, TypeError):
+            level = ""
         report_id = "R-" + finding_id[2:]
         evidence = self._evidence_for_finding(store, finding)
+        # Fail closed (role-review T1.5): only an explicit low/medium finding backed by captured
+        # evidence may auto-publish. High/critical, an unmapped or malformed severity, or a finding
+        # with no evidence is held for a human — the gate never fails open on an unknown.
+        has_evidence = bool(evidence.get("exchanges"))
+        gated = level not in {"low", "medium"} or not has_evidence
         violations = [o for o in evidence.get("oracle_results", []) if o.get("outcome") == "violation"]
         observed = "; ".join(f"{o['oracle']}: {o.get('detail') or 'violation'}" for o in violations) \
             or "oracle detected a violation"
