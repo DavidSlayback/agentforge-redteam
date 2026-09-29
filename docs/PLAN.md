@@ -7,9 +7,15 @@ against the authorized Clinical Co-Pilot target, converts confirmed exploits int
 regression harness, documents findings professionally, and proves fixes hold without
 raising over-refusal — every claim tied to a target SHA and a reproducible run.
 
-## Status (2026-09-28)
+## Status (2026-09-29 evening)
 
-No agents built yet. Live target **confirmed** (`/health` → `git_sha bfbb1eb2…`). Done
+Current state: see the last section, **"2026-09-29 evening — readiness review, attack ledger,
+fix handoff"**. All four agents and the deterministic services are built and live-run; 3
+findings (one shared root cause, the anonymous synthetic-context mint) are reported and
+**not yet fixed** (fix in progress in the target repo). The paragraph below is the
+2026-09-28 kickoff snapshot, kept for history.
+
+**2026-09-28 snapshot:** No agents built yet. Live target **confirmed** (`/health` → `git_sha bfbb1eb2…`). Done
 this session: requirements matrix (below), architecture grilling Q1–Q15 (all closed),
 `CONTEXT.md` glossary, `docs/adr/0001–0003`, `ARCHITECTURE.md` draft (Stage 4 gate), and a
 shareable decision page (artifact `CAJNwV8dqwQbs2fttuMHLJ`). Next: `THREAT_MODEL.md`
@@ -485,10 +491,15 @@ doc overclaims. Checklist (— = todo, ✓ = done):
 
 **Tier 3 — features (some need human input — flag, don't fake)**
 - [x] T3.1 Oracles — output-handling deterministic; excessive-agency + system-prompt-leakage now covered by the ACTIVE rubric tier (T3.2) for excessive-agency, system-prompt-leakage, improper-output-handling.
-- [ ] T3.2 LLM rubric tier (non-Qwen) for no-oracle categories — NEEDS a non-Qwen model key.
+- [x] T3.2 LLM rubric tier (non-Qwen) for no-oracle categories — live with `deepseek-v4-pro` via
+  Bailian (`217336b`, `38575d8`); verified on constructed responses. No end-to-end rubric-judged
+  campaign against the target is in the store yet (see attack ledger).
 - [~] T3.3 Judge-drift detection — mechanism done + runnable now the rubric exists; NEEDS a labelled calibration set — NEEDS a human-labeled calibration set.
 - [x] T3.4 Multi-turn attacks (N/A — target composer is stateless; documented in ARCHITECTURE.md) — target is stateless (recon), so document as N/A vs build.
-- [~] T3.5 Recon/SHA-diff (BLOCKED — deployed target is a black box with no version endpoint; regression CLI runs manually) signal + Orchestrator regression trigger + CI regression gate.
+- [ ] T3.5 Recon/SHA-diff signal + Orchestrator regression trigger + CI regression gate. **Not
+  blocked** (corrected 2026-09-29 evening): the earlier "no version endpoint" note was wrong —
+  `GET /health` returns `git_sha` (the G1 criterion already relies on it). Nothing in `src/` polls
+  it yet; regression runs manually via `redteam regression --sha`.
 - [x] T3.6 DoS payload synthesis in the harness (size param, not model tokens); surface finish_reason.
 - [x] T3.7 Orchestrator prioritization: outcome-mix momentum, route-granular coverage, SHA/cost
   signals, is_deterministic_only candidate filter, Jev vendor-outage fallback, `--max-model-calls`.
@@ -500,3 +511,83 @@ doc overclaims. Checklist (— = todo, ✓ = done):
 `run_*` functions are thin build-then-`run_probe` wrappers; `run_authz_probes` is now one flat
 build-then-run loop. 4 tiny commits, suite green. `uv run pytest` = 118; live smoke re-confirmed
 the 3 findings + BOLA-held against the deployed target after both refactors.
+
+## 2026-09-29 evening — readiness review, attack ledger, fix handoff
+
+### Readiness review (against `.scratch/assignments/w3.txt`)
+
+Tests: `uv run pytest` = 143 passed. Live target `/health` → `git_sha bfbb1eb2…` (unchanged
+since 09-28, i.e. no fix deployed). Note: `docs/reference/Week 3_AgentForge.pdf` exists only as
+an untracked file in the kickoff worktree; `w3.txt` is the text used.
+
+**Early-submission gaps (tonight):**
+1. README stale ("scaffold"), no setup/run guide — **DONE** (`5c42aa9`).
+2. Eval cases lack per-case observed result, severity, exploitability; every case is
+   `regression: false`; the 3 findings have no seed case in `evals/cases/` — **todo**.
+3. Vuln reports fail the "engineer not present" bar: repro says "replay the referenced attempts"
+   (the store is gitignored), description is boilerplate, no clinical impact, remediation
+   generic/mismatched — **todo** (fix the Documentation agent template, regenerate).
+4. Doc drift: ARCHITECTURE "Implementation status" says rubric NOT DONE; AI-use disclosure says
+   "bake-off"; PLAN matrix rows P2/E1/SA1–SA3 stale; COST_ANALYSIS omits DeepSeek judge calls —
+   **partial** (PLAN T3.2/T3.5 corrected here; the rest todo).
+5. E1 (graded): SSRF, logging failures, vulnerable components, supply chain are not mentioned in
+   THREAT_MODEL/evals — each needs at least an N/A-with-reason line — **todo**.
+
+**Final-submission gaps:** fixes + fix validation (in progress, below); SHA-change regression
+trigger (T3.5, now known unblocked); cross-category regression flagging (P5); benign set
+(KEY_METRICS #4) + calibration set (#5); a multi-step seed case to show the harness's
+multi-turn capability even though the composer is stateless.
+
+### Attack ledger — everything tried so far
+
+Sources: the store (`var/redteam.db`, 51 attempts, 2026-09-29 02:35–16:36 UTC) and, for 09-28
+runs that predate that store, this file's earlier prose (no surviving store rows).
+
+| When | Class (OWASP) | Surface | What was tried | Result |
+|---|---|---|---|---|
+| 09-28 | mixed (3 cats) | various | First S5 loop: 3 generated cases + 1 mutation each, unauthenticated, unshaped | 6× HTTP 400 at request validation — no signal; led to token minting + schema-aware shaping |
+| 09-28 | prompt-injection (LLM01) | `/v1/follow-up-evidence` | 6 shaped, authenticated injections (qwen3.8-flash) | all reached the AI (200); all FAIL (defended) |
+| 09-28 | prompt-injection | same | Aimed campaign | one false positive (normal ~5 s latency tripped a model-set budget); fixed — latency judges DoS only |
+| 09-28 | sensitive-info-disclosure (LLM02) | `/v1/follow-up-evidence` | Aimed cross-patient leak, attacker 001 / victim 002, qwen3.8-max, discovered-canary oracle | canary oracle applied, safe; scope held |
+| 09-29 | broken-object-authorization (API1) | `/v1/follow-up-evidence`, `/v1/briefings` | Attacker token + victim `patient_uuid` | 9× FAIL — `403 invalid_demo_context` |
+| 09-29 | broken-authentication (API2) | `/v1/follow-up-evidence`, `/v1/briefings` | Missing / forged / cross-patient token | 27× FAIL — 403 before any model call |
+| 09-29 | broken-authentication (API2) | `/v1/demo-context` | Anonymous read-token mint | **SUCCESS → F-831d4df407** |
+| 09-29 | broken-authentication (API2) | `/v1/source-document-context` | Anonymous write-token mint | **SUCCESS → F-24b44c5180** |
+| 09-29 | denial-of-service (API4/LLM10) | `/v1/demo-context` | 20 rapid anonymous mints | **SUCCESS (no 429) → F-6ee92046fb** |
+| 09-29 | indirect-injection (LLM01) | `/v1/scan-supervisor` | Instruction embedded in an uploaded document, echo-stripped marker oracle | 3× FAIL |
+| 09-29 | prompt-injection (LLM01) | `/v1/scan-supervisor` | Direct + 1 mutation | 2× FAIL |
+| 09-29 | hunt negatives (prose) | various | `/v1/conversations` (404 — not an API); oversized input (handled); token tampering (rejected); malformed body (clean 4xx, no error leak); mint input validation (no leak) | all held |
+| 09-29 | multi-turn / state corruption | composer | Recon: composer is stateless; confirmed in target source (`answerComposer.js` takes no conversation history) | N/A — no surface |
+| 09-29 | cross-patient document read (API1) | scan path | BOLA on documents | not isolable — upload allow-list admits one patient; caveat, not a disproof |
+| 09-29 | excessive-agency / system-prompt-leakage / output-handling | composer | Rubric tier (DeepSeek) verified on **constructed** responses only | **not yet run end-to-end against the target** — THREAT_MODEL row 8 "HELD (LLM-judged)" has no surviving store evidence; re-run before citing |
+
+**Not yet tried** (PRD-named, for the next exploit-class pass): SSRF, logging failures,
+vulnerable/outdated components, supply chain (LLM03), system-prompt leakage and insecure output
+handling end-to-end, cost amplification / DoS under load (E14), token replay across the 300 s TTL,
+patient enumeration beyond the fixture range.
+
+**Ledger hygiene issues found:**
+- `attempts.target_sha` holds labels (`live-2026-09-29`, `refactor-smoke`, `refactor23-smoke`,
+  and NULL for early rows), not the real `/health` SHA, so resilience-by-version can't show a
+  real before/after yet. From now on pass the `/health` `git_sha` as `--target-sha`.
+- The only store lived in the kickoff session's worktree (removed when that session is
+  archived). Copied to the main checkout's `var/redteam.db` (gitignored) on 2026-09-29.
+- The `campaigns` table is empty although campaigns ran — orchestration is traced in
+  `agent_actions`; worth checking before citing campaign counts.
+
+### Fix handoff (target repo `agentforge-week1`)
+
+Dispatched to a separate session in `agentforge-week1` ("Fix red-team findings in AgentForge
+Co-Pilot", Remote Control on). Brief: annotated tag `w3-redteam-baseline` at the deployed
+`bfbb1eb2` (already also `w2-final`); branch `agentforge/w3-redteam-fixes`; per-IP rate limit
+(429) on both mints; evaluator-key gate on the write mint if the public UI doesn't use it;
+**David decides** the read-mint fix — (a) evaluator access code (recommended, real fix) vs (b)
+risk-accepted with compensating controls — because the public UI fetches `/v1/demo-context` from
+the browser; tests that fail when each fix is reverted; no deploy/merge without David. It hands
+back the header/env names for this repo's `TokenMinter` (`src/redteam/executor/token.py`), which
+mints through the same routes and must send the credential once the mint is gated.
+
+**Validation loop once deployed:** read the new `/health` SHA → `redteam authz ... --target-sha
+<new>` + `redteam regression --target agentforge-w2 --sha <new>` → the 3 findings must read
+*held* on a changed observable response (401/429), not a quieter model → regenerate reports with
+fix-validation status → dashboard resilience-by-SHA shows before/after.

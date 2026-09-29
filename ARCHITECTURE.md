@@ -159,7 +159,7 @@ flowchart LR
 |---|---|---|---|
 | Red Team | Qwen (direct key) | Its output is data; the Executor, not the agent, sends it; oracles judge the result | Provider content filter may block some generations (typed outcome, non-Alibaba fallback) |
 | Orchestrator selector | Jev, pinned `jev-1.13.0` | Deterministic ranker produces the candidate set; budget/halt/auth are deterministic and unoverridable | Jev base model undisclosed; independence from Qwen rests on owner knowledge, disclosed here |
-| Judge rubric tier | Pinned non-Qwen model (bake-off) | Deterministic oracles decide first; only oracle-less criteria reach the model; human lane for clinical harm | LLM judge bias/drift — mitigated below |
+| Judge rubric tier | `deepseek-v4-pro` via Bailian (non-Qwen family; the planned bake-off has not run) | Deterministic oracles decide first; only oracle-less criteria reach the model; human lane for clinical harm | LLM judge bias/drift — mitigated below |
 | Documentation | Agent model | Data-quality validation before write; human approval for critical/high | False-positive report wastes engineer time; gate + dedup mitigate |
 
 **Detecting and correcting a drifting Judge.** Three defenses: (1) pinned model **and**
@@ -202,13 +202,16 @@ Written for the Architecture Defense: each is a "what happens when / why X over 
 A six-role review reconciled this document against the code. Several capabilities described
 above are **deferred or not-done** and must not be read as built:
 
-- **Judge — LLM rubric tier and drift detection: NOT DONE.** The deterministic tier-0 Judge is
-  built, independent, and consistent by construction; the rubric tier (a non-Qwen model for
-  criteria no oracle covers) and drift detection (calibration set + two-judge disagreement) are
-  deferred (needs a non-Qwen key and a labelled calibration set). `PARTIAL` is a reserved
-  outcome for the rubric tier; the deterministic Judge never emits it.
-- **Oracles for excessive-agency, system-prompt-leakage, improper-output-handling: NOT DONE.**
-  Those categories currently resolve to INCONCLUSIVE (no oracle covers them), never a false FAIL.
+- **Judge — LLM rubric tier: BUILT; drift detection: mechanism only.** The deterministic tier-0
+  Judge is built, independent, and consistent by construction. The rubric tier is live with
+  `deepseek-v4-pro` (a non-Qwen family, via the Bailian endpoint) for criteria no oracle covers,
+  verified on constructed responses; no end-to-end rubric-judged campaign against the target is
+  recorded yet. Drift detection (calibration agreement) is implemented but has no human-labelled
+  calibration set to run against. `PARTIAL` is reserved for the rubric tier; the deterministic
+  Judge never emits it.
+- **Excessive-agency, system-prompt-leakage:** covered by the rubric tier (no deterministic
+  oracle). **Improper-output-handling:** deterministic active-markup oracle. Without the rubric
+  tier configured, the oracle-less categories resolve to INCONCLUSIVE, never a false FAIL.
 - **Orchestrator — "reads changed-since-SHA and cost", "triggers regression runs",
   "mid-campaign hard-stop": NOT wired.** Prioritization uses coverage + open-findings only; the
   budget halt is between campaigns; there is no Recon/SHA-diff producer and no
