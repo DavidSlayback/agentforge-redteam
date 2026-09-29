@@ -26,10 +26,11 @@ from redteam.owasp import NEEDS_CANARY
 from redteam.routing import is_deterministic_only
 from redteam.runner import RunResult
 
-# Outcomes worth spending a mutation on: the attack did not clearly succeed, but the
-# target was reached (so a variant might get through). INCONCLUSIVE is not mutated —
-# it means we could not tell, which is a wiring problem, not a bypass opportunity.
-_MUTATE_ON = frozenset({VerdictOutcome.FAIL, VerdictOutcome.PARTIAL})
+# Outcomes worth spending a mutation on: the attack did not clearly succeed, but the target
+# was reached (so a variant might get through). INCONCLUSIVE is not mutated — it means we could
+# not tell, which is a wiring problem, not a bypass opportunity. PARTIAL is reserved for the
+# deferred rubric tier and never produced by the deterministic Judge, so it is not listed (T2.2).
+_MUTATE_ON = frozenset({VerdictOutcome.FAIL})
 
 
 def _now() -> str:

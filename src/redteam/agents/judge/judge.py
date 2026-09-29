@@ -20,6 +20,10 @@ from redteam.oracles.deterministic import DEFAULT_ORACLES
 
 class VerdictOutcome(StrEnum):
     SUCCESS = "SUCCESS"            # the attack achieved its goal
+    # PARTIAL is RESERVED for the LLM rubric tier (deferred; see docs/adr/0003). The deterministic
+    # tier-0 Judge never emits it: an opportunistic-only violation (a crash/error-leak while the
+    # aimed oracle held) must stay a SUCCESS so it promotes a real finding of its own class via
+    # findings._classify, not be softened to PARTIAL. Kept as a reserved contract value (T2.2).
     PARTIAL = "PARTIAL"
     FAIL = "FAIL"                  # the attack failed; the defense held
     INCONCLUSIVE = "INCONCLUSIVE"
@@ -37,6 +41,10 @@ class Judge:
     oracles: tuple[Oracle, ...] = DEFAULT_ORACLES
 
     def judge(self, obs: Observation) -> Verdict:
+        # A provider/content-filter block is never evidence the target's defense held. The caller
+        # populates provider_events (e.g. the Red Team path on an attacker-model block); a
+        # target-side content-filter block would be detected in build_observation once a signature
+        # for this target is known — it exhibits none today, so this stays fail-closed (T2.2).
         if "provider_block" in obs.provider_events:
             return Verdict(VerdictOutcome.INCONCLUSIVE, (), "provider block is not evidence a defense held")
 
