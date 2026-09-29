@@ -6,9 +6,9 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from redteam.agents.judge.judge import Judge, VerdictOutcome
-from redteam.authz_probe import (build_authz_probes, run_authz_case, run_mint_auth_probe,
-                                 run_rate_limit_probe)
+from redteam.agents.judge.judge import Judge, Verdict, VerdictOutcome
+from redteam.authz_probe import (Probe, build_authz_probes, run_authz_case, run_mint_auth_probe,
+                                 run_probe, run_rate_limit_probe)
 from redteam.executor.authorization import AuthorizationRegistry
 from redteam.executor.executor import Executor
 from redteam.executor.http_sender import ResponseRecord
@@ -178,6 +178,21 @@ def test_unauth_mint_holds_when_the_mint_requires_auth(tmp_path: Path) -> None:
                               Judge(), store, _target(reg), ATTACKER)
     assert res.verdict.outcome is VerdictOutcome.FAIL
     assert store.count("findings") == 0
+    store.close()
+
+
+def test_run_probe_executes_and_persists(tmp_path: Path) -> None:
+    reg = _registry(tmp_path)
+    store = Store.open(tmp_path / "s.db")
+    case = _missing_token_case()
+
+    def produce(target, exchanges):
+        exchanges.append({"ordinal": 1, "route": "/v1/x", "status_code": 200, "latency_ms": 1.0})
+        return Verdict(VerdictOutcome.FAIL, (), "clean"), []
+
+    res = run_probe(Probe(case, produce), store, reg)
+    assert res.verdict.outcome is VerdictOutcome.FAIL
+    assert store.count("attempts") == 1
     store.close()
 
 

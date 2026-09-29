@@ -24,7 +24,8 @@ from __future__ import annotations
 
 import json
 import uuid
-from dataclasses import replace
+from collections.abc import Callable
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 
 from redteam.agents.judge.judge import Judge, Verdict, VerdictOutcome
@@ -41,6 +42,23 @@ _CLINICIAN = "fixture-physician-001"
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+@dataclass(frozen=True)
+class Probe:
+    """A probe = its declared case + how to produce its verdict. ``produce(target, exchanges)``
+    is the same callback shape ``drive`` takes: it appends exchanges and returns
+    ``(verdict, provider_events)``. Construction (builders below) is thus separated from
+    execution (``run_probe`` → ``drive``)."""
+
+    case: SeedCase
+    produce: Callable
+
+
+def run_probe(probe: Probe, store, registry: AuthorizationRegistry, *,
+              target_sha: str | None = None) -> RunResult:
+    """Execute one Probe through the shared driver."""
+    return drive(store, probe.case, registry, target_sha=target_sha, produce=probe.produce)
 
 
 def _data_present(text: str | None) -> bool:
