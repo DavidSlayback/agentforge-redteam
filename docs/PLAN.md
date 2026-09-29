@@ -469,7 +469,7 @@ doc overclaims. Checklist (— = todo, ✓ = done):
 **Tier 1 — integrity (fake verdict/finding), highest priority**
 - [x] T1.1 Judge: a category with no applied *category-relevant* oracle → INCONCLUSIVE, never FAIL
   (StatusOracle NOT_APPLICABLE unless DoS is the criterion; Judge guard on uncovered categories).
-- [ ] T1.2 Red Team `run_case`: echo-strip the marker before judging (as the document path does).
+- [x] T1.2 Red Team `run_case`: echo-strip the marker before judging (as the document path does).
 - [ ] T1.3 Red Team `mutate()`: re-force category/owasp, re-strip latency_budget, clear model auth.
 - [ ] T1.4 Red Team `generate()`: clear model-invented foreign_canaries for non-NEEDS_CANARY; clear auth.
 - [ ] T1.5 Documentation: gate fails CLOSED on unknown/malformed severity; refuse/gate no-evidence findings.

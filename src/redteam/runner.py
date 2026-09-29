@@ -94,6 +94,23 @@ def send_turns(target, executor: Executor, turns, exchanges: list[dict], *,
     return record
 
 
+def strip_echoes(record, payloads, tokens):
+    """Return the record with verbatim echoes of a sent payload removed — but ONLY for a payload
+    that itself contains a token we judge on (the marker or a canary). An echoed marker/canary
+    inside the request must not count as one the assistant GENERATED (role-review T1.2). Scoping
+    the strip to payloads that carry a token avoids corrupting unrelated response text by removing
+    a short/common payload string (e.g. a one-char field mangling a coincidental substring)."""
+    from redteam.executor.http_sender import ResponseRecord
+
+    text = record.text
+    toks = [t for t in tokens if t]
+    if text and toks:
+        for payload in payloads:
+            if payload and any(tok in payload for tok in toks):
+                text = text.replace(payload, " ")
+    return ResponseRecord(status_code=record.status_code, text=text, latency_ms=record.latency_ms)
+
+
 def build_observation(record, oracle: OracleConfig, provider_events: tuple[str, ...] = ()) -> Observation:
     return Observation(
         response_text=record.text,
@@ -128,7 +145,13 @@ def run_case(
         if case.auth is not None and minter is not None:
             auth_fields = minter.auth_fields(case.auth.patient_uuid)
         record = send_turns(target, executor, case.turns, exchanges, auth_fields=auth_fields, body_wins=False)
-        observation = build_observation(record, case.oracle)
+        # Strip verbatim echoes of the attack input before judging: a target that reflects the
+        # request must not let the model's own marker/canary (which it put in the payload) count
+        # as one the assistant generated (T1.2). Auth fields are merged in send_turns, not in the
+        # turn body, so only the attack payload strings are stripped.
+        payloads = [v for turn in case.turns for v in (turn.body or {}).values() if isinstance(v, str)]
+        tokens = [case.oracle.marker, *case.oracle.foreign_canaries]
+        observation = build_observation(strip_echoes(record, payloads, tokens), case.oracle)
         return judge.judge(observation), list(observation.provider_events)
 
     return drive(store, case, registry, target_sha=target_sha, produce=produce)
