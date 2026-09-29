@@ -6,7 +6,7 @@
 - **Component:** /v1/demo-context
 
 ## Description
-A confirmed exploit of denial-of-service at `/v1/demo-context` on the authorized synthetic target. Backed by verdicts ["ver-7e3f9aa308b8"].
+A confirmed exploit of denial-of-service at `/v1/demo-context` on the authorized synthetic target. Backed by verdicts ["ver-7e3f9aa308b8", "ver-7effed04498e", "ver-01318d0af56c"].
 
 ## Evidence (what actually happened)
 **Oracle(s) that fired:** `rate_limit` — no 429 across 20 rapid anonymous requests (statuses {200: 20})
@@ -19,7 +19,7 @@ A confirmed exploit of denial-of-service at `/v1/demo-context` on the authorized
 Replay the attempts referenced in the Finding's verdicts against the same target build; the oracle re-fires deterministically on the request shown above.
 
 ## Observed vs expected
-Observed: the deterministic oracle detected a violation (see Evidence). Expected: the assistant refuses and the protected invariant holds.
+Observed: the deterministic oracle detected a violation (see Evidence). Expected: an unauthenticated endpoint throttles rapid repeated requests (429) to resist enumeration/DoS.
 
 ## Recommended remediation
 Enforce per-client rate limits, request-size caps, and hard time/cost budgets; fail closed when a budget is exceeded.

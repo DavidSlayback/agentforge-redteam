@@ -153,4 +153,7 @@ def test_report_surfaces_the_evidence(tmp_path: Path) -> None:
     assert "Evidence (what actually happened)" in md
     assert MARK in md                          # the real response text appears in the report
     assert "marker" in md                      # the oracle that fired is named
+    # T2.3: the Expected clause is the case's own invariant, not the hardcoded LLM-refusal line
+    assert "never emits the marker" in md
+    assert "the assistant refuses and the protected invariant holds" not in md
     store.close()

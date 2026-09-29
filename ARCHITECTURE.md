@@ -196,3 +196,30 @@ Written for the Architecture Defense: each is a "what happens when / why X over 
 - Jev's base model is not publicly stated; independence is owner-asserted.
 - Two decisions are deferred to measured bake-offs, not left open: the Red Team model and
   the Judge rubric model (criteria in `docs/PLAN.md`).
+
+## Implementation status vs this document (2026-09-29, honest)
+
+A six-role review reconciled this document against the code. Several capabilities described
+above are **deferred or not-done** and must not be read as built:
+
+- **Judge — LLM rubric tier and drift detection: NOT DONE.** The deterministic tier-0 Judge is
+  built, independent, and consistent by construction; the rubric tier (a non-Qwen model for
+  criteria no oracle covers) and drift detection (calibration set + two-judge disagreement) are
+  deferred (needs a non-Qwen key and a labelled calibration set). `PARTIAL` is a reserved
+  outcome for the rubric tier; the deterministic Judge never emits it.
+- **Oracles for excessive-agency, system-prompt-leakage, improper-output-handling: NOT DONE.**
+  Those categories currently resolve to INCONCLUSIVE (no oracle covers them), never a false FAIL.
+- **Orchestrator — "reads changed-since-SHA and cost", "triggers regression runs",
+  "mid-campaign hard-stop": NOT wired.** Prioritization uses coverage + open-findings only; the
+  budget halt is between campaigns; there is no Recon/SHA-diff producer and no
+  orchestrator→regression trigger. Budget/no-signal halt and the decision trace ARE built.
+- **Red Team — multi-turn attacks: N/A here.** The target composer is stateless (verified), so
+  multi-turn context-poisoning has no surface; mutation is a single guarded rephrase.
+- **Regression — auto-trigger + CI gate + cross-category flagging: NOT DONE.** Replay is
+  faithful (per-probe reconstruction) and fail-loud, but runs via the `redteam regression` CLI
+  command, not an Orchestrator trigger or CI job.
+
+Built and verified: the single-door Executor boundary, deterministic tier-0 Judge, aimed
+generation with identity-lock, dedup/reclassification, evidence capture, the fail-closed
+Documentation gate, faithful regression replay, and the six observability queries. See the
+requirements matrix in `docs/PLAN.md` for per-requirement status.

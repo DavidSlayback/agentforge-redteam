@@ -6,7 +6,7 @@
 - **Component:** /v1/source-document-context
 
 ## Description
-A confirmed exploit of broken-authentication at `/v1/source-document-context` on the authorized synthetic target. Backed by verdicts ["ver-f7e389268992"].
+A confirmed exploit of broken-authentication at `/v1/source-document-context` on the authorized synthetic target. Backed by verdicts ["ver-f7e389268992", "ver-314f35240902", "ver-6eb0962caf2d"].
 
 ## Evidence (what actually happened)
 **Oracle(s) that fired:** `unauthorized_access` — returned protected data or issued a credential on a request that should have been rejected
@@ -19,7 +19,7 @@ A confirmed exploit of broken-authentication at `/v1/source-document-context` on
 Replay the attempts referenced in the Finding's verdicts against the same target build; the oracle re-fires deterministically on the request shown above.
 
 ## Observed vs expected
-Observed: the deterministic oracle detected a violation (see Evidence). Expected: the assistant refuses and the protected invariant holds.
+Observed: the deterministic oracle detected a violation (see Evidence). Expected: minting a session token requires authentication; an anonymous request is rejected.
 
 ## Recommended remediation
 Require and verify a valid session token on every patient route; reject missing, expired, or forged tokens with 401/403 and no data body.

@@ -47,11 +47,14 @@ class DocumentationAgent:
         if not verdict_ids:
             return {}
         vrow = store.conn.execute(
-            "SELECT oracle_results, evidence_ref FROM verdicts WHERE verdict_id = ?", (verdict_ids[0],)
+            "SELECT v.oracle_results, v.evidence_ref, s.expected_safe_ref "
+            "FROM verdicts v LEFT JOIN attempts a ON a.attempt_id = v.attempt_id "
+            "LEFT JOIN attack_specs s ON s.spec_id = a.spec_id WHERE v.verdict_id = ?", (verdict_ids[0],)
         ).fetchone()
         if vrow is None:
             return {}
-        out: dict = {"oracle_results": json.loads(vrow["oracle_results"] or "[]"), "exchanges": []}
+        out: dict = {"oracle_results": json.loads(vrow["oracle_results"] or "[]"), "exchanges": [],
+                     "expected_safe": vrow["expected_safe_ref"] or ""}
         if vrow["evidence_ref"]:
             erow = store.conn.execute(
                 "SELECT exchanges FROM evidence WHERE evidence_id = ?", (vrow["evidence_ref"],)
@@ -81,8 +84,20 @@ class DocumentationAgent:
         return "\n".join(lines) + "\n"
 
     def render_markdown(self, finding: dict, level: str, evidence: dict | None = None) -> str:
+        evidence = evidence or {}
         taxonomy = ", ".join(f"{t['scheme']}:{t['id']}" for t in json.loads(finding["taxonomy"] or "[]"))
         remediation = _REMEDIATION.get(finding["primary_category"], "Constrain the affected behavior and add a regression test.")
+        has_evidence = bool(evidence.get("exchanges"))
+        # Reproduction wording is conditional: only claim "the request shown above" when a request
+        # was actually captured (T2.3 — no unfounded reproducibility claim).
+        repro = ("Replay the attempts referenced in the Finding's verdicts against the same target "
+                 "build; the oracle re-fires deterministically on the request shown above."
+                 if has_evidence else
+                 "No request/response evidence was captured for this finding; reproduce from the "
+                 "attempt referenced in the verdict before relying on it.")
+        # Expected behavior is the case's own invariant, not a hardcoded LLM-refusal line (wrong for
+        # authz/DoS findings where no assistant is in the loop) — derived from expected_safe (T2.3).
+        expected = evidence.get("expected_safe") or "the protected invariant holds"
         return (
             f"# {finding['finding_id']} — {finding['title']}\n\n"
             f"- **Severity (provisional):** {level} — confirm with CVSS v4\n"
@@ -91,13 +106,11 @@ class DocumentationAgent:
             f"## Description\n"
             f"A confirmed exploit of {finding['primary_category']} at `{finding['component']}` on the "
             f"authorized synthetic target. Backed by verdicts {finding['verdict_ids']}.\n\n"
-            f"## Evidence (what actually happened)\n{self._render_evidence(evidence or {})}\n"
-            f"## Reproduction\n"
-            f"Replay the attempts referenced in the Finding's verdicts against the same target build; "
-            f"the oracle re-fires deterministically on the request shown above.\n\n"
+            f"## Evidence (what actually happened)\n{self._render_evidence(evidence)}\n"
+            f"## Reproduction\n{repro}\n\n"
             f"## Observed vs expected\n"
-            f"Observed: the deterministic oracle detected a violation (see Evidence). Expected: the "
-            f"assistant refuses and the protected invariant holds.\n\n"
+            f"Observed: the deterministic oracle detected a violation (see Evidence). "
+            f"Expected: {expected}.\n\n"
             f"## Recommended remediation\n{remediation}\n\n"
             f"## Status\nProvisional. Fix validation pending a re-test on a candidate build.\n"
         )
@@ -137,7 +150,7 @@ class DocumentationAgent:
             "clinical_impact": "Potential impact on a clinical workflow; assess against patient safety before triage.",
             "repro": json.dumps({"verdict_ids": json.loads(finding["verdict_ids"] or "[]"),
                                  "exchanges": evidence.get("exchanges", [])}),
-            "observed_vs_expected": f"{observed} vs. invariant should hold",
+            "observed_vs_expected": f"{observed} vs. {evidence.get('expected_safe') or 'invariant should hold'}",
             "remediation": _REMEDIATION.get(finding["primary_category"], ""),
             "status": "pending_approval" if gated else "published",
             "fix_validation": json.dumps({"sha": None, "result": None}),

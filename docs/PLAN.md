@@ -85,13 +85,13 @@ artifact), `SAFETY` (trust boundary), `SCHEDULE` (checkpoint). Status: `not star
 
 | ID | Source | Requirement | Class | Acceptance criterion | Status |
 |---|---|---|---|---|---|
-| P0 | p9 | Multi-agent architecture (single-agent/pipeline **fails**); distinct roles, contexts, trust levels, coordinated | CORE | Named distinct agents with separate contexts | not started |
-| P1 | p9–10 | Red Team Agent: novel inputs, mutate partial successes, multi-turn sequences; model choice defended | CORE | Generates + mutates + multi-turn, live | not started |
-| P2 | p4–5,12 | Judge Agent: verdict success/fail/partial, consistent across runs+versions, independent of attack engine, no drift, judge itself validated | CORE | Independent context/model; drift detection documented + calibration set | not started |
-| P3 | p5,11 | Orchestrator: reads state (coverage gaps, open findings, regressions, cost), prioritizes next target, triggers regression on target change, halts when cost accrues without signal | CORE | Prioritization from real signals; budget halt | not started |
-| P4 | p10 | Documentation Agent: confirmed exploit → professional report, no human writing; human approval gate for high severity | CORE | Report meets S3 bar; critical behind gate | not started |
-| P5 | p11 | Regression & validation harness: versioned queryable store; auto full suite on Orchestrator trigger; detect reappearance; flag cross-category regressions; a test passing due to behavior shift is worse than none | CORE | Deterministic replay; reappearance + cross-category detection | not started |
-| P6 | p11 | Observability layer answers: cases per category; pass/fail across categories+versions; resilience trend; open/in-progress/resolved findings; run cost + scaling rate; per-agent ordered action trace | CORE | All 6 queryable from the store (SQLite, settled) | not started |
+| P0 | p9 | Multi-agent architecture (single-agent/pipeline **fails**); distinct roles, contexts, trust levels, coordinated | CORE | Named distinct agents with separate contexts | **DONE** — Orchestrator/Red Team/Judge/Documentation + deterministic services, distinct contexts |
+| P1 | p9–10 | Red Team Agent: novel inputs, mutate partial successes, multi-turn sequences; model choice defended | CORE | Generates + mutates + multi-turn, live | **PARTIAL** — aimed generate + guarded mutate live; multi-turn deferred (target is stateless, T3.4); mutation aim shallow (T3.8) |
+| P2 | p4–5,12 | Judge Agent: verdict success/fail/partial, consistent across runs+versions, independent of attack engine, no drift, judge itself validated | CORE | Independent context/model; drift detection documented + calibration set | **PARTIAL** — deterministic tier-0 independent + consistent + honest (T1.1); rubric tier, drift detection, calibration set NOT done (T3.2/T3.3); PARTIAL reserved |
+| P3 | p5,11 | Orchestrator: reads state (coverage gaps, open findings, regressions, cost), prioritizes next target, triggers regression on target change, halts when cost accrues without signal | CORE | Prioritization from real signals; budget halt | **PARTIAL** — budget/no-signal halt + decision trace live; prioritizes on 2 of 4 signals; SHA/cost signals + regression-trigger NOT wired (T3.5/T3.7) |
+| P4 | p10 | Documentation Agent: confirmed exploit → professional report, no human writing; human approval gate for high severity | CORE | Report meets S3 bar; critical behind gate | **DONE** — evidence-backed reports, fail-closed gate (T1.5), CLI-triggered (not auto-orchestrated) |
+| P5 | p11 | Regression & validation harness: versioned queryable store; auto full suite on Orchestrator trigger; detect reappearance; flag cross-category regressions; a test passing due to behavior shift is worse than none | CORE | Deterministic replay; reappearance + cross-category detection | **PARTIAL** — faithful replay + reappearance + fail-loud suite (T1.6); cross-category flagging + auto-trigger + CI gate NOT done (T3.5) |
+| P6 | p11 | Observability layer answers: cases per category; pass/fail across categories+versions; resilience trend; open/in-progress/resolved findings; run cost + scaling rate; per-agent ordered action trace | CORE | All 6 queryable from the store (SQLite, settled) | **DONE** — all 6 render via `redteam report` + dashboard.html |
 
 ### Engineering requirements — E1 graded; E2–E15 optional (see R1)
 
@@ -480,7 +480,7 @@ doc overclaims. Checklist (— = todo, ✓ = done):
 **Tier 2 — honesty & hardening**
 - [x] T2.1 Executor: pin `follow_redirects=False`; validate `route` rooted-path; enforce or downgrade `scope`.
 - [x] T2.2 Judge: wire `provider_block` onto the target-response path; implement or remove `PARTIAL`.
-- [ ] T2.3 Docs: derive report "Observed vs expected" from `expected_safe`; fix ARCHITECTURE/PLAN
+- [x] T2.3 Docs: derive report "Observed vs expected" from `expected_safe`; fix ARCHITECTURE/PLAN
   overclaims (rubric, drift, recon/SHA, regression-trigger, mid-campaign stop); refresh PLAN P0–P6.
 
 **Tier 3 — features (some need human input — flag, don't fake)**
