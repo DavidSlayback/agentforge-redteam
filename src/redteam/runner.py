@@ -134,11 +134,7 @@ def run_case(
         auth_fields: dict = {}
         if case.auth is not None and minter is not None:
             auth_fields = minter.auth_fields(case.auth.patient_uuid)
-        for turn in sorted(case.turns, key=lambda t: t.ordinal):
-            body = {**(turn.body or {}), **auth_fields}
-            url = target.origin + target.base_path + turn.route
-            record = executor.request(url, method=turn.method, json=body)
-            exchanges.append(record_exchange(turn.ordinal, turn.route, turn.method, body, record))
+        record = send_turns(target, executor, case.turns, exchanges, auth_fields=auth_fields, body_wins=False)
     except TargetUnreachable as exc:
         # A transport failure or a failed mint is not a defense holding — it is INCONCLUSIVE.
         unreachable = str(exc)
