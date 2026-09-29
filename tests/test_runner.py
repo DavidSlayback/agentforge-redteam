@@ -12,7 +12,7 @@ from redteam.evals.case import OracleConfig, SeedCase, Turn
 from redteam.executor.authorization import AuthorizationRegistry
 from redteam.executor.executor import Executor
 from redteam.executor.http_sender import ResponseRecord
-from redteam.runner import run_case
+from redteam.runner import run_case, send_turns
 from redteam.store.store import Store
 
 
@@ -44,6 +44,33 @@ def test_run_case_records_attempt_and_verdict(tmp_path: Path) -> None:
     assert store.count("agent_actions") == 1
     assert calls == ["https://good.example/v1/x"]
     store.close()
+
+
+def test_send_turns_merge_precedence(tmp_path: Path) -> None:
+    # The auth/body merge precedence is the BOLA-enabling inversion; pin both directions.
+    reg = _registry(tmp_path)
+    target = reg.by_id("good")
+    seen: dict = {}
+
+    def sender(url: str, **kw: object) -> ResponseRecord:
+        seen.clear()
+        seen.update(kw["json"])
+        return ResponseRecord(200, "ok", 1.0)
+
+    ex = Executor(reg, sender)
+    turns = [Turn(ordinal=1, method="POST", route="/v1/x", body={"patient_uuid": "victim", "message": "hi"})]
+    auth = {"patient_uuid": "attacker", "demo_token": "tok"}
+
+    # body_wins=False: minted auth overrides the body's patient_uuid (self-consistent request)
+    exchanges: list[dict] = []
+    send_turns(target, ex, turns, exchanges, auth_fields=auth, body_wins=False)
+    assert seen["patient_uuid"] == "attacker"
+    assert len(exchanges) == 1
+
+    # body_wins=True: the body's patient_uuid survives alongside the attacker's token (BOLA)
+    send_turns(target, ex, turns, [], auth_fields=auth, body_wins=True)
+    assert seen["patient_uuid"] == "victim"
+    assert seen["demo_token"] == "tok"
 
 
 def test_run_case_denies_unknown_target(tmp_path: Path) -> None:

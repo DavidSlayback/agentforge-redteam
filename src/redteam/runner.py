@@ -71,6 +71,29 @@ def record_exchange(ordinal: int, route: str, method: str, request_body: object,
     }
 
 
+def send_turns(target, executor: Executor, turns, exchanges: list[dict], *,
+               auth_fields: dict | None = None, body_wins: bool = False):
+    """Play a case's ordered turns through the Executor, appending one rich exchange per turn
+    to ``exchanges``; return the last response record. May raise ``TargetUnreachable``.
+
+    Args:
+        auth_fields: session fields (token, patient, clinician) to merge into each body.
+        body_wins: the auth/body merge precedence. ``False`` (default) lets ``auth_fields``
+            override same-named body keys — a self-consistent authenticated request.
+            ``True`` lets the turn body win, so a token-vs-patient mismatch survives to the
+            wire — the inversion the cross-patient (BOLA) probe depends on.
+    """
+    auth_fields = auth_fields or {}
+    record = None
+    for turn in sorted(turns, key=lambda t: t.ordinal):
+        base = turn.body or {}
+        body = {**auth_fields, **base} if body_wins else {**base, **auth_fields}
+        url = target.origin + target.base_path + turn.route
+        record = executor.request(url, method=turn.method, json=body)
+        exchanges.append(record_exchange(turn.ordinal, turn.route, turn.method, body, record))
+    return record
+
+
 def build_observation(record, oracle: OracleConfig, provider_events: tuple[str, ...] = ()) -> Observation:
     return Observation(
         response_text=record.text,
