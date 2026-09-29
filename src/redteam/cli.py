@@ -203,26 +203,15 @@ def cmd_poll(args: argparse.Namespace) -> int:
     """Poll /health once; if the target's git_sha changed since the last observation, run the
     regression suite against the new build and record the trigger. Cron-friendly: run it on a
     schedule (Q11) — each invocation is one observation."""
-    from redteam.recon import poll
+    from redteam.recon import poll, poll_summary
 
     registry, target, executor, minter, judge = _wire_deterministic(args.target)
     store = Store.open(args.store)
     result = poll(store, registry, executor, judge, target, args.target, minter=minter)
-    if not result.reachable:
-        print(f"poll {args.target}: unreachable (nothing recorded)")
-    elif result.previous_sha is None:
-        print(f"poll {args.target}: git_sha {(result.current_sha or '')[:12]} — baseline recorded (no prior build)")
-    elif not result.changed:
-        print(f"poll {args.target}: git_sha {(result.current_sha or '')[:12]} unchanged — no trigger")
-    else:
-        r = result.regression
-        print(f"poll {args.target}: git_sha changed {(result.previous_sha or '')[:12]} -> "
-              f"{(result.current_sha or '')[:12]}; regression held={len(r.held)} "
-              f"reappeared={len(r.reappeared)} inconclusive={len(r.inconclusive)} "
-              f"unreplayable={len(r.unreplayable)} -> {'OK' if r.ok else 'ATTENTION'}")
+    code, message = poll_summary(result)
+    print(f"poll {args.target}: {message}")
     store.close()
-    # Non-zero when a triggered regression did not come back clean, so cron/CI can alert.
-    return 1 if (result.regression is not None and not result.regression.ok) else 0
+    return code
 
 
 def cmd_campaign(args: argparse.Namespace) -> int:
