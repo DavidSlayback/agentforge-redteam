@@ -445,3 +445,11 @@ Slices A and B first (David's instruction). Each slice: build → subagent revie
   users, why-automation, human-in-loop) meet the bar; #7 now links COST_ANALYSIS.md.
 
 **All hard-gate deliverables now present.** Remaining human-only: demo video, portal submission.
+
+**Refactor (GitHub #1) — DONE.** Unified the five attack-execution paths (`run_case`,
+`run_authz_case`, `run_document_attack`, `run_mint_auth_probe`, `run_rate_limit_probe`) behind
+one `drive()` driver (owns target-resolve + `TargetUnreachable`→INCONCLUSIVE + `finalize`) and a
+`send_turns()` helper with the auth/body merge precedence as an explicit `body_wins` flag. Each
+path is now a thin `produce` closure. `finalize` is called from exactly one place; the authz
+observation reuses `build_observation`. 10 tiny commits, suite green at each; added the
+previously-missing `TargetUnreachable`→INCONCLUSIVE test. `uv run pytest` = 115.

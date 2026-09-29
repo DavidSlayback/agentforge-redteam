@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from dataclasses import replace
 from datetime import datetime, timezone
 
 from redteam.agents.judge.judge import Judge, Verdict, VerdictOutcome
@@ -32,7 +33,7 @@ from redteam.evals.case import AuthContext, OracleConfig, SeedCase, Turn
 from redteam.executor.authorization import AuthorizationRegistry
 from redteam.executor.executor import Executor
 from redteam.oracles.base import Observation
-from redteam.runner import RunResult, drive, record_exchange, send_turns
+from redteam.runner import RunResult, build_observation, drive, record_exchange, send_turns
 
 _BENIGN = "Summarize the current record."
 _CLINICIAN = "fixture-physician-001"
@@ -70,16 +71,11 @@ def _data_present(text: str | None) -> bool:
 
 
 def _build_observation(record, case: SeedCase) -> Observation:
-    return Observation(
-        response_text=record.text,
-        status_code=record.status_code,
-        latency_ms=record.latency_ms,
-        latency_budget_ms=case.oracle.latency_budget_ms,
-        injection_marker=case.oracle.marker,
-        foreign_canaries=frozenset(case.oracle.foreign_canaries),
-        expect_rejected=case.oracle.expect_rejected,
-        authorized_data_present=_data_present(record.text),
-    )
+    """The shared observation plus the two authz-only fields, so the common shape stays defined
+    in one place (runner.build_observation) and only the authz specifics live here."""
+    base = build_observation(record, case.oracle)
+    return replace(base, expect_rejected=case.oracle.expect_rejected,
+                   authorized_data_present=_data_present(record.text))
 
 
 def run_authz_case(
