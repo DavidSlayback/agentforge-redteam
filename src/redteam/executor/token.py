@@ -34,14 +34,15 @@ class TokenMinter:
     target: Target
     _cache: dict[str, MintedToken] = field(default_factory=dict)
 
-    def mint(self, patient_uuid: str) -> MintedToken:
-        cached = self._cache.get(patient_uuid)
+    def _mint(self, endpoint: str, patient_uuid: str) -> MintedToken:
+        key = f"{endpoint}:{patient_uuid}"
+        cached = self._cache.get(key)
         if cached is not None and cached.expires_at - time.time() > 15:
             return cached
-        url = f"{self.target.origin}{self.target.base_path}/v1/demo-context"
+        url = f"{self.target.origin}{self.target.base_path}{endpoint}"
         record = self.executor.request(url, method="GET", params={"patient_uuid": patient_uuid})
         if record.status_code != 200:
-            raise TargetUnreachable(f"demo-context mint failed ({record.status_code}): {record.text[:120]}")
+            raise TargetUnreachable(f"mint {endpoint} failed ({record.status_code}): {record.text[:120]}")
         data = json.loads(record.text)
         token = MintedToken(
             demo_token=data["demo_token"],
@@ -49,12 +50,25 @@ class TokenMinter:
             patient_uuid=data.get("patient_uuid", patient_uuid),
             expires_at=time.time() + float(data.get("expires_in_seconds", 300)),
         )
-        self._cache[patient_uuid] = token
+        self._cache[key] = token
         return token
+
+    def mint(self, patient_uuid: str) -> MintedToken:
+        return self._mint("/v1/demo-context", patient_uuid)
+
+    def mint_write(self, patient_uuid: str) -> MintedToken:
+        """A write-scoped token for uploading source documents."""
+        return self._mint("/v1/source-document-context", patient_uuid)
 
     def auth_fields(self, patient_uuid: str) -> dict[str, str]:
         """The fields a patient route needs in its body: token, clinician, patient."""
-        token = self.mint(patient_uuid)
+        return self._fields(self.mint(patient_uuid))
+
+    def write_fields(self, patient_uuid: str) -> dict[str, str]:
+        return self._fields(self.mint_write(patient_uuid))
+
+    @staticmethod
+    def _fields(token: MintedToken) -> dict[str, str]:
         return {
             "patient_uuid": token.patient_uuid,
             "clinician_uuid": token.clinician_uuid,

@@ -20,9 +20,19 @@ from redteam.agents.redteam.model import ModelClient
 from redteam.evals.case import AuthContext
 from redteam.executor.authorization import AuthorizationRegistry
 from redteam.executor.executor import Executor
+from redteam.document_attack import run_document_attack
 from redteam.memory import history_brief
 from redteam.owasp import NEEDS_CANARY
 from redteam.runner import RunResult, run_case
+
+# Categories whose execution is a document upload+scan flow rather than a direct HTTP turn.
+_DOCUMENT_CATEGORIES = frozenset({"indirect-injection"})
+
+
+def _dispatch(case, registry, executor, judge, store, minter) -> RunResult:
+    if case.category in _DOCUMENT_CATEGORIES:
+        return run_document_attack(case, registry, executor, judge, store, minter)
+    return run_case(case, registry, executor, judge, store, minter=minter)
 
 # Outcomes worth spending a mutation on: the attack did not clearly succeed, but the
 # target was reached (so a variant might get through). INCONCLUSIVE is not mutated —
@@ -86,7 +96,7 @@ def run_campaign(
             if brief.get("patient_uuid"):
                 case = case.model_copy(update={"auth": AuthContext(patient_uuid=brief["patient_uuid"])})
             _log_calls(store, campaign_id, "generation", 1)
-            result = run_case(case, registry, executor, judge, store, minter=minter)
+            result = _dispatch(case, registry, executor, judge, store, minter)
             summary.generated += 1
             summary.outcomes[str(result.verdict.outcome)] += 1
             summary.results.append(result)
@@ -95,7 +105,7 @@ def run_campaign(
             while last.verdict.outcome in _MUTATE_ON and muts < max_mutations:
                 variant = agent.mutate(parent, model)
                 _log_calls(store, campaign_id, "mutation", 1)
-                last = run_case(variant, registry, executor, judge, store, minter=minter)
+                last = _dispatch(variant, registry, executor, judge, store, minter)
                 summary.variants += 1
                 summary.outcomes[str(last.verdict.outcome)] += 1
                 summary.results.append(last)

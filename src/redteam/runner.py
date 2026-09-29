@@ -87,8 +87,14 @@ def run_case(
         verdict = judge.judge(observation)
         provider_events = list(observation.provider_events)
 
-    # Persist the spec this attempt came from, so the attempt's lineage resolves and its
-    # foreign key holds. A seed case is a spec with no campaign or mutation parent.
+    return finalize(store, case, target, exchanges, verdict, provider_events)
+
+
+def finalize(store, case: SeedCase, target, exchanges: list[dict], verdict: Verdict,
+             provider_events: list[str]) -> RunResult:
+    """Persist a judged attempt (spec, attempt, verdict, action) and promote/freeze on a
+    confirmed exploit. Shared by run_case and the document-attack flow so lineage, dedup,
+    finding promotion, and regression freezing are identical."""
     first_route = sorted(case.turns, key=lambda t: t.ordinal)[0].route if case.turns else None
     store.insert("attack_specs", {
         "spec_id": case.case_id,
