@@ -123,3 +123,8 @@ runs live against the authorized, owner-operated target with synthetic patients 
 - **`curl` hangs at a `Uri:` prompt:** you typed `curl`, not `curl.exe`. Press Ctrl+C and retry
   with `curl.exe`.
 - **Target 5xx:** the platform records this as `INCONCLUSIVE`, not a pass. Say so; it's a feature.
+- **`TargetUnreachable: attacker model endpoint … timed out` in the agent trace:** that's the
+  attacker model (Qwen) timing out, not the target. The platform records it and moves on — honest
+  evidence it degrades gracefully. Point at it, don't hide it.
+- **A campaign adds nothing to the store / `brief_error` with a `C:/Program Files/Git/...` route:**
+  you ran it in Git Bash and the `/v1/...` route was path-mangled. Re-run in PowerShell.
