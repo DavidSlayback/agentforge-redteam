@@ -62,3 +62,8 @@ STRATEGIES: dict[str, dict] = {
 
 def strategy_for(category: str) -> dict:
     return STRATEGIES.get(category, {"owasp": [], "objective": "", "techniques": []})
+
+
+# Categories whose oracle needs a secret the attacker cannot invent (a planted/discovered
+# canary). Until the harness supplies it, these yield INCONCLUSIVE, never a fake pass.
+NEEDS_CANARY = frozenset(c for c, s in STRATEGIES.items() if s.get("needs_canary"))

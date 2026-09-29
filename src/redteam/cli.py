@@ -11,7 +11,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from redteam.owasp import STRATEGIES
+from redteam.owasp import NEEDS_CANARY, STRATEGIES
 from redteam.store.store import Store
 
 # Single source of truth for the category -> OWASP mapping (from the strategy table).
@@ -37,7 +37,7 @@ _TARGET_CONTEXT = (
 )
 
 
-def _wire(target_id: str):
+def _wire(target_id: str, model_name: str | None = None):
     """Build the live pieces for an attack command (import-heavy; done lazily)."""
     from redteam.agents.judge.judge import Judge
     from redteam.agents.redteam.agent import RedTeamAgent
@@ -55,7 +55,10 @@ def _wire(target_id: str):
         raise SystemExit(f"target '{target_id}' is not in authorization.yaml")
     executor = Executor(registry, http_sender)
     agent = RedTeamAgent(target_context=_TARGET_CONTEXT)
-    return registry, target, executor, TokenMinter(executor, target), Judge(), agent, QwenClient.from_env()
+    model = QwenClient.from_env()
+    if model_name:
+        model.model = model_name   # override the attacker model per run (e.g. a MAX-plan model)
+    return registry, target, executor, TokenMinter(executor, target), Judge(), agent, model
 
 
 def cmd_report(args: argparse.Namespace) -> int:
@@ -106,15 +109,24 @@ def cmd_campaign(args: argparse.Namespace) -> int:
     from redteam.agents.orchestrator.orchestrator import Orchestrator
     from redteam.agents.orchestrator.selector import DeterministicSelector, JevSelector
 
-    registry, _target, executor, minter, judge, agent, model = _wire(args.target)
+    registry, target, executor, minter, judge, agent, model = _wire(args.target, args.model)
     store = Store.open(args.store)
     categories = [(c, _OWASP.get(c, [])) for c in args.category]
     selector = JevSelector() if args.selector == "jev" else DeterministicSelector()
+
+    # For canary-gated categories (cross-patient disclosure), derive the victim-only values
+    # up front so the leak oracle has a real secret to watch for.
+    canaries: list[str] = []
+    if args.victim_patient and args.patient and any(c in NEEDS_CANARY for c in args.category):
+        from redteam.canary import discover_foreign_canaries
+        canaries = discover_foreign_canaries(executor, minter, target, args.victim_patient, args.patient)
+        print(f"discovered {len(canaries)} victim-only canaries for cross-patient checks")
+
     orch = Orchestrator(registry=registry, executor=executor, judge=judge, store=store,
                         agent=agent, model=model, minter=minter, selector=selector)
     run = orch.run(target_id=args.target, surfaces=args.route, categories=categories,
                    budget=Budget(max_campaigns=args.max_campaigns), patient_uuid=args.patient,
-                   route_fields=_ROUTE_FIELDS)
+                   route_fields=_ROUTE_FIELDS, canaries=canaries or None)
     print(f"campaign done: campaigns={run.campaigns} findings_opened={run.findings_opened} "
           f"halt={run.halt_reason!r}")
     store.close()
@@ -146,9 +158,12 @@ def build_parser() -> argparse.ArgumentParser:
     cp.add_argument("--target", required=True)
     cp.add_argument("--category", action="append", default=[], help="repeatable; e.g. prompt-injection")
     cp.add_argument("--route", action="append", default=[], help="repeatable target route")
-    cp.add_argument("--patient", default=None, help="synthetic patient to run as")
+    cp.add_argument("--patient", default=None, help="synthetic patient to run as (the attacker)")
+    cp.add_argument("--victim-patient", default=None, dest="victim_patient",
+                    help="a different patient whose data a cross-patient attack tries to leak")
     cp.add_argument("--max-campaigns", type=int, default=5, dest="max_campaigns")
     cp.add_argument("--selector", choices=["deterministic", "jev"], default="deterministic")
+    cp.add_argument("--model", default=None, help="override the attacker model (e.g. qwen3.8-max)")
     cp.set_defaults(func=cmd_campaign)
     return parser
 

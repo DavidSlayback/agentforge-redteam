@@ -21,6 +21,7 @@ from redteam.evals.case import AuthContext
 from redteam.executor.authorization import AuthorizationRegistry
 from redteam.executor.executor import Executor
 from redteam.memory import history_brief
+from redteam.owasp import NEEDS_CANARY
 from redteam.runner import RunResult, run_case
 
 # Outcomes worth spending a mutation on: the attack did not clearly succeed, but the
@@ -58,13 +59,29 @@ def run_campaign(
     campaign_id: str = "adhoc",
     max_mutations: int = 1,
     minter=None,
+    canaries: list[str] | None = None,
 ) -> CampaignSummary:
     summary = CampaignSummary(campaign_id=campaign_id)
     for brief in briefs:
         try:
+            # A canary-gated category with no canary cannot be scored — running it anyway
+            # would let StatusOracle score a 200 as SAFE and report a defense that was never
+            # tested. Skip it loudly rather than manufacture a pass.
+            if brief["category"] in NEEDS_CANARY and not canaries:
+                summary.outcomes["SKIPPED"] += 1
+                store.insert("agent_actions", {
+                    "ts": _now(), "agent": "campaign", "action": "skipped",
+                    "refs": json.dumps({"category": brief["category"], "route": brief.get("route")}),
+                    "reason": "no canary available for a canary-gated category; not tested (would be a fake pass)",
+                })
+                continue
             # Read what has already been tried here so the Red Team varies, not repeats.
             history = history_brief(store, brief["target_id"], brief["category"])
             case = agent.generate(brief, model, history=history)
+            # For canary-gated categories, set the oracle's foreign canaries — the attacker
+            # cannot know them, so the harness supplies them (else the verdict is INCONCLUSIVE).
+            if canaries and brief["category"] in NEEDS_CANARY:
+                case = case.model_copy(update={"oracle": case.oracle.model_copy(update={"foreign_canaries": list(canaries)})})
             # Run as a synthetic patient when the brief names one (so attempts reach the AI).
             if brief.get("patient_uuid"):
                 case = case.model_copy(update={"auth": AuthContext(patient_uuid=brief["patient_uuid"])})

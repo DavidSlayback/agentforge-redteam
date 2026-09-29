@@ -63,6 +63,7 @@ class Orchestrator:
         budget: Budget,
         patient_uuid: str | None = None,
         route_fields: dict[str, str] | None = None,
+        canaries: list[str] | None = None,
     ) -> OrchestratorRun:
         gov = Governor(budget)
         run = OrchestratorRun()
@@ -85,7 +86,7 @@ class Orchestrator:
             summary = run_campaign(
                 [chosen.brief], registry=self.registry, executor=self.executor, judge=self.judge,
                 store=self.store, agent=self.agent, model=self.model, minter=self.minter,
-                campaign_id=f"orch-{gov.campaigns + 1}", max_mutations=1,
+                campaign_id=f"orch-{gov.campaigns + 1}", max_mutations=1, canaries=canaries,
             )
             produced = self.store.count("findings") > before_findings
             # Cost is real model calls from the ledger (generation + mutation).
