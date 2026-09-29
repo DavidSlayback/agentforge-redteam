@@ -118,10 +118,21 @@ class RedTeamAgent:
             f"Return only JSON matching: {_SCHEMA}"
         )
         case = self._generate_case(model, user, brief["target_id"])
-        # The platform owns identity — never the model's chosen case_id or target_id
-        # (a model-picked target_id would miss the registry and be denied).
-        case = case.model_copy(update={"case_id": f"rt-{uuid.uuid4().hex[:10]}", "target_id": brief["target_id"]})
-        return _shape_to_field(case, brief)
+        # The platform owns identity and taxonomy — never the model's chosen values (a
+        # model-picked target_id misses the registry; a model-picked category/owasp corrupts
+        # dedup and coverage).
+        case = case.model_copy(update={
+            "case_id": f"rt-{uuid.uuid4().hex[:10]}",
+            "target_id": brief["target_id"],
+            "category": brief["category"],
+            "owasp": list(brief["owasp"]),
+        })
+        case = _shape_to_field(case, brief)
+        # Latency is a DoS signal, not an injection/disclosure one. Strip a budget the model
+        # set on a non-DoS case, so a normal-but-slow AI response isn't a false positive.
+        if brief["category"] != "denial-of-service" and case.oracle.latency_budget_ms is not None:
+            case = case.model_copy(update={"oracle": case.oracle.model_copy(update={"latency_budget_ms": None})})
+        return case
 
     def _generate_case(self, model: ModelClient, user: str, target_id: str) -> SeedCase:
         """Call the model, retrying once if it returns prose instead of a valid JSON case."""
