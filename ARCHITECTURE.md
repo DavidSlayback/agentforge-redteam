@@ -213,9 +213,11 @@ above are **deferred or not-done** and must not be read as built:
   oracle). **Improper-output-handling:** deterministic active-markup oracle. Without the rubric
   tier configured, the oracle-less categories resolve to INCONCLUSIVE, never a false FAIL.
 - **Orchestrator — "reads changed-since-SHA and cost", "triggers regression runs",
-  "mid-campaign hard-stop": NOT wired.** Prioritization uses coverage + open-findings only; the
-  budget halt is between campaigns; there is no Recon/SHA-diff producer and no
-  orchestrator→regression trigger. Budget/no-signal halt and the decision trace ARE built.
+  "mid-campaign hard-stop": NOT wired.** Prioritization scores route-granular coverage + open
+  findings; cost enters as the `--max-model-calls` hard cap (budget halt between campaigns), not as
+  a ranking signal. `/health` exposes `git_sha`, but nothing polls it yet, so there is no SHA-diff
+  producer and no orchestrator→regression trigger. The budget/no-signal halt and the decision
+  trace ARE built. Rubric-judge calls are not yet metered in the cost ledger.
 - **Red Team — multi-turn attacks: N/A here.** The target composer is stateless (verified), so
   multi-turn context-poisoning has no surface; mutation is a single guarded rephrase.
 - **Regression — auto-trigger + CI gate + cross-category flagging: NOT DONE.** Replay is

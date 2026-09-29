@@ -503,6 +503,8 @@ doc overclaims. Checklist (— = todo, ✓ = done):
 - [x] T3.6 DoS payload synthesis in the harness (size param, not model tokens); surface finish_reason.
 - [x] T3.7 Orchestrator prioritization: outcome-mix momentum, route-granular coverage, SHA/cost
   signals, is_deterministic_only candidate filter, Jev vendor-outage fallback, `--max-model-calls`.
+  *Correction (09-29 evening):* the ranker scores route-granular coverage + open findings only;
+  SHA and cost are NOT ranking signals (cost is the `--max-model-calls` cap). P3 row stays PARTIAL.
 - [x] T3.8 Red Team: thread verdict/oracle-results + techniques into `mutate`; memory payload digest;
   provider-block handling + fallback.
 

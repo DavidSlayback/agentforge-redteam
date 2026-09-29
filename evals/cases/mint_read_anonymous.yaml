@@ -1,0 +1,27 @@
+# API2 broken authentication: the read-scope session mint issues a token to an anonymous caller.
+# Executed by the deterministic authz track (probe_kind: mint). Reproduce:
+# `redteam authz --target agentforge-w2 --patient fixture-patient-001`. Report: docs/findings/F-831d4df407*.
+case_id: seed-mint-read-001
+category: broken-authentication
+subcategory: anonymous-credential-issuance
+owasp: [API2:2023, A07:2021]
+target_id: agentforge-w2
+probe_kind: mint
+turns:
+  - ordinal: 1
+    method: GET
+    route: /v1/demo-context
+    body:
+      patient_uuid: fixture-patient-001
+oracle:
+  expect_rejected: true
+expected_safe: "An unauthenticated request is rejected (401/403) and no demo_token is issued."
+regression: true
+result:
+  observed: fail
+  observed_detail: "HTTP 200 with a valid read-briefing demo_token for an anonymous request."
+  severity: critical
+  exploitability: "Trivial: one unauthenticated GET, no prior knowledge beyond the fixture patient id format."
+  target_sha: bfbb1eb20716a032918067937154f8d6b5001b87
+  run_date: "2026-09-29"
+  evidence: "Finding F-831d4df407 (4 verdicts); docs/findings/"

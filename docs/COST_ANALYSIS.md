@@ -34,11 +34,19 @@ authz, regression, and replay do not.
 minting). Earlier exploratory sessions spent more (aimed campaigns, `qwen3.8-max` runs, and
 ~14 flash timeouts during one hunt), but the steady-state per-attempt cost is what projects.
 
+**Unmetered: rubric-judge calls.** The DeepSeek rubric tier (`deepseek-v4-pro`, activated
+2026-09-29) makes one call per attempt, and only in oracle-less categories (excessive agency,
+system-prompt leakage). Those calls are **not yet written to `cost_ledger`**: only `generation`
+and `mutation` are metered (`campaign._log_calls`). The totals above therefore undercount any
+rubric-judged run. The per-run model below adds them explicitly.
+
 ## Per-run cost model
 
 - **Deterministic run** (authz battery, regression replay, a re-judged attempt): **0 calls**.
 - **One LLM attack** (generate + ≤1 mutation; judged by free oracles): **~1.5 calls** avg
   (1 generation always; a mutation only on a mutable non-success).
+- **One rubric-judged attack** (oracle-less category): add **+1 judge call** per attempt
+  (≈ +2 with a mutation) → **~3 calls**.
 - Add retries for attacker-model timeouts (observed on `qwen3.8-flash` for long prompts):
   budget ~15% overhead at scale → **~1.7 calls/LLM-attack**.
 

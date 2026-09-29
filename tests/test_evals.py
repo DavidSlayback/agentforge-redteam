@@ -30,3 +30,14 @@ def test_suite_covers_at_least_three_owasp_categories() -> None:
 def test_every_case_maps_to_a_known_category() -> None:
     for c in load_cases(EVALS):
         assert c.category in STRATEGIES or c.category in _AUTHZ, f"unknown category {c.category!r}"
+
+
+def test_every_committed_case_records_its_stage3_result() -> None:
+    """PRD Stage 3: each case carries observed behavior, severity, exploitability, and a regression flag."""
+    for c in load_cases(EVALS):
+        assert c.result is not None, f"{c.case_id} has no recorded result"
+        assert c.result.observed_detail and c.result.exploitability, c.case_id
+        if c.result.observed != "not_run":
+            assert c.result.target_sha and c.result.run_date, f"{c.case_id} result is not tied to a build"
+        if c.result.observed == "fail":
+            assert c.regression, f"{c.case_id} is a confirmed exploit but not flagged for regression"

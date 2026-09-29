@@ -8,6 +8,8 @@ validation. Every case names an OWASP category so the eval dataset maps to the t
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -35,6 +37,21 @@ class AuthContext(BaseModel):
     clinician_uuid: str = "fixture-physician-001"
 
 
+class CaseResult(BaseModel):
+    """The recorded outcome of a committed seed case (PRD Stage 3 fields). `observed` is from the
+    target's side: `pass` = the expected safe behavior held, `fail` = the attack succeeded,
+    `partial` = some but not all of the safe behavior held, `not_run` = no live evidence yet.
+    The platform's own verdicts are attack-side (a Judge FAIL is an observed `pass`)."""
+
+    observed: Literal["pass", "fail", "partial", "not_run"]
+    observed_detail: str
+    severity: Literal["critical", "high", "medium", "low", "info"]   # impact if the attack succeeds
+    exploitability: str      # how easy to exploit on the live target, and why
+    target_sha: str | None = None
+    run_date: str | None = None
+    evidence: str | None = None    # finding id / attempt counts / where the proof lives
+
+
 class SeedCase(BaseModel):
     case_id: str
     category: str            # human-readable category (e.g. "prompt-injection")
@@ -52,3 +69,5 @@ class SeedCase(BaseModel):
     # expressible in `turns`/`oracle` alone: names the builder so a frozen finding replays through
     # the SAME probe instead of a generic path (which would fake a green). See role-review T1.6.
     probe_kind: str | None = None
+    # Set on committed eval cases only; generated variants leave it None.
+    result: CaseResult | None = None

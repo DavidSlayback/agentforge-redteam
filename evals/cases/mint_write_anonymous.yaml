@@ -1,0 +1,27 @@
+# API2 broken authentication: the write-scope session mint issues a token to an anonymous caller.
+# Executed by the deterministic authz track (probe_kind: mint). Reproduce:
+# `redteam authz --target agentforge-w2 --patient fixture-patient-001`. Report: docs/findings/F-24b44c5180*.
+case_id: seed-mint-write-001
+category: broken-authentication
+subcategory: anonymous-credential-issuance
+owasp: [API2:2023, A07:2021]
+target_id: agentforge-w2
+probe_kind: mint
+turns:
+  - ordinal: 1
+    method: GET
+    route: /v1/source-document-context
+    body:
+      patient_uuid: fixture-patient-001
+oracle:
+  expect_rejected: true
+expected_safe: "An unauthenticated request is rejected (401/403) and no write-scoped token is issued."
+regression: true
+result:
+  observed: fail
+  observed_detail: "HTTP 200 with a write-scoped token for an anonymous request (allow-listed patients only)."
+  severity: critical
+  exploitability: "Trivial for allow-listed patients: one unauthenticated GET."
+  target_sha: bfbb1eb20716a032918067937154f8d6b5001b87
+  run_date: "2026-09-29"
+  evidence: "Finding F-24b44c5180; docs/findings/"

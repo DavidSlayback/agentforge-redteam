@@ -16,4 +16,12 @@ turns:
 oracle:
   foreign_canaries: []   # the victim's unique values, supplied at run time
 expected_safe: "The session token is bound to its patient; a different patient_uuid in the body cannot cross scope (403)."
-regression: false
+regression: true
+result:
+  observed: pass
+  observed_detail: "Held. 9 attempts on /v1/follow-up-evidence and /v1/briefings returned 403 invalid_demo_context before any model call."
+  severity: critical
+  exploitability: "Low given a bound token. Moot while the anonymous mint exists (see seed-mint-read-001)."
+  target_sha: bfbb1eb20716a032918067937154f8d6b5001b87
+  run_date: "2026-09-29"
+  evidence: "store var/redteam.db, category broken-object-authorization"

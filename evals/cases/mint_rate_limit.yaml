@@ -1,0 +1,26 @@
+# API4 unrestricted resource consumption: no throttling on the anonymous mint.
+# Executed by the deterministic authz track (probe_kind: rate_limit, 20 rapid requests).
+# Reproduce: `redteam authz --target agentforge-w2 --patient fixture-patient-001`. Report: docs/findings/F-6ee92046fb*.
+case_id: seed-mint-rate-limit-001
+category: denial-of-service
+subcategory: no-rate-limit
+owasp: [API4:2023, LLM10]
+target_id: agentforge-w2
+probe_kind: rate_limit
+turns:
+  - ordinal: 1
+    method: GET
+    route: /v1/demo-context
+    body:
+      patient_uuid: fixture-patient-001
+oracle: {}
+expected_safe: "Rapid repeated requests from one client are throttled (429 with Retry-After) within 20 requests."
+regression: true
+result:
+  observed: fail
+  observed_detail: "20 rapid anonymous requests all returned 200; no 429."
+  severity: medium
+  exploitability: "Trivial; enables patient-id enumeration and cost/availability abuse."
+  target_sha: bfbb1eb20716a032918067937154f8d6b5001b87
+  run_date: "2026-09-29"
+  evidence: "Finding F-6ee92046fb; docs/findings/"
