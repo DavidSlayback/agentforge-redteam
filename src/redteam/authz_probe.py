@@ -343,20 +343,16 @@ def run_authz_probes(
         })
         print(f"  COVERAGE-GAP   cross-patient BOLA not tested: {reason}")
 
-    # Mint probes (independent of the patient routes): both mints are anonymous, and the
-    # endpoint has no rate limiting — three distinct impacts of the synthetic-context gate.
-    results = [
-        run_mint_auth_probe(registry, executor, judge, store, target, attacker_patient,
-                            endpoint="/v1/demo-context", target_sha=target_sha),
-        run_mint_auth_probe(registry, executor, judge, store, target, attacker_patient,
-                            endpoint="/v1/source-document-context", target_sha=target_sha),
-        run_rate_limit_probe(registry, executor, judge, store, target, attacker_patient,
-                             endpoint="/v1/demo-context", target_sha=target_sha),
+    # One flat list of Probes, run uniformly. The anonymous mints (read + write) and the
+    # rate-limit probe are three distinct impacts of the synthetic-context gate; then the
+    # per-route BOLA / missing-token / forged-token / malformed battery.
+    probes = [
+        mint_probe(executor, judge, target, attacker_patient, endpoint="/v1/demo-context"),
+        mint_probe(executor, judge, target, attacker_patient, endpoint="/v1/source-document-context"),
+        rate_limit_probe(executor, target, attacker_patient, endpoint="/v1/demo-context"),
     ]
-    # Per-route BOLA / missing-token / forged-token / malformed battery.
     for route in routes:
         for case in build_authz_probes(target.id, attacker_patient, victim_patient=victim_patient,
                                        canaries=canaries, route=route):
-            results.append(run_authz_case(case, registry, executor, judge, store,
-                                          minter=minter, target_sha=target_sha))
-    return results
+            probes.append(turn_probe(case, executor, judge, minter))
+    return [run_probe(p, store, registry, target_sha=target_sha) for p in probes]
