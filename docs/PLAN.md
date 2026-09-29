@@ -625,3 +625,66 @@ real-SHA runs; 3 findings reported.
 
 **Not required (optional E-items), pick by value if time:** triage exercise (E4), ATO evidence
 packet (E15), load/baseline profiles (E13/E14), SQL index SLO in CI (E12).
+
+## 2026-09-29 (late) — FIX DEPLOYED; final-submission execution plan
+
+**State change:** the target SHA moved `bfbb1eb2…` → **`40cfbdffcaa77a4ffaf24bcae1ac37c6e402afb1`**
+(`GET /health`). Manual attacker-surface probes (this session, PowerShell) show all three
+findings **held at the surface**:
+
+| Finding | Before | Now (`40cfbdff`) | Held via |
+|---|---|---|---|
+| F-831d4df407 anon **read** mint (`GET /v1/demo-context`) | 200 + `demo_token` | **401** | auth gate |
+| F-24b44c5180 anon **write** mint (`POST /v1/source-document-context`) | 200 + `demo_token` | **404** | route removed |
+| F-6ee92046fb no rate limit / enumeration (`/v1/demo-context`) | 20 mints, no 429 | 8× **401** before any mint | auth gate closes the vector |
+
+These are manual single-request probes, **not yet** the deterministic replay-on-SHA that the
+regression harness produces. The graded "fixes hold" evidence still requires the harness path.
+
+**Critical-path consequence — the mint credential is the linchpin.** `TokenMinter._mint`
+(`src/redteam/executor/token.py:44`) requires a `200` with `demo_token`; it now gets `401`
+→ `TargetUnreachable`. Therefore:
+- **Negative half of #1** (the 3 findings are *closed*) is verifiable **now** — those attacks are
+  anonymous by definition, so replay needs no credential; it just needs the frozen store.
+- **Positive half of #1** (legitimate scope still works: BOLA-held, cross-patient probes) mints a
+  real attacker token → **blocked** on the evaluator access code + header/env name that the
+  `agentforge-week1` fix session hands back. Until then these probes 401 → INCONCLUSIVE (honest,
+  but not a clean "legit access preserved" demonstration).
+- **All campaigns** (excessive-agency at volume, #5; any model-driven attack) also mint a patient
+  token → **blocked** on the same credential (and need `.env` model keys, absent in this worktree).
+
+### Decisions needed from David (front-loaded)
+
+1. **Evaluator credential + header/env name** for `TokenMinter` — the handoff-back item from the
+   `agentforge-week1` session. Unblocks the positive half of #1, #5, and all campaigns.
+2. **Write-mint 404** — confirm `/v1/source-document-context` was intentionally **removed** (surface
+   eliminated) vs. renamed/moved. If moved, F-24b44c5180 is not "resolved" and our `mint_write` is
+   silently broken rather than the target being fixed.
+3. **Read-mint approach** appears to be **(a) evaluator access code** (deployed as 401, not the
+   risk-accepted 200) — confirm so the finding write-up records the chosen remediation correctly.
+
+### Sequenced slices — ready / blocked / human
+
+Conductor route: deterministic + docs slices, contract/unit test where behavior exists, subagent
+review per slice, record result here. Legend: ✅ ready · ⛔ blocked (credential) · 👤 David-only.
+
+| # | Slice | Maps to | Dep | Route |
+|---|---|---|---|---|
+| S0 | `.gitattributes` (`* text=auto eol=lf`) — no repo-wide renormalize without go-ahead | checklist 7 | ✅ | trivial, this turn |
+| S1 | **#1 negative half**: regression replay of the 3 mint findings vs `40cfbdff`; confirm held (401/404); capture evidence | checklist 1 (part) | ✅ (needs store) | run `redteam regression --sha 40cfbdff`, `--store` → main-checkout db |
+| S2 | **T3.5 SHA-change poller**: poll `/health`, on `git_sha` change run regression + record the trigger (agent_action + run row) | checklist 2; P5/T3.5; P3 | ✅ deterministic | build → unit test (SHA-change fires once) → review |
+| S3 | **P5 cross-category regression flagging**: flag when a frozen case in category A regresses while validating a fix in B | checklist 3; P5 | ✅ deterministic | build → unit test → review |
+| S4 | **Benign clinician set (~10)** authored + loader/test; **run** deferred to credential | checklist 4; KEY_METRICS #4 | authoring ✅ / run ⛔ | author here (benign content safe); gate the run |
+| S5 | **Judge calibration set (20–30)** for κ + drift — offline scoring of stored responses (rubric model key), no target | checklist 4; KEY_METRICS #5; T3.3 | authoring ✅ / run needs rubric key | scaffold + labels; flag if offensive labels trip the classifier |
+| S6 | **#1 positive half**: `redteam authz … --target-sha 40cfbdff` (BOLA-held, cross-patient, legit scope) once credential wired | checklist 1 (part) | ⛔ credential | wire `TokenMinter` cred → run → review |
+| S7 | **#5 excessive-agency at volume** (raise n above 1) | checklist 5 | ⛔ credential + model keys | campaign loop once unblocked |
+| S8 | **Regenerate 3 reports + dashboard**, set `docs/findings/` status → resolved where held; resilience-by-SHA before/after | checklist 1 (finish) | after S1(+S6) | `redteam document` × 3 + `redteam dashboard` |
+| — | Social post, AI interview, refreshed demo video (full find→fix→validate arc) | checklist 6 | 👤 David | — |
+
+**First slice: S0 now, then S2 (poller) as the first behavioral slice** — it operationalizes the
+exact fix-validation loop #1 needs and is the demo centerpiece, fully unblocked. S1 runs as soon as
+the frozen store location is settled (it lives in the main checkout's `var/redteam.db`, gitignored;
+copy in or `--store` at it). S6/S7/S8's live-target half waits on the credential (decision 1).
+
+**Not blocking the plan on #1's positive half:** S2/S3/S5 authoring proceed in parallel; the
+credential arriving flips S6/S7 and completes S8.
