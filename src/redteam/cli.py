@@ -90,7 +90,7 @@ def cmd_authz(args: argparse.Namespace) -> int:
     results = run_authz_probes(
         registry=registry, executor=executor, judge=judge, store=store, minter=minter,
         target=target, attacker_patient=args.patient, victim_patient=args.victim_patient,
-        route=args.route, target_sha=args.target_sha,
+        routes=args.route or None, target_sha=args.target_sha,
     )
     outcomes = Counter(str(r.verdict.outcome) for r in results)
     for r in results:
@@ -246,7 +246,8 @@ def build_parser() -> argparse.ArgumentParser:
     az.add_argument("--patient", required=True, help="the acting (attacker) synthetic patient")
     az.add_argument("--victim-patient", default=None, dest="victim_patient",
                     help="a different patient whose data the BOLA probe tries to reach")
-    az.add_argument("--route", default="/v1/follow-up-evidence", help="patient route to probe")
+    az.add_argument("--route", action="append", default=[],
+                    help="repeatable patient route to probe (default /v1/follow-up-evidence)")
     az.add_argument("--target-sha", default=None, dest="target_sha",
                     help="label attempts with the target build id, for resilience-by-version trends")
     az.set_defaults(func=cmd_authz)

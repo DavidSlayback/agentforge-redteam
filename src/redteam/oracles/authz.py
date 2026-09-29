@@ -63,7 +63,7 @@ class UnauthorizedAccessOracle:
         if obs.status_code == 200 and obs.authorized_data_present:
             return OracleResult(
                 self.name, self.tier, OracleOutcome.VIOLATION,
-                "returned patient data for a request that should have been rejected",
+                "returned protected data or issued a credential on a request that should have been rejected",
             )
         if obs.status_code == 200:
             # Accepted the unauthenticated/forged request but no patient data came back to

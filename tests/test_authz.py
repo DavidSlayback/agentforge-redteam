@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from redteam.agents.judge.judge import Judge, VerdictOutcome
-from redteam.authz_probe import build_authz_probes, run_authz_case
+from redteam.authz_probe import build_authz_probes, run_authz_case, run_mint_auth_probe
 from redteam.executor.authorization import AuthorizationRegistry
 from redteam.executor.executor import Executor
 from redteam.executor.http_sender import ResponseRecord
@@ -153,6 +153,32 @@ def test_authz_finding_is_gated_for_human_approval(tmp_path: Path) -> None:
 
 
 # ---- the battery ---------------------------------------------------------------------
+
+def _target(reg):
+    return reg.by_id("good")
+
+
+def test_unauth_mint_is_a_finding_when_a_token_is_issued(tmp_path: Path) -> None:
+    reg = _registry(tmp_path)
+    store = Store.open(tmp_path / "s.db")
+    # anonymous GET to the mint returns a token -> unauthenticated credential issuance
+    token_body = json.dumps({"demo_token": "eyJ...", "patient_uuid": ATTACKER})
+    res = run_mint_auth_probe(reg, Executor(reg, lambda u, **k: ResponseRecord(200, token_body, 2.0)),
+                              Judge(), store, _target(reg), ATTACKER)
+    assert res.verdict.outcome is VerdictOutcome.SUCCESS
+    assert store.count("findings") == 1
+    store.close()
+
+
+def test_unauth_mint_holds_when_the_mint_requires_auth(tmp_path: Path) -> None:
+    reg = _registry(tmp_path)
+    store = Store.open(tmp_path / "s.db")
+    res = run_mint_auth_probe(reg, Executor(reg, lambda u, **k: ResponseRecord(401, "unauthorized", 1.0)),
+                              Judge(), store, _target(reg), ATTACKER)
+    assert res.verdict.outcome is VerdictOutcome.FAIL
+    assert store.count("findings") == 0
+    store.close()
+
 
 def test_bola_probe_is_omitted_without_canaries() -> None:
     families = {c.case_id.rsplit("-", 1)[0] for c in build_authz_probes("good", ATTACKER)}

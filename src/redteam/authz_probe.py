@@ -195,6 +195,50 @@ def build_authz_probes(
     return probes
 
 
+def run_mint_auth_probe(
+    registry: AuthorizationRegistry,
+    executor: Executor,
+    judge: Judge,
+    store,
+    target,
+    patient: str,
+    target_sha: str | None = None,
+) -> RunResult:
+    """Confirm `/v1/demo-context` issues a valid session token with NO authentication.
+
+    The read/patient routes are well-defended precisely because they bind a token to its
+    patient — but that binding is only meaningful if a token cannot be minted at will. This
+    probe sends the mint with no credentials; a 200 carrying a `demo_token` is unauthenticated
+    credential issuance (broken authentication / insecure design). It is gated in the target by
+    `AGENTFORGE_SYNTHETIC_CONTEXT`; the finding is caveated accordingly but is real if that gate
+    is ever on in production. Deterministic — no LLM.
+    """
+    base = f"{target.origin}{target.base_path}"
+    case = SeedCase(
+        case_id=f"authz-unauth-mint-{uuid.uuid4().hex[:8]}",
+        category="broken-authentication", owasp=["API2:2023"],
+        target_id=target.id,
+        turns=[Turn(ordinal=1, method="GET", route="/v1/demo-context", body={"patient_uuid": patient})],
+        oracle=OracleConfig(expect_rejected=True),
+        expected_safe="minting a patient session token requires authentication; an anonymous request is rejected",
+    )
+    exchanges: list[dict] = []
+    try:
+        record = executor.request(f"{base}/v1/demo-context", method="GET", params={"patient_uuid": patient})
+        token_issued = record.status_code == 200 and '"demo_token"' in (record.text or "")
+        exchanges.append(record_exchange(1, "/v1/demo-context", "GET",
+                                         {"patient_uuid": patient, "_auth": "none (anonymous)"}, record))
+        obs = Observation(response_text=record.text, status_code=record.status_code,
+                          latency_ms=record.latency_ms, expect_rejected=True,
+                          authorized_data_present=token_issued)
+        verdict = judge.judge(obs)
+        provider_events: list[str] = []
+    except TargetUnreachable as exc:
+        verdict = Verdict(VerdictOutcome.INCONCLUSIVE, (), f"target unreachable: {exc}")
+        provider_events = ["target_unreachable"]
+    return finalize(store, case, target, exchanges, verdict, provider_events, target_sha=target_sha)
+
+
 def run_authz_probes(
     *,
     registry: AuthorizationRegistry,
@@ -205,31 +249,39 @@ def run_authz_probes(
     target,
     attacker_patient: str,
     victim_patient: str | None = None,
-    route: str = "/v1/follow-up-evidence",
+    routes: list[str] | None = None,
     target_sha: str | None = None,
 ) -> list[RunResult]:
-    """Discover cross-patient canaries (if a victim is named), build the battery, run it."""
+    """Run the mint-auth probe once, then the per-route battery across every route given.
+
+    Discovers cross-patient canaries (if a victim is named) so the BOLA probe on each route is
+    deterministically scorable. Fails loud (coverage_gap) when the BOLA probe can't be built.
+    """
+    routes = routes or ["/v1/follow-up-evidence"]
     canaries: list[str] = []
     if victim_patient:
         canaries = discover_foreign_canaries(executor, minter, target, victim_patient, attacker_patient)
 
-    # Fail loudly: the cross-patient (BOLA) probe is the point of this battery, so if it cannot
-    # be built — no victim named, or no distinctive victim-only value to detect a leak with —
-    # record a visible coverage gap rather than silently omitting it and exiting green.
+    # The cross-patient (BOLA) probe is the point of this battery; if it cannot be built — no
+    # victim named, or no distinctive victim-only value to detect a leak with — record a visible
+    # coverage gap rather than silently omitting it and exiting green.
     if not (victim_patient and canaries):
         reason = ("no --victim-patient given" if not victim_patient
                   else "no distinctive victim-only canary discovered (cannot detect a leak)")
         store.insert("agent_actions", {
             "ts": _now(), "agent": "authz", "action": "coverage_gap",
-            "refs": json.dumps({"probe": "bola-cross-patient", "route": route,
+            "refs": json.dumps({"probe": "bola-cross-patient", "routes": routes,
                                 "victim": victim_patient, "canaries": len(canaries)}),
             "reason": f"cross-patient BOLA NOT tested: {reason}",
         })
         print(f"  COVERAGE-GAP   cross-patient BOLA not tested: {reason}")
 
-    probes = build_authz_probes(
-        target.id, attacker_patient, victim_patient=victim_patient, canaries=canaries, route=route,
-    )
-    results = [run_authz_case(case, registry, executor, judge, store, minter=minter, target_sha=target_sha)
-               for case in probes]
+    # Unauthenticated-mint probe: independent of route, run once.
+    results = [run_mint_auth_probe(registry, executor, judge, store, target, attacker_patient, target_sha=target_sha)]
+    # Per-route BOLA / missing-token / forged-token / malformed battery.
+    for route in routes:
+        for case in build_authz_probes(target.id, attacker_patient, victim_patient=victim_patient,
+                                       canaries=canaries, route=route):
+            results.append(run_authz_case(case, registry, executor, judge, store,
+                                          minter=minter, target_sha=target_sha))
     return results
