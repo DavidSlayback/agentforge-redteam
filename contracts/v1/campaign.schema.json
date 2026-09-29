@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentforge-redteam/contracts/v1/campaign.schema.json",
+  "title": "Campaign (v1)",
+  "description": "Orchestrator -> Red Team. Directs a bounded hunt: which surface and OWASP categories to attack, under what budget, and the selector's reasoning.",
+  "type": "object",
+  "required": ["schema_version", "campaign_id", "target_id", "category", "status"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "campaign_id": {"type": "string"},
+    "target_id": {"type": "string", "description": "must resolve to an enabled entry in authorization.yaml"},
+    "target_sha": {"type": ["string", "null"]},
+    "surface": {"type": ["string", "null"], "description": "route or workflow edge"},
+    "category": {"type": "array", "items": {"type": "string"}, "description": "OWASP categories in scope"},
+    "objective_ref": {"type": ["string", "null"]},
+    "budget": {
+      "type": "object",
+      "properties": {
+        "max_campaigns": {"type": "integer"},
+        "max_model_calls": {"type": ["integer", "null"]},
+        "max_no_signal": {"type": ["integer", "null"]}
+      },
+      "additionalProperties": true
+    },
+    "priority_inputs": {"type": "object", "additionalProperties": true},
+    "selector": {
+      "type": "object",
+      "properties": {
+        "jev_version": {"type": ["string", "null"]},
+        "top_k": {"type": ["integer", "null"]},
+        "chosen": {},
+        "probabilities": {}
+      },
+      "additionalProperties": true
+    },
+    "status": {"type": "string", "enum": ["new", "running", "done", "halted"]}
+  },
+  "additionalProperties": true
+}

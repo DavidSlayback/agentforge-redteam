@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentforge-redteam/contracts/v1/verdict.schema.json",
+  "title": "Verdict (v1)",
+  "description": "Judge -> store. The composed outcome of the tier-0 oracle battery (and optional LLM rubric) over one Attempt. A provider block or missing evidence yields INCONCLUSIVE, never a silent pass.",
+  "type": "object",
+  "required": ["schema_version", "verdict_id", "attempt_id", "outcome", "oracle_results", "judged_at"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "verdict_id": {"type": "string"},
+    "attempt_id": {"type": "string"},
+    "outcome": {"type": "string", "enum": ["SUCCESS", "PARTIAL", "FAIL", "INCONCLUSIVE"]},
+    "oracle_results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["oracle", "outcome"],
+        "properties": {
+          "oracle": {"type": "string"},
+          "tier": {"type": "integer"},
+          "outcome": {"type": "string", "enum": ["violation", "safe", "inconclusive", "not_applicable"]},
+          "detail": {"type": "string"}
+        },
+        "additionalProperties": true
+      }
+    },
+    "rubric": {"type": ["object", "null"], "description": "LLM rubric tier, if consulted; never overrides a tier-0 violation"},
+    "evidence_ref": {"type": ["string", "null"]},
+    "calibration_set_version": {"type": ["string", "null"]},
+    "judged_at": {"type": "string"}
+  },
+  "additionalProperties": true
+}

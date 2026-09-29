@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentforge-redteam/contracts/v1/finding.schema.json",
+  "title": "Finding (v1)",
+  "description": "Derived from one or more SUCCESS verdicts. The distinct weakness (deduped by oracle:sink:category); the verdicts are its evidence. Severity is provisional pending CVSS v4.",
+  "type": "object",
+  "required": ["schema_version", "finding_id", "title", "primary_category", "severity", "status", "dedup_key"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "finding_id": {"type": "string"},
+    "title": {"type": "string"},
+    "taxonomy": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["scheme", "id"],
+        "properties": {
+          "scheme": {"type": "string"},
+          "version": {"type": "string"},
+          "id": {"type": "string"}
+        },
+        "additionalProperties": true
+      }
+    },
+    "primary_category": {"type": "string"},
+    "severity": {
+      "type": "object",
+      "description": "provisional level to route the approval gate; CVSS v4 fields added on confirmation",
+      "properties": {
+        "provisional_level": {"type": "string", "enum": ["low", "medium", "high", "critical"]},
+        "note": {"type": "string"},
+        "cvss_v4_vector": {"type": "string"},
+        "score": {"type": "number"},
+        "safety_supplemental": {}
+      },
+      "additionalProperties": true
+    },
+    "severity_score": {"type": ["number", "null"]},
+    "clinical_axis": {"description": "clinical-harm axis, kept separate from CVSS"},
+    "component": {"type": ["string", "null"]},
+    "first_seen_sha": {"type": ["string", "null"]},
+    "status": {"type": "string"},
+    "verdict_ids": {"type": "array", "items": {"type": "string"}},
+    "dedup_key": {"type": "string", "description": "oracle:sink:category — enforces one finding per weakness"}
+  },
+  "additionalProperties": true
+}

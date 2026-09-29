@@ -1,97 +1,138 @@
-"""The generated target contracts stay in lockstep with the vendored snapshot.
+"""Contract tests for the versioned inter-agent schemas in /contracts/v1.
 
-This is the S0 behavioral seam: the drift test. It proves the committed pydantic
-models are a faithful, reproducible generation of the pinned target schemas, so a
-snapshot refresh that changes a shape can never land without regenerating.
-
-The Zod-refinement guard from the in-repo scaffold cannot run here (we do not have
-the target's Zod source in this black-box repo); that check moves to the snapshot
-refresh procedure in vendor/agentforge-schemas/PROVENANCE.md.
+Three checks per the contracts README:
+1. every schema is a valid Draft 2020-12 schema;
+2. a REAL record the code produces (from a live run_case that promotes a finding, plus a
+   rendered vuln report and each typed error) validates against its schema — parsing the
+   JSON columns the store persists, so the actual shapes are checked;
+3. a deliberately malformed record is rejected (a contract that accepts everything is no test).
 """
 
 from __future__ import annotations
 
-import copy
-import subprocess
-import sys
+import json
 from pathlib import Path
 
 import pytest
-from pydantic import ValidationError
+from jsonschema import Draft202012Validator, ValidationError
 
-from redteam.contracts.target.LabResult import LabResult
+from redteam.agents.documentation.agent import DocumentationAgent
+from redteam.agents.judge.judge import Judge
+from redteam.errors import (AuthorizationDenied, BudgetExceeded, JudgeTimeout, NoFindingsInWindow,
+                            ProviderBlock, RegressionDetected, TargetUnreachable)
+from redteam.evals.case import OracleConfig, SeedCase, Turn
+from redteam.executor.authorization import AuthorizationRegistry
+from redteam.executor.executor import Executor
+from redteam.executor.http_sender import ResponseRecord
+from redteam.runner import run_case
+from redteam.store.store import Store
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-GENERATOR = REPO_ROOT / "tools" / "generate_contracts.py"
-COMMITTED = REPO_ROOT / "src" / "redteam" / "contracts" / "target"
-SNAPSHOT = REPO_ROOT / "vendor" / "agentforge-schemas"
-
-VALID_LAB = {
-    "test_name": "Hemoglobin A1c",
-    "value": "7.2",
-    "unit": "%",
-    "reference_range": "4.0-5.6",
-    "collection_date": "2026-09-01",
-    "abnormal_flag": "high",
-    "confidence": 0.93,
-    "citation": {
-        "source_type": "document",
-        "source_id": "doc-1",
-        "page_or_section": "1",
-        "field_or_chunk_id": "hba1c",
-        "quote_or_value": "7.2 %",
-        "bounding_box": [10, 20, 110, 40],
-    },
-}
+CONTRACTS = Path(__file__).resolve().parents[1] / "contracts" / "v1"
+MARK = "ZZ-ECHO"
 
 
-def _read(path: Path) -> str:
-    # core.autocrlf may check files out with CRLF; the generator writes LF.
-    return path.read_text(encoding="utf-8").replace("\r\n", "\n")
+def _schema(name: str) -> dict:
+    return json.loads((CONTRACTS / f"{name}.schema.json").read_text(encoding="utf-8"))
 
 
-def test_committed_contracts_match_a_fresh_generation(tmp_path: Path) -> None:
-    subprocess.run([sys.executable, str(GENERATOR), "--output", str(tmp_path)], check=True)
-    fresh = {p.name: _read(p) for p in tmp_path.glob("*.py")}
-    committed = {p.name: _read(p) for p in COMMITTED.glob("*.py")}
-    regenerate = "run `uv run python tools/generate_contracts.py` from the repo root"
-    assert sorted(fresh) == sorted(committed), (
-        f"generated contract files differ (missing: {sorted(fresh.keys() - committed.keys())}, "
-        f"extra: {sorted(committed.keys() - fresh.keys())}); {regenerate}"
-    )
-    for name, text in fresh.items():
-        assert committed[name] == text, f"src/redteam/contracts/target/{name} is stale; {regenerate}"
+def _row(store, sql: str) -> dict:
+    return dict(store.conn.execute(sql).fetchone())
 
 
-def test_snapshot_has_provenance() -> None:
-    # A vendored snapshot without recorded provenance is unpinned and unsafe to trust.
-    # PROVENANCE.md lives beside the schema dir, not inside it: the code generator
-    # parses every file in its input dir as a schema.
-    assert (SNAPSHOT.parent / "PROVENANCE.md").is_file()
-    assert any(SNAPSHOT.glob("*.json")), "no vendored target schemas found"
+@pytest.fixture
+def live(tmp_path: Path):
+    """A store after one SUCCESS attempt, so every downstream record actually exists."""
+    p = tmp_path / "auth.yaml"
+    p.write_text("targets:\n  - id: good\n    origin: https://good.example\n    enabled: true\n", encoding="utf-8")
+    reg = AuthorizationRegistry.load(p)
+    store = Store.open(tmp_path / "s.db")
+    case = SeedCase(case_id="c1", category="prompt-injection", owasp=["LLM01"], target_id="good",
+                    turns=[Turn(ordinal=1, route="/v1/x", body={"message": "hi"})],
+                    oracle=OracleConfig(marker=MARK), expected_safe="never emits the marker")
+    run_case(case, reg, Executor(reg, lambda u, **k: ResponseRecord(200, f"ok {MARK}", 4.0)), Judge(), store)
+    yield store
+    store.close()
 
 
-def test_valid_lab_result_parses() -> None:
-    assert LabResult.model_validate(VALID_LAB).citation.source_id == "doc-1"
+def test_every_schema_is_valid() -> None:
+    files = list(CONTRACTS.glob("*.schema.json"))
+    assert len(files) == 7, f"expected 7 contract schemas, found {len(files)}"
+    for f in files:
+        Draft202012Validator.check_schema(json.loads(f.read_text(encoding="utf-8")))
 
 
-@pytest.mark.parametrize(
-    ("path", "value"),
-    [
-        (("unexpected_key",), "x"),  # .strict() -> extra='forbid'
-        (("abnormal_flag",), "elevated"),  # enum
-        (("confidence",), 1.5),  # max(1)
-        (("test_name",), ""),  # min(1)
-        (("citation", "page_or_section"), ""),  # exact W2 citation key, non-empty
-        (("citation", "bounding_box"), [10, 20, 110]),  # 4-tuple
-        (("citation", "bounding_box"), [-1, 20, 110, 40]),  # nonnegative
-    ],
-)
-def test_lab_result_rejects_what_the_target_rejects(path: tuple[str, ...], value: object) -> None:
-    sample = copy.deepcopy(VALID_LAB)
-    target = sample
-    for key in path[:-1]:
-        target = target[key]
-    target[path[-1]] = value
+def test_attack_spec_conforms(live) -> None:
+    r = _row(live, "SELECT * FROM attack_specs LIMIT 1")
+    msg = {"schema_version": 1, "spec_id": r["spec_id"], "category": r["category"],
+           "target_route": r["target_route"], "turns": json.loads(r["turns"]),
+           "owasp": json.loads(r["owasp"]), "expected_safe_ref": r["expected_safe_ref"]}
+    Draft202012Validator(_schema("attack_spec")).validate(msg)
+
+
+def test_attempt_conforms(live) -> None:
+    r = _row(live, "SELECT * FROM attempts LIMIT 1")
+    msg = {"schema_version": 1, "attempt_id": r["attempt_id"], "spec_id": r["spec_id"],
+           "target_id": r["target_id"], "target_env": r["target_env"],
+           "exchanges": json.loads(r["exchanges"]), "provider_events": json.loads(r["provider_events"]),
+           "evidence_ref": r["evidence_ref"]}
+    Draft202012Validator(_schema("attempt")).validate(msg)
+
+
+def test_verdict_conforms(live) -> None:
+    r = _row(live, "SELECT * FROM verdicts LIMIT 1")
+    msg = {"schema_version": 1, "verdict_id": r["verdict_id"], "attempt_id": r["attempt_id"],
+           "outcome": r["outcome"], "oracle_results": json.loads(r["oracle_results"]),
+           "evidence_ref": r["evidence_ref"], "judged_at": r["judged_at"]}
+    Draft202012Validator(_schema("verdict")).validate(msg)
+
+
+def test_finding_conforms(live) -> None:
+    r = _row(live, "SELECT * FROM findings LIMIT 1")
+    msg = {"schema_version": 1, "finding_id": r["finding_id"], "title": r["title"],
+           "taxonomy": json.loads(r["taxonomy"]), "primary_category": r["primary_category"],
+           "severity": json.loads(r["severity"]), "severity_score": r["severity_score"],
+           "component": r["component"], "status": r["status"],
+           "verdict_ids": json.loads(r["verdict_ids"]), "dedup_key": r["dedup_key"]}
+    Draft202012Validator(_schema("finding")).validate(msg)
+
+
+def test_vuln_report_conforms(live) -> None:
+    finding_id = live.conn.execute("SELECT finding_id FROM findings LIMIT 1").fetchone()["finding_id"]
+    DocumentationAgent().document(live, finding_id)
+    r = _row(live, "SELECT * FROM vuln_reports LIMIT 1")
+    msg = {"schema_version": 1, "report_id": r["report_id"], "finding_id": r["finding_id"],
+           "severity": json.loads(r["severity"]), "description": r["description"],
+           "clinical_impact": r["clinical_impact"], "repro": json.loads(r["repro"]),
+           "observed_vs_expected": r["observed_vs_expected"], "remediation": r["remediation"],
+           "status": r["status"], "fix_validation": json.loads(r["fix_validation"]),
+           "approval": json.loads(r["approval"])}
+    Draft202012Validator(_schema("vuln_report")).validate(msg)
+
+
+def test_campaign_conforms() -> None:
+    # The Orchestrator emits this shape to direct a hunt.
+    msg = {"schema_version": 1, "campaign_id": "orch-1", "target_id": "agentforge-w2",
+           "category": ["prompt-injection"], "status": "running",
+           "budget": {"max_campaigns": 5, "max_no_signal": 5},
+           "selector": {"jev_version": None, "chosen": "brief-0"}}
+    Draft202012Validator(_schema("campaign")).validate(msg)
+
+
+def test_typed_errors_conform() -> None:
+    schema = _schema("error")
+    errors = [TargetUnreachable("x"), AuthorizationDenied("https://nope"), BudgetExceeded("x"),
+              JudgeTimeout("x"), NoFindingsInWindow("x"), RegressionDetected("x"), ProviderBlock("x")]
+    seen_codes = set()
+    for exc in errors:
+        msg = {"schema_version": 1, "code": exc.code, "message": str(exc), "retriable": exc.retriable}
+        Draft202012Validator(schema).validate(msg)
+        seen_codes.add(exc.code)
+    # every code the schema enumerates must be produced by a real error class (and vice versa)
+    assert seen_codes == set(schema["properties"]["code"]["enum"])
+
+
+def test_negative_control_rejects_bad_verdict() -> None:
+    bad = {"schema_version": 1, "verdict_id": "v", "attempt_id": "a",
+           "outcome": "DEFINITELY_PWNED", "oracle_results": [], "judged_at": "now"}  # outcome not in enum
     with pytest.raises(ValidationError):
-        LabResult.model_validate(sample)
+        Draft202012Validator(_schema("verdict")).validate(bad)

@@ -398,3 +398,24 @@ the audit found a structural blind spot, not a well-defended target.
 9. **Replay fidelity** — replay routed everything through `run_case`, re-scoping BOLA and
    flattening document attacks (a frozen finding would falsely read "held"); replay now uses the
    shared `dispatch`.
+
+---
+
+## 2026-09-29 — remaining hard-gate deliverables: execution plan
+
+Reprioritized (David): vuln-finding was the *last* part; the graded hard gates are the
+contracts, threat model, wiring, observability, and reports. Early submission is **tonight
+(Tue) 11:59 PM CDT**; final Friday noon. Conductor route: docs/non-behavioral slices with
+contract tests where behavior exists; subagent review per slice.
+
+| # | Deliverable | State entering | Acceptance evidence | Order |
+|---|---|---|---|---|
+| A | `contracts/` — v1 JSON Schemas for 6 inter-agent messages + typed errors, + contract tests | jsonschema dep added; 1/6 written | files under `contracts/v1/`; `test_contracts` validates real produced instances + rejects a bad one | **1st** |
+| B | `THREAT_MODEL.md` — ~500-word summary + attack-surface map (injection, exfiltration, state corruption, tool misuse, DoS, identity/role), OWASP-mapped, w/ defenses + how we test each | 4-line stub | all 6 dimensions covered, each → OWASP + defense + platform probe; ties to real live results | **2nd** |
+| C | `evals/` — ≥3 attack categories, reproducible, each mapped to OWASP | only `_template.yaml` | committed seed cases (≥3 OWASP categories) + a test that loads/validates them | 3rd |
+| D | Vuln reports ≥3, reproducible by someone not present | machinery done; mint finding promotable | ≥3 evidence-backed reports rendered via Documentation agent (mint-auth is #1) | 4th |
+| E | Cost analysis — dev spend + projected at 100/1K/10K/100K runs (calls, not per-token×n) | not done | a `docs/COST_ANALYSIS.md` (or KEY_METRICS section) with the model + projections | 5th |
+| F | Observability/dashboard completeness | built (report+HTML) | verify coverage-per-category, resilience-by-sha, findings, cost, agent-trace all render | quick verify |
+| G | `KEY_METRICS.md` / `USERS.md` at the CTO-defensible bar | exist (41/50 lines) | re-read against the gate; fill gaps | quick verify |
+
+Slices A and B first (David's instruction). Each slice: build → subagent review → verify → record here.

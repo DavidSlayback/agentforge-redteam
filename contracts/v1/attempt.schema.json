@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentforge-redteam/contracts/v1/attempt.schema.json",
+  "title": "Attempt (v1)",
+  "description": "Executor -> Judge. One execution of an AttackSpec against the target: the exchanges (request/response per turn), any provider events, cost, and a pointer to captured evidence.",
+  "type": "object",
+  "required": ["schema_version", "attempt_id", "spec_id", "target_id", "exchanges"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "attempt_id": {"type": "string"},
+    "spec_id": {"type": "string"},
+    "target_id": {"type": "string"},
+    "target_sha": {"type": ["string", "null"]},
+    "target_env": {"type": "string", "enum": ["local", "deployed"]},
+    "retrieval_mode": {"type": ["string", "null"], "enum": ["hybrid", "sparse_only", "no_rerank", "stub", null]},
+    "exchanges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["status_code"],
+        "properties": {
+          "ordinal": {"type": "integer"},
+          "route": {"type": "string"},
+          "method": {"type": "string"},
+          "request": {"description": "full request body (synthetic data) or omitted for the lean projection"},
+          "response": {"type": ["string", "null"], "description": "full response body (synthetic data)"},
+          "request_hash": {"type": "string"},
+          "response_hash": {"type": "string"},
+          "status_code": {"type": ["integer", "null"]},
+          "latency_ms": {"type": ["number", "null"]}
+        },
+        "additionalProperties": true
+      }
+    },
+    "provider_events": {"type": "array", "items": {"type": "string"}},
+    "cost": {"type": ["object", "null"]},
+    "evidence_ref": {"type": ["string", "null"]}
+  },
+  "additionalProperties": true
+}

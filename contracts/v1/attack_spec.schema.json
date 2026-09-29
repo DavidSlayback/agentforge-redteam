@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentforge-redteam/contracts/v1/attack_spec.schema.json",
+  "title": "AttackSpec (v1)",
+  "description": "Red Team -> Executor. A single attack to run: its route, ordered turns, OWASP category, and the oracle/expectation that will judge it. Mutation ancestry is carried for lineage.",
+  "type": "object",
+  "required": ["schema_version", "spec_id", "category", "target_route", "turns"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "spec_id": {"type": "string"},
+    "campaign_id": {"type": ["string", "null"]},
+    "parent_spec_id": {"type": ["string", "null"], "description": "the spec this was mutated from"},
+    "mutation_op": {"type": ["string", "null"]},
+    "category": {"type": "string"},
+    "owasp": {"type": "array", "items": {"type": "string"}},
+    "target_route": {"type": ["string", "null"]},
+    "turns": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["ordinal"],
+        "properties": {
+          "ordinal": {"type": "integer"},
+          "method": {"type": "string"},
+          "route": {"type": "string"},
+          "body": {"type": ["object", "null"], "description": "request body; adversarial content may instead be carried by reference"},
+          "input_ref": {"type": "string"}
+        },
+        "additionalProperties": true
+      }
+    },
+    "oracle_ref": {},
+    "expected_safe_ref": {"type": ["string", "null"]},
+    "budget_slice": {"type": ["object", "null"]}
+  },
+  "additionalProperties": true
+}

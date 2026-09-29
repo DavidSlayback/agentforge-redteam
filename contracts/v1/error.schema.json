@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentforge-redteam/contracts/v1/error.schema.json",
+  "title": "TypedError (v1)",
+  "description": "Every typed platform error crossing a boundary. A hard budget stop or a provider block is an outcome, not a crash: it is reported as one of these, never swallowed. `code` matches redteam.errors.*.code; `retriable` says whether a retry could succeed.",
+  "type": "object",
+  "required": ["schema_version", "code", "message", "retriable"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "code": {
+      "type": "string",
+      "enum": [
+        "target_unreachable",
+        "authorization_denied",
+        "budget_exceeded",
+        "judge_timeout",
+        "no_findings_in_window",
+        "regression_detected",
+        "provider_block"
+      ]
+    },
+    "message": {"type": "string"},
+    "context": {"type": ["object", "null"]},
+    "retriable": {"type": "boolean"}
+  },
+  "additionalProperties": true
+}
