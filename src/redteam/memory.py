@@ -8,6 +8,7 @@ will use the same signals to decide where to spend budget next.
 
 from __future__ import annotations
 
+import json
 from collections import Counter
 
 from redteam.store.store import Store
@@ -30,7 +31,33 @@ def prior_attempts(store: Store, target_id: str, category: str, limit: int = 50)
     ]
 
 
+def _payload_digest(turns_json: str, limit: int = 80) -> str:
+    """A short snippet of an attempt's payload (its first non-empty string field), so the Red
+    Team can be told what was already tried instead of only how many (role-review T3.8)."""
+    try:
+        turns = json.loads(turns_json) if turns_json else []
+    except (ValueError, TypeError):
+        return ""
+    for turn in turns:
+        for value in (turn.get("body") or {}).values():
+            if isinstance(value, str) and value.strip():
+                s = value.strip()
+                return s[:limit] + ("…" if len(s) > limit else "")
+    return ""
+
+
 def history_brief(store: Store, target_id: str, category: str) -> dict:
-    """A compact summary for the Red Team: how much was tried here and how it went."""
+    """A compact summary for the Red Team: how much was tried here, how it went, and a digest of
+    the distinct payloads already tried (so it varies from them, not just from a count)."""
     rows = prior_attempts(store, target_id, category)
-    return {"tried": len(rows), "outcomes": dict(Counter(r["outcome"] for r in rows))}
+    recent: list[str] = []
+    seen: set[str] = set()
+    for r in rows:
+        digest = _payload_digest(r["turns"])
+        if digest and digest not in seen:
+            seen.add(digest)
+            recent.append(digest)
+        if len(recent) >= 5:
+            break
+    return {"tried": len(rows), "outcomes": dict(Counter(r["outcome"] for r in rows)),
+            "recent_payloads": recent}

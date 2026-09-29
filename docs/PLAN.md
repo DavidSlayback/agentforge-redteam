@@ -490,9 +490,9 @@ doc overclaims. Checklist (— = todo, ✓ = done):
 - [ ] T3.4 Multi-turn attacks — target is stateless (recon), so document as N/A vs build.
 - [ ] T3.5 Recon/SHA-diff signal + Orchestrator regression trigger + CI regression gate.
 - [ ] T3.6 DoS payload synthesis in the harness (size param, not model tokens); surface finish_reason.
-- [ ] T3.7 Orchestrator prioritization: outcome-mix momentum, route-granular coverage, SHA/cost
+- [x] T3.7 Orchestrator prioritization: outcome-mix momentum, route-granular coverage, SHA/cost
   signals, is_deterministic_only candidate filter, Jev vendor-outage fallback, `--max-model-calls`.
-- [ ] T3.8 Red Team: thread verdict/oracle-results + techniques into `mutate`; memory payload digest;
+- [x] T3.8 Red Team: thread verdict/oracle-results + techniques into `mutate`; memory payload digest;
   provider-block handling + fallback.
 
 **Refactor (GitHub #3) — DONE.** Uniform `Probe = (case, produce)` + `run_probe`; `mint_probe`,

@@ -92,9 +92,12 @@ class RedTeamAgent:
         if history and history.get("tried"):
             prior = (
                 f" Prior attempts in this category: {history['tried']} tried, "
-                f"outcomes {history.get('outcomes', {})}. Take a materially different "
-                f"approach; do not repeat what already failed."
+                f"outcomes {history.get('outcomes', {})}."
             )
+            recent = history.get("recent_payloads") or []
+            if recent:
+                prior += " Already tried (do NOT repeat these approaches): " + "; ".join(f'"{p}"' for p in recent) + "."
+            prior += " Take a materially different approach."
         field_hint = ""
         if brief.get("input_field"):
             field_hint = (
@@ -153,12 +156,21 @@ class RedTeamAgent:
                 last = exc
         raise last  # type: ignore[misc]
 
-    def mutate(self, parent: SeedCase, model: ModelClient) -> SeedCase:
+    def mutate(self, parent: SeedCase, model: ModelClient, verdict=None) -> SeedCase:
+        # Aim the mutation at what actually blocked the parent: feed the verdict + oracle results
+        # and the strategy's technique families, not just "vary the input" (role-review T3.8).
+        strat = strategy_for(parent.category)
+        fail_line = ""
+        if verdict is not None:
+            summary = ", ".join(f"{r.oracle}={r.outcome}" for r in verdict.oracle_results) or "no oracle fired"
+            fail_line = f"The previous attempt was judged {verdict.outcome}; oracle results: {summary}. "
+        tech_line = (f"Technique families to try or combine: {'; '.join(strat.get('techniques', []))}. "
+                     if strat.get("techniques") else "")
+        context_line = f"Target: {self.target_context} " if self.target_context else ""
         user = (
-            "This test case did not fully succeed:\n"
-            f"{parent.model_dump_json()}\n"
-            "Produce ONE variant that keeps the same category, target_id, route, and oracle "
-            "but varies the input. Return only JSON matching the same schema."
+            f"{context_line}This attack did not succeed:\n{parent.model_dump_json()}\n{fail_line}"
+            f"Produce ONE variant that keeps the same goal but varies the INPUT to bypass what "
+            f"blocked it. {tech_line}Return only JSON matching the same schema."
         )
         child = self._parse(model.complete(_SYSTEM, user), parent.target_id)
         # shape the variant to the parent's route + input field, so it stays well-formed

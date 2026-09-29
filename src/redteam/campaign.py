@@ -18,6 +18,7 @@ from redteam.agents.judge.judge import Judge, VerdictOutcome
 from redteam.agents.redteam.agent import RedTeamAgent
 from redteam.agents.redteam.model import ModelClient
 from redteam.dispatch import dispatch as _dispatch
+from redteam.errors import ProviderBlock
 from redteam.evals.case import AuthContext
 from redteam.executor.authorization import AuthorizationRegistry
 from redteam.executor.executor import Executor
@@ -109,13 +110,22 @@ def run_campaign(
 
             parent, last, muts = case, result, 0
             while last.verdict.outcome in _MUTATE_ON and muts < max_mutations:
-                variant = agent.mutate(parent, model)
+                variant = agent.mutate(parent, model, verdict=last.verdict)  # aim at what blocked it
                 _log_calls(store, campaign_id, "mutation", 1)
                 last = _dispatch(variant, registry, executor, judge, store, minter, target_sha=target_sha)
                 summary.variants += 1
                 summary.outcomes[str(last.verdict.outcome)] += 1
                 summary.results.append(last)
                 parent, muts = variant, muts + 1
+        except ProviderBlock as exc:
+            # The attacker model's own content filter is a distinct, typed outcome — not a
+            # generic error and never evidence about the target (role-review T3.8).
+            summary.outcomes["PROVIDER_BLOCK"] += 1
+            store.insert("agent_actions", {
+                "ts": _now(), "agent": "campaign", "action": "provider_block",
+                "refs": json.dumps({"category": brief.get("category"), "route": brief.get("route")}),
+                "reason": f"attacker-model provider block: {exc}"[:300],
+            })
         except Exception as exc:  # one bad brief must not end an unattended campaign
             summary.outcomes["ERROR"] += 1
             store.insert("agent_actions", {

@@ -42,7 +42,7 @@ def test_history_and_owasp_coverage_after_a_campaign(tmp_path: Path) -> None:
     brief = {"category": "prompt-injection", "owasp": ["LLM01"], "target_id": "good", "route": "/v1/x"}
 
     # empty to start
-    assert history_brief(store, "good", "prompt-injection") == {"tried": 0, "outcomes": {}}
+    assert history_brief(store, "good", "prompt-injection") == {"tried": 0, "outcomes": {}, "recent_payloads": []}
 
     run_campaign([brief], registry=reg, executor=executor, judge=Judge(), store=store,
                  agent=RedTeamAgent(), model=FakeModel(), max_mutations=1)
