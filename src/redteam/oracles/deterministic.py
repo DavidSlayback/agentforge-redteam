@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from redteam.oracles.authz import ErrorLeakOracle, UnauthorizedAccessOracle
 from redteam.oracles.base import Observation, Oracle, OracleOutcome, OracleResult
 
 
@@ -93,5 +94,11 @@ class StatusOracle:
         return OracleResult(self.name, self.tier, OracleOutcome.SAFE)
 
 
-# The default tier-0 battery. Order is not significant; the Judge composes results.
-DEFAULT_ORACLES: tuple[Oracle, ...] = (MarkerOracle(), CanaryLeakOracle(), StatusOracle())
+# The default tier-0 battery. Order is not significant; the Judge composes results. The authz
+# and error-leak oracles report NOT_APPLICABLE on ordinary attempts (no `expect_rejected`, no
+# leaked signature), so adding them here is safe: they never fire unless their evidence is
+# present, but when it is, every attempt — not just authz probes — gets that coverage.
+DEFAULT_ORACLES: tuple[Oracle, ...] = (
+    MarkerOracle(), CanaryLeakOracle(), StatusOracle(),
+    UnauthorizedAccessOracle(), ErrorLeakOracle(),
+)

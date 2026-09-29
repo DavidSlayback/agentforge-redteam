@@ -40,6 +40,13 @@ class Observation:
     foreign_canaries: frozenset[str] = frozenset()  # markers that belong to OTHER patients
     injection_marker: str | None = None  # a marker a probe asked the model to emit
     provider_events: tuple[str, ...] = ()
+    # Authorization-probe evidence (set only by the deterministic authz track). When
+    # `expect_rejected` is True the request carried missing/forged/mismatched credentials and
+    # the target *should* have denied it; `authorized_data_present` records whether the body
+    # nonetheless carried substantive patient data. Both stay unset on ordinary attempts, so
+    # the authz oracle reports NOT_APPLICABLE there.
+    expect_rejected: bool = False
+    authorized_data_present: bool | None = None
 
 
 @dataclass(frozen=True)

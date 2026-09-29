@@ -316,3 +316,85 @@ finding worth documenting.
 **Still authored separately (safety classifier):** `THREAT_MODEL.md` findings, and any
 hand-authored `evals/` seed content (the Red Team now generates cases at runtime, so seed
 files are optional, not required, for the demo).
+
+---
+
+## 2026-09-29 — framework self-audit: why zero findings was a measurement artifact
+
+David's challenge: "There's no way we don't have vulnerabilities. OpenEMR had obvious ones
+and I didn't focus on not adding more. What is wrong with this framework?" He is right, and
+the audit found a structural blind spot, not a well-defended target.
+
+**Diagnosis — the platform was a narrow LLM prompt-injection tester in a red-team costume:**
+1. **Every attack went through a properly-authenticated channel.** `TokenMinter.auth_fields`
+   always mints a *matching* token and the runner (`runner.py`, `body = {**turn.body,
+   **auth_fields}`) *overwrites* the body with self-consistent credentials. The attacker was
+   always correctly scoped. We could not even express a token↔patient mismatch — i.e. **BOLA
+   / IDOR**, the canonical medical-records bug and OpenEMR's signature class.
+2. **The cross-patient "attack" was a politeness test, not an authz test.** `canary.py` mints
+   a *legitimate* victim token to discover secrets, then only checks whether the AI
+   *volunteers* them in the attacker's correctly-scoped session. We never sent the attacker's
+   token with the victim's `patient_uuid` to demand the victim's chart.
+3. **Oracles only fired on what we planted** (marker we told the model to emit; canary we
+   pre-registered; 5xx/latency). No oracle for *unscripted* bad behavior: unauthorized data
+   returned, or a stack trace / SQL error / internal path leaked in a body.
+   The target's stated defenses are tuned to defeat exactly the marker oracle, through the one
+   channel it controls — so "clean" meant "the LLM didn't parrot our token," not "secure."
+4. **Replay could not faithfully re-run its own findings.** `regression.replay` called
+   `run_case` for every frozen case — stomping any tampered auth (BOLA) and sending a document
+   payload as a plain message (indirect). A frozen finding would falsely read "held/fixed."
+
+**Fix — a deterministic authorization-probe track (no LLM judge; authz is binary):**
+- New categories `broken-object-authorization` (API1 / LLM02) and `broken-authentication`
+  (API2), executed by `authz_probe.run_authz_case`, which **inverts the merge precedence**:
+  body wins over minted auth, so a token↔patient mismatch survives to the wire.
+- Probes: cross-patient BOLA (attacker token + victim `patient_uuid`, scored by the foreign-
+  canary oracle); missing-token, forged-token (scored by a new `UnauthorizedAccessOracle`:
+  data returned on a request that should be 401/403 = VIOLATION); malformed-body error-leak
+  (new `ErrorLeakOracle`: stack-trace / SQL / internal-path signatures = VIOLATION).
+- Shared `dispatch.py` routes authz→run_authz_case, indirect→document, else→run_case, used by
+  **both** campaign and replay — fixing the replay-fidelity bug for authz *and* document cases.
+- `redteam authz` CLI subcommand runs the battery with no attacker model/key required.
+
+**Status: DONE + live-verified (2026-09-29). `uv run pytest` = 99 passed.**
+
+**Live result on `/v1/follow-up-evidence` (attacker=001, victim=002), evidence in the store:**
+- BOLA (attacker token + victim `patient_uuid`) → **HTTP 403 `invalid_demo_context`** in ~120ms.
+- Missing / forged / cross token → **all 403** in ~120–160ms (fail-fast, before any model call).
+- The `demo_token` is a signed blob binding `patient_uuid=001`; the server rejects any mismatch.
+  These are now **real, re-runnable, evidence-backed** tests (the token↔patient binding would
+  regress loudly), not the earlier unexamined "clean." Document path: uploads are allow-listed
+  per patient (`openemr_demo_patient_not_allowed`); a clean cross-patient doc-read IDOR was not
+  isolable in this demo config (only one patient may use the scan path) — recorded as a caveat,
+  not a disproof.
+- **The one standing real issue** remains `/v1/demo-context`: it mints a valid patient token
+  **unauthenticated**, so the (correct) token binding only holds because tokens are freely
+  mintable for any patient. Insecure-design finding, caveated by the `AGENTFORGE_SYNTHETIC_CONTEXT`
+  gate; write up via the Documentation agent.
+
+**Framework self-audit fixes (subagent review, 2026-09-29) — all landed + tested:**
+1. **Evidence capture** (was: bodies discarded) — new `evidence` table (migration 0004);
+   `finalize` stores full request+response per exchange + oracle `detail`; `attempts/verdicts
+   .evidence_ref` populated. `redteam evidence <attempt_id>` dumps it; the Documentation report
+   now renders an **Evidence (what actually happened)** section. This was the core "give the LLM
+   the data to reason about what happened" gap.
+2. **Authz findings were auto-publishing** — `broken-object-authorization`/`broken-authentication`
+   had no severity entry → defaulted to medium → escaped the approval gate. Now critical → gated.
+3. **Opportunistic-oracle mislabeling** — a failed prompt-injection that merely 500'd was filed
+   as a prompt-injection finding (wrong OWASP/remediation, dedup inflation). `findings._classify`
+   now reclassifies a sole status/error-leak violation to its true class (DoS / error-disclosure).
+4. **BOLA fail-silent** — when no distinctive canary is found, the probe logged nothing; now emits
+   a visible `coverage_gap` action + `COVERAGE-GAP` line.
+5. **Campaign fake-pass** — routing an authz category through `campaign` scored only StatusOracle
+   (a real BOLA → FAIL "defense held"); campaign now refuses authz categories loudly.
+6. **Indirect-injection echo false-positive** — the stripper removed the raw payload but the doc
+   embeds the *sanitized* one; a quoted multi-line payload slipped through. Now strips the
+   sanitized form too.
+7. **Misleading cost** — the report printed "$0.0000 / 0 tokens" (never populated); now "N model
+   calls (USD pricing not wired)".
+8. **Resilience-by-build was one `unknown` bucket** — `attempts.target_sha` was never written;
+   now threaded end-to-end (`--target-sha`), and regression replay labels its attempts with the
+   sha under test.
+9. **Replay fidelity** — replay routed everything through `run_case`, re-scoping BOLA and
+   flattening document attacks (a frozen finding would falsely read "held"); replay now uses the
+   shared `dispatch`.

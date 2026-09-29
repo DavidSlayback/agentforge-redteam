@@ -37,8 +37,10 @@ def render_markdown(store: Store) -> str:
     fb = queries.findings_by_status(store)
     lines += [f"- {status}: {n}" for status, n in sorted(fb.items())] or ["- (none)"]
 
+    # Cost is metered in model CALLS, the honest unit here: Qwen bills in credits and no USD
+    # price is wired, so reporting "$0.0000 / 0 tokens" would read as "free". Show calls only.
     cost = queries.cost_summary(store)
-    lines += ["", "## Cost", f"- ${cost['usd']:.4f} over {cost['calls']} calls / {cost['tokens']} tokens"]
+    lines += ["", "## Cost", f"- {cost['calls']} model calls (USD pricing not wired; cost is metered in calls)"]
 
     lines += ["", "## Recent agent actions"]
     trace = queries.agent_trace(store, limit=10)

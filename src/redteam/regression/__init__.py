@@ -71,7 +71,7 @@ def replay(
     attempt+verdict (and, only if a replay surfaces a genuinely *different* weakness, a new
     finding). A reappearance of an already-known finding hits dedup and freezes nothing new.
     """
-    from redteam.runner import run_case  # local import avoids a runner<->regression cycle
+    from redteam.dispatch import dispatch  # local import avoids a runner<->regression cycle
 
     report = RegressionReport(target_sha=target_sha)
     rows = store.conn.execute("SELECT case_id, case_json FROM regression_cases").fetchall()
@@ -84,7 +84,10 @@ def replay(
         case = SeedCase.model_validate_json(row["case_json"])
         # a fresh spec id per replay so it never collides with the frozen spec
         replay_case = case.model_copy(update={"case_id": f"{case.case_id}-rt{uuid.uuid4().hex[:6]}"})
-        result = run_case(replay_case, registry, executor, judge, store, minter=minter)
+        # Route by category so an authz/document finding replays through the same path that
+        # produced it — not run_case, which would re-scope a BOLA probe or flatten a document
+        # attack into a plain message and falsely report the fix as holding.
+        result = dispatch(replay_case, registry, executor, judge, store, minter, target_sha=target_sha)
         outcome = result.verdict.outcome
         if outcome is VerdictOutcome.SUCCESS:
             report.reappeared.append({"case_id": row["case_id"], "category": case.category})

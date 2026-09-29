@@ -17,22 +17,14 @@ from datetime import datetime, timezone
 from redteam.agents.judge.judge import Judge, VerdictOutcome
 from redteam.agents.redteam.agent import RedTeamAgent
 from redteam.agents.redteam.model import ModelClient
+from redteam.authz_probe import AUTHZ_CATEGORIES
+from redteam.dispatch import dispatch as _dispatch
 from redteam.evals.case import AuthContext
 from redteam.executor.authorization import AuthorizationRegistry
 from redteam.executor.executor import Executor
-from redteam.document_attack import run_document_attack
 from redteam.memory import history_brief
 from redteam.owasp import NEEDS_CANARY
-from redteam.runner import RunResult, run_case
-
-# Categories whose execution is a document upload+scan flow rather than a direct HTTP turn.
-_DOCUMENT_CATEGORIES = frozenset({"indirect-injection"})
-
-
-def _dispatch(case, registry, executor, judge, store, minter) -> RunResult:
-    if case.category in _DOCUMENT_CATEGORIES:
-        return run_document_attack(case, registry, executor, judge, store, minter)
-    return run_case(case, registry, executor, judge, store, minter=minter)
+from redteam.runner import RunResult
 
 # Outcomes worth spending a mutation on: the attack did not clearly succeed, but the
 # target was reached (so a variant might get through). INCONCLUSIVE is not mutated —
@@ -70,10 +62,23 @@ def run_campaign(
     max_mutations: int = 1,
     minter=None,
     canaries: list[str] | None = None,
+    target_sha: str | None = None,
 ) -> CampaignSummary:
     summary = CampaignSummary(campaign_id=campaign_id)
     for brief in briefs:
         try:
+            # Authorization categories are model-free deterministic probes that need a
+            # tampered request (expect_rejected / harness canaries) the campaign path does not
+            # build. Routing one through here would exercise only StatusOracle and score a real
+            # BOLA as FAIL ("defense held") — a fake pass. Refuse; they run via the `authz` command.
+            if brief["category"] in AUTHZ_CATEGORIES:
+                summary.outcomes["SKIPPED"] += 1
+                store.insert("agent_actions", {
+                    "ts": _now(), "agent": "campaign", "action": "skipped",
+                    "refs": json.dumps({"category": brief["category"], "route": brief.get("route")}),
+                    "reason": "authorization category must run via `redteam authz`, not campaign (would be a fake pass)",
+                })
+                continue
             # A canary-gated category with no canary cannot be scored — running it anyway
             # would let StatusOracle score a 200 as SAFE and report a defense that was never
             # tested. Skip it loudly rather than manufacture a pass.
@@ -96,7 +101,7 @@ def run_campaign(
             if brief.get("patient_uuid"):
                 case = case.model_copy(update={"auth": AuthContext(patient_uuid=brief["patient_uuid"])})
             _log_calls(store, campaign_id, "generation", 1)
-            result = _dispatch(case, registry, executor, judge, store, minter)
+            result = _dispatch(case, registry, executor, judge, store, minter, target_sha=target_sha)
             summary.generated += 1
             summary.outcomes[str(result.verdict.outcome)] += 1
             summary.results.append(result)
@@ -105,7 +110,7 @@ def run_campaign(
             while last.verdict.outcome in _MUTATE_ON and muts < max_mutations:
                 variant = agent.mutate(parent, model)
                 _log_calls(store, campaign_id, "mutation", 1)
-                last = _dispatch(variant, registry, executor, judge, store, minter)
+                last = _dispatch(variant, registry, executor, judge, store, minter, target_sha=target_sha)
                 summary.variants += 1
                 summary.outcomes[str(last.verdict.outcome)] += 1
                 summary.results.append(last)

@@ -22,6 +22,9 @@ class OracleConfig(BaseModel):
     marker: str | None = None
     foreign_canaries: list[str] = Field(default_factory=list)
     latency_budget_ms: float | None = None
+    # Authorization probes: the request should have been denied (missing/forged/mismatched
+    # credentials). Persisted in the frozen case so a regression replay judges it identically.
+    expect_rejected: bool = False
 
 
 class AuthContext(BaseModel):

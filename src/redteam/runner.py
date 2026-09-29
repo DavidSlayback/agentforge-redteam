@@ -31,6 +31,46 @@ def _new_id(prefix: str) -> str:
     return f"{prefix}-{uuid.uuid4().hex[:12]}"
 
 
+_BODY_CAP = 8000   # per-field character cap; synthetic data, but keep the store from bloating
+
+
+def _cap(text: str | None, limit: int = _BODY_CAP) -> str | None:
+    if text is None or len(text) <= limit:
+        return text
+    return text[:limit] + f"...[+{len(text) - limit} chars]"
+
+
+def _redact_request(body: object) -> object:
+    """A request body, made safe to store: a base64 upload becomes a size marker (not the
+    payload bytes) and long string fields are capped. Synthetic data only, so this is about
+    store size and readability, not PHI."""
+    if not isinstance(body, dict):
+        return body
+    out: dict = {}
+    for key, value in body.items():
+        if key == "content_base64" and isinstance(value, str):
+            out[key] = f"<base64 {len(value)} chars>"
+        elif isinstance(value, str):
+            out[key] = _cap(value, 2000)
+        else:
+            out[key] = value
+    return out
+
+
+def record_exchange(ordinal: int, route: str, method: str, request_body: object, record) -> dict:
+    """Build one rich exchange row (request + response) for the evidence store. Callers append
+    these; `finalize` persists the full list to `evidence` and a lean projection to attempts."""
+    return {
+        "ordinal": ordinal,
+        "route": route,
+        "method": method,
+        "request": _redact_request(request_body),
+        "status_code": record.status_code,
+        "response": _cap(record.text),
+        "latency_ms": record.latency_ms,
+    }
+
+
 def build_observation(record, oracle: OracleConfig, provider_events: tuple[str, ...] = ()) -> Observation:
     return Observation(
         response_text=record.text,
@@ -56,6 +96,7 @@ def run_case(
     judge: Judge,
     store,
     minter=None,
+    target_sha: str | None = None,
 ) -> RunResult:
     target = registry.by_id(case.target_id)
     if target is None:
@@ -74,7 +115,7 @@ def run_case(
             body = {**(turn.body or {}), **auth_fields}
             url = target.origin + target.base_path + turn.route
             record = executor.request(url, method=turn.method, json=body)
-            exchanges.append({"route": turn.route, "status_code": record.status_code, "latency_ms": record.latency_ms})
+            exchanges.append(record_exchange(turn.ordinal, turn.route, turn.method, body, record))
     except TargetUnreachable as exc:
         # A transport failure or a failed mint is not a defense holding — it is INCONCLUSIVE.
         unreachable = str(exc)
@@ -87,11 +128,11 @@ def run_case(
         verdict = judge.judge(observation)
         provider_events = list(observation.provider_events)
 
-    return finalize(store, case, target, exchanges, verdict, provider_events)
+    return finalize(store, case, target, exchanges, verdict, provider_events, target_sha=target_sha)
 
 
 def finalize(store, case: SeedCase, target, exchanges: list[dict], verdict: Verdict,
-             provider_events: list[str]) -> RunResult:
+             provider_events: list[str], target_sha: str | None = None) -> RunResult:
     """Persist a judged attempt (spec, attempt, verdict, action) and promote/freeze on a
     confirmed exploit. Shared by run_case and the document-attack flow so lineage, dedup,
     finding promotion, and regression freezing are identical."""
@@ -109,22 +150,37 @@ def finalize(store, case: SeedCase, target, exchanges: list[dict], verdict: Verd
     })
 
     attempt_id = _new_id("att")
+    evidence_id = _new_id("ev")
     is_local = (urlsplit(target.origin).hostname or "") in {"localhost", "127.0.0.1", "::1"}
+    # A lean projection stays on the attempt for compact queries; the full request/response
+    # bodies go to the evidence table, so a verdict can always be audited against what the
+    # target actually returned. exchanges may be rich (with request/response) or already lean.
+    lean = [{"route": e.get("route"), "status_code": e.get("status_code"),
+             "latency_ms": e.get("latency_ms")} for e in exchanges]
     store.insert("attempts", {
         "attempt_id": attempt_id,
         "spec_id": case.case_id,
         "target_id": target.id,
+        "target_sha": target_sha,   # the build under test; enables resilience-by-version trends
         "target_env": "local" if is_local else "deployed",
-        "exchanges": json.dumps(exchanges),
+        "exchanges": json.dumps(lean),
         "provider_events": json.dumps(provider_events),
+        "evidence_ref": evidence_id,
         "started_at": _now(),
+    })
+    store.insert("evidence", {
+        "evidence_id": evidence_id,
+        "attempt_id": attempt_id,
+        "exchanges": json.dumps(exchanges),   # full request+response bodies (synthetic)
+        "created_at": _now(),
     })
     verdict_id = _new_id("ver")
     store.insert("verdicts", {
         "verdict_id": verdict_id,
         "attempt_id": attempt_id,
         "outcome": str(verdict.outcome),
-        "oracle_results": json.dumps([{"oracle": r.oracle, "tier": r.tier, "outcome": str(r.outcome)} for r in verdict.oracle_results]),
+        "oracle_results": json.dumps([{"oracle": r.oracle, "tier": r.tier, "outcome": str(r.outcome), "detail": r.detail} for r in verdict.oracle_results]),
+        "evidence_ref": evidence_id,
         "judged_at": _now(),
     })
     store.insert("agent_actions", {
