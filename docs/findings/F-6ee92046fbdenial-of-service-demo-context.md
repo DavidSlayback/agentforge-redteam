@@ -1,29 +1,59 @@
-
 # F-6ee92046fb — denial-of-service via /v1/demo-context
 
+- **ID:** F-6ee92046fb
 - **Severity (provisional):** medium — confirm with CVSS v4
-- **Category / taxonomy:** denial-of-service (OWASP-LLM:API4:2023, OWASP-LLM:LLM10)
-- **Component:** /v1/demo-context
+- **Category:** denial-of-service
+- **Taxonomy:** OWASP API Security Top 10 2023: API4 Unrestricted Resource Consumption; OWASP LLM Top 10 2025: LLM10 Unbounded Consumption
+- **Component:** `https://dtstest.64.177.10.182.nip.io/agentforge-w2/v1/demo-context`
 
 ## Description
-A confirmed exploit of denial-of-service at `/v1/demo-context` on the authorized synthetic target. Backed by verdicts ["ver-7e3f9aa308b8", "ver-7effed04498e", "ver-01318d0af56c"].
+`/v1/demo-context` is anonymous and applies no rate limit: every rapid repeated request from one client was served with `200`. Absence of a `429` within the observed count is evidence, not proof, that no throttle exists at higher volume.
+
+**Clinical impact:** Lets a script probe patient ids at full speed (enumeration) and abuse cost/availability of the Co-Pilot at the point of care. Combined with the anonymous mint, nothing slows bulk harvesting of patient-scoped tokens.
+
+_The target serves synthetic fixture patients only; no real PHI was accessed. The impact statement describes the same defect in a real deployment._
+
+## Reproduction
+Record the build under test first: `curl -s "https://dtstest.64.177.10.182.nip.io/agentforge-w2/health"` → note `git_sha`.
+
+Minimal attack sequence (no credentials, no cookies, no headers):
+
+```bash
+for i in $(seq 1 20); do curl -s -o /dev/null -w "%{http_code}\n" "https://dtstest.64.177.10.182.nip.io/agentforge-w2/v1/demo-context?patient_uuid=fixture-patient-001"; done | sort | uniq -c
+```
+
+**Validate (deterministic):** fixed when at least one `429` appears within 20 requests (and later requests carry `Retry-After`). Vulnerable when all 20 return `200`, as observed: 20 rapid anonymous requests -> statuses {200: 20}.
+
+Platform replay: re-runs every frozen regression case (this finding's case is `reg-e7eb5a693a`) with the same probe and oracle against the live target; exit code 0 only if all held. Needs this repo's `.env` (see README).
+
+```bash
+uv run redteam regression --target agentforge-w2 --sha <git_sha from /health>
+```
+
+## Observed vs expected
+- **Observed:** `GET /v1/demo-context` → HTTP 200. `rate_limit`: no 429 across 20 rapid anonymous requests (statuses {200: 20})
+- **Expected:** an unauthenticated endpoint throttles rapid repeated requests (429) to resist enumeration/DoS.
 
 ## Evidence (what actually happened)
 **Oracle(s) that fired:** `rate_limit` — no 429 across 20 rapid anonymous requests (statuses {200: 20})
 
-- `GET /v1/demo-context` → **HTTP 200** (140.07570000831038ms)
-  - request: `{"patient_uuid": "fixture-patient-001", "_auth": "none", "_repeated": 20}`
+- `GET /v1/demo-context` → **HTTP 200** (140ms)
+  - request (fields starting `_` are harness annotations, not sent): `{"patient_uuid": "fixture-patient-001", "_auth": "none", "_repeated": 20}`
   - response: `20 rapid anonymous requests -> statuses {200: 20}`
 
-## Reproduction
-Replay the attempts referenced in the Finding's verdicts against the same target build; the oracle re-fires deterministically on the request shown above.
-
-## Observed vs expected
-Observed: the deterministic oracle detected a violation (see Evidence). Expected: an unauthenticated endpoint throttles rapid repeated requests (429) to resist enumeration/DoS.
-
 ## Recommended remediation
-Enforce per-client rate limits, request-size caps, and hard time/cost budgets; fail closed when a budget is exceeded.
+1. Add a per-client (per-IP and, once authenticated, per-caller) rate limit on the mint; over the limit return `429` with a `Retry-After` header and issue no token.
+2. Disable `AGENTFORGE_SYNTHETIC_CONTEXT` outside demos, which removes the anonymous endpoint entirely; otherwise require an authenticated caller and bind issuance to it.
+3. Keep the existing short token TTL (300 s).
+4. Add a target-side test that fails if N rapid anonymous requests all succeed.
 
 ## Status
-Provisional. Fix validation pending a re-test on a candidate build.
+- **Finding status:** `new`
+- **Report R-6ee92046fb:** `published`
+- **Observed on builds:** `live-2026-09-29` (2026-09-29), `refactor-smoke` (2026-09-29), `refactor23-smoke` (2026-09-29) (non-hex values are run labels recorded before `/health` git SHAs were passed, not target commits)
 
+**Fix validation:**
+Not yet validated: fix pending in target repo (agentforge-week1 branch agentforge/w3-redteam-fixes); validate with the commands above on the new `/health` `git_sha`.
+
+## References
+- Verdicts: ver-7e3f9aa308b8, ver-7effed04498e, ver-01318d0af56c (platform store; `uv run redteam evidence <attempt_id>` dumps the raw exchange, first attempt `att-728b25f521db`)

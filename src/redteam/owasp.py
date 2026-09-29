@@ -81,3 +81,51 @@ NEEDS_CANARY = frozenset(c for c, s in STRATEGIES.items() if s.get("needs_canary
 # the marker unset: tier-0 then applies no oracle and the Judge consults the rubric (which never
 # overrides a deterministic violation). A rubric model must be configured or these stay INCONCLUSIVE.
 NEEDS_RUBRIC = frozenset({"excessive-agency", "system-prompt-leakage"})
+
+
+# Human-readable names for the OWASP ids findings carry. Two different lists share this
+# namespace: `LLMnn` ids are the OWASP Top 10 for LLM Applications (2025); `APInn[:2023]` ids
+# are the OWASP API Security Top 10 (2023). A report must never label one as the other.
+OWASP_LLM_2025 = {
+    "LLM01": "Prompt Injection",
+    "LLM02": "Sensitive Information Disclosure",
+    "LLM03": "Supply Chain",
+    "LLM04": "Data and Model Poisoning",
+    "LLM05": "Improper Output Handling",
+    "LLM06": "Excessive Agency",
+    "LLM07": "System Prompt Leakage",
+    "LLM08": "Vector and Embedding Weaknesses",
+    "LLM09": "Misinformation",
+    "LLM10": "Unbounded Consumption",
+}
+OWASP_API_2023 = {
+    "API1": "Broken Object Level Authorization",
+    "API2": "Broken Authentication",
+    "API3": "Broken Object Property Level Authorization",
+    "API4": "Unrestricted Resource Consumption",
+    "API5": "Broken Function Level Authorization",
+    "API6": "Unrestricted Access to Sensitive Business Flows",
+    "API7": "Server Side Request Forgery",
+    "API8": "Security Misconfiguration",
+    "API9": "Improper Inventory Management",
+    "API10": "Unsafe Consumption of APIs",
+}
+
+
+def owasp_scheme(owasp_id: str) -> tuple[str, str]:
+    """(scheme, version) for an OWASP id: API ids are the API Top 10 2023, LLM ids the LLM Top 10 2025."""
+    return ("OWASP-API", "2023") if owasp_id.upper().startswith("API") else ("OWASP-LLM", "2025")
+
+
+def owasp_label(owasp_id: str) -> str:
+    """Render an OWASP id with its list and name, e.g. 'API2:2023' ->
+    'OWASP API Security Top 10 2023: API2 Broken Authentication'. Unknown ids render as-is,
+    under the list their prefix implies, rather than being guessed."""
+    key = owasp_id.split(":", 1)[0].upper()
+    if key.startswith("API"):
+        name = OWASP_API_2023.get(key)
+        return f"OWASP API Security Top 10 2023: {key}" + (f" {name}" if name else "")
+    if key.startswith("LLM"):
+        name = OWASP_LLM_2025.get(key)
+        return f"OWASP LLM Top 10 2025: {key}" + (f" {name}" if name else "")
+    return f"OWASP {owasp_id}"

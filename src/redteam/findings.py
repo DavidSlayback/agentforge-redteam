@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from redteam.agents.judge.judge import Verdict
 from redteam.evals.case import SeedCase
 from redteam.oracles.base import OracleOutcome
+from redteam.owasp import owasp_scheme
 
 # Provisional severity by category, only to gate human approval. Confirm with CVSS v4.
 # Every category a promoted finding can carry MUST have an entry — a missing one falls to the
@@ -92,7 +93,8 @@ def promote(store, case: SeedCase, verdict: Verdict, verdict_id: str) -> tuple[s
             "schema_version": 1,
             "finding_id": finding_id,
             "title": f"{category} via {sink}",
-            "taxonomy": json.dumps([{"scheme": "OWASP-LLM", "version": "2025", "id": t} for t in owasp]),
+            "taxonomy": json.dumps([{"scheme": owasp_scheme(t)[0], "version": owasp_scheme(t)[1], "id": t}
+                                     for t in owasp]),
             "primary_category": category,
             "severity": json.dumps({"provisional_level": level, "note": "provisional; confirm with CVSS v4"}),
             "severity_score": score,

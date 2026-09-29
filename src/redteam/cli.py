@@ -141,16 +141,29 @@ def cmd_document(args: argparse.Namespace) -> int:
 
     from redteam.agents.documentation.agent import DocumentationAgent
 
+    from pathlib import Path
+
+    from redteam.executor.authorization import AuthorizationRegistry
+
+    # The registry supplies the target's origin + base path so the report's curl repro is a
+    # full, copy-pasteable URL. Read-only; nothing is sent to the target here.
+    registry = AuthorizationRegistry.load(args.authorization) if Path(args.authorization).exists() else None
     store = Store.open(args.store)
     doc = DocumentationAgent()
-    report_id = doc.document(store, args.finding_id)
+    report_id = doc.document(store, args.finding_id, registry=registry)
     row = store.conn.execute("SELECT * FROM findings WHERE finding_id = ?", (args.finding_id,)).fetchone()
     finding = dict(row)
     level = json.loads(finding["severity"]).get("provisional_level", "medium")
-    evidence = doc._evidence_for_finding(store, finding)
-    print(f"# report {report_id}\n")
-    print(doc.render_markdown(finding, level, evidence))
+    ctx = doc.context(store, finding, registry)
+    md = doc.render_markdown(finding, level, ctx["evidence"], target=ctx["target"],
+                             report=ctx["report"], replays=ctx["replays"])
     store.close()
+    if args.out:
+        Path(args.out).write_text(md, encoding="utf-8")
+        print(f"wrote {report_id} -> {args.out}")
+    else:
+        print(f"# report {report_id}\n")
+        print(md)
     return 0
 
 
@@ -240,6 +253,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     dc = sub.add_parser("document", help="write + print an evidence-backed report for a finding")
     dc.add_argument("finding_id")
+    dc.add_argument("--out", default=None, help="write the markdown report to this path instead of stdout")
+    dc.add_argument("--authorization", default="authorization.yaml",
+                    help="registry used to build full target URLs in the repro (read-only)")
     dc.set_defaults(func=cmd_document)
 
     ev = sub.add_parser("evidence", help="dump the captured request/response for an attempt")

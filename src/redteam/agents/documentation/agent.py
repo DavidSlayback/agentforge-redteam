@@ -1,17 +1,27 @@
 """The Documentation Agent — a confirmed Finding to a professional vulnerability report.
 
 Deterministic and reproducible: the report is built from the Finding's own fields and its
-evidence in the store, so a security engineer who was not present can reproduce it. High
-and critical reports are held behind a human approval gate (they are not published until
-`approve` is called). Data quality is validated before any write (E9): required fields,
-and no second report for a Finding that already has one.
+evidence in the store. The bar is that a security engineer who was not present can
+reproduce, validate, and fix the issue from the report alone — so the Reproduction section
+renders the captured request(s) as copy-pasteable `curl` against the target's full URL, with
+a deterministic pass condition for the fix, and nothing in the report points only at the
+(gitignored) store.
+
+High and critical reports are held behind a human approval gate (they are not published
+until `approve` is called). Data quality is validated before any write (E9): required
+fields, and no second report for a Finding that already has one.
 """
 
 from __future__ import annotations
 
+import base64
 import json
+import shlex
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from urllib.parse import urlencode
+
+from redteam.owasp import owasp_label
 
 _REQUIRED = ("finding_id", "primary_category", "severity", "dedup_key")
 
@@ -28,9 +38,85 @@ _REMEDIATION = {
     "error-disclosure": "Return a generic error to clients; log the stack trace server-side only; disable framework debug pages and DB driver error passthrough in production.",
 }
 
+# Per-category description + clinical impact (what the weakness means for a clinician/patient).
+_DESCRIPTION = {
+    "prompt-injection": "User-supplied text was followed as an instruction by the Co-Pilot's model instead of being treated as data.",
+    "indirect-injection": "Text inside an uploaded or retrieved document was followed as an instruction when the Co-Pilot summarized it.",
+    "sensitive-info-disclosure": "The Co-Pilot returned data outside the requesting patient's scope.",
+    "system-prompt-leakage": "The Co-Pilot revealed its operating instructions.",
+    "excessive-agency": "The Co-Pilot recommended, ordered, or confirmed a clinical action without explicit clinician authority.",
+    "improper-output-handling": "The Co-Pilot emitted active markup that would execute or break rendering when displayed.",
+    "denial-of-service": "A request caused disproportionate cost, latency, or a failure on the target.",
+    "broken-object-authorization": "A session scoped to one patient reached another patient's object.",
+    "broken-authentication": "A patient route accepted a request without valid authentication.",
+    "error-disclosure": "An error response exposed internal implementation detail.",
+}
+_CLINICAL_IMPACT = {
+    "prompt-injection": "An attacker can steer the briefing a clinician reads; a manipulated summary can omit or invent findings that feed a care decision.",
+    "indirect-injection": "A poisoned document can change the AI briefing a clinician relies on, without the clinician seeing the injected text.",
+    "sensitive-info-disclosure": "Cross-patient PHI exposure: a confidentiality breach, HIPAA-reportable in a real deployment.",
+    "system-prompt-leakage": "Exposes the guardrails, making targeted bypasses of the clinical safety rules easier.",
+    "excessive-agency": "A clinical action could be taken or endorsed without a clinician's decision: a direct patient-safety risk.",
+    "improper-output-handling": "Script in a clinician's browser session could read or alter the chart view.",
+    "denial-of-service": "The Co-Pilot can be made slow or unavailable at the point of care, and the operator's model spend can be run up.",
+    "broken-object-authorization": "Anyone with one patient's session can read another patient's chart: a PHI confidentiality breach.",
+    "broken-authentication": "Unauthenticated callers reach patient data: a PHI confidentiality breach, HIPAA-reportable in a real deployment.",
+    "error-disclosure": "Leaked internals help an attacker target other weaknesses; low direct clinical impact.",
+}
+
+_SYNTHETIC_NOTE = ("The target serves synthetic fixture patients only; no real PHI was accessed. "
+                   "The impact statement describes the same defect in a real deployment.")
+
+# Where fixes for a target are tracked (so "not yet validated" names a real place to look).
+_FIX_TRACKING = {"agentforge-w2": "agentforge-week1 branch agentforge/w3-redteam-fixes"}
+
+# The synthetic-context mints: component-aware overrides where the category default is wrong.
+# The defect on these routes is that the token-*issuing* endpoint is anonymous, not that a
+# patient route skips token checks (those routes do verify tokens).
+_MINT_REMEDIATION = (
+    "1. Disable `AGENTFORGE_SYNTHETIC_CONTEXT` in every deployment that is not an explicit demo; "
+    "with it off, the route must return 404/403 and issue no token.\n"
+    "2. Where a demo mint must stay on, require an authenticated caller (evaluator access code or "
+    "session) and bind issuance to that caller's identity: mint only for patients the caller may "
+    "access, and log caller → patient → scope for every token issued.\n"
+    "3. Rate-limit the mint per client (return `429` with `Retry-After`).\n"
+    "4. Keep the existing short token TTL (300 s) and the token↔patient binding; do not lengthen "
+    "the TTL to compensate.\n"
+    "5. Add a target-side test that fails if an anonymous request to the mint returns a token."
+)
+_RATE_LIMIT_REMEDIATION = (
+    "1. Add a per-client (per-IP and, once authenticated, per-caller) rate limit on the mint; "
+    "over the limit return `429` with a `Retry-After` header and issue no token.\n"
+    "2. Disable `AGENTFORGE_SYNTHETIC_CONTEXT` outside demos, which removes the anonymous "
+    "endpoint entirely; otherwise require an authenticated caller and bind issuance to it.\n"
+    "3. Keep the existing short token TTL (300 s).\n"
+    "4. Add a target-side test that fails if N rapid anonymous requests all succeed."
+)
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _public_params(request) -> dict:
+    """The request fields actually sent on the wire (harness annotations start with `_`)."""
+    if not isinstance(request, dict):
+        return {}
+    return {k: v for k, v in request.items() if not str(k).startswith("_")}
+
+
+def _is_git_sha(value) -> bool:
+    return isinstance(value, str) and 7 <= len(value) <= 40 and all(ch in "0123456789abcdef" for ch in value)
+
+
+def _decode_token_claims(token: str) -> dict:
+    """Best-effort decode of a `payload.signature` demo token's payload (base64url JSON)."""
+    try:
+        payload = token.split(".", 1)[0]
+        payload += "=" * (-len(payload) % 4)
+        return json.loads(base64.urlsafe_b64decode(payload))
+    except (ValueError, TypeError):
+        return {}
 
 
 @dataclass
@@ -40,34 +126,95 @@ class DocumentationAgent:
         if missing:
             raise ValueError(f"finding {finding.get('finding_id')} missing required fields: {missing}")
 
+    # ---- gathering -------------------------------------------------------------------
+
     def _evidence_for_finding(self, store, finding: dict) -> dict:
         """The actual request/response + oracle detail behind the finding's first verdict, so
-        the report shows *what happened*, not just that something did."""
+        the report shows *what happened*, not just that something did. Also records which
+        target and builds the finding was observed on."""
         verdict_ids = json.loads(finding.get("verdict_ids") or "[]")
         if not verdict_ids:
             return {}
         vrow = store.conn.execute(
-            "SELECT v.oracle_results, v.evidence_ref, s.expected_safe_ref "
+            "SELECT v.oracle_results, v.evidence_ref, s.expected_safe_ref, a.target_id, a.attempt_id "
             "FROM verdicts v LEFT JOIN attempts a ON a.attempt_id = v.attempt_id "
             "LEFT JOIN attack_specs s ON s.spec_id = a.spec_id WHERE v.verdict_id = ?", (verdict_ids[0],)
         ).fetchone()
         if vrow is None:
             return {}
         out: dict = {"oracle_results": json.loads(vrow["oracle_results"] or "[]"), "exchanges": [],
-                     "expected_safe": vrow["expected_safe_ref"] or ""}
+                     "expected_safe": vrow["expected_safe_ref"] or "", "target_id": vrow["target_id"],
+                     "attempt_id": vrow["attempt_id"]}
         if vrow["evidence_ref"]:
             erow = store.conn.execute(
                 "SELECT exchanges FROM evidence WHERE evidence_id = ?", (vrow["evidence_ref"],)
             ).fetchone()
             if erow and erow["exchanges"]:
                 out["exchanges"] = json.loads(erow["exchanges"])
+        marks = ",".join("?" * len(verdict_ids))
+        seen = store.conn.execute(
+            f"SELECT a.target_sha, a.started_at FROM verdicts v JOIN attempts a ON a.attempt_id = v.attempt_id "
+            f"WHERE v.verdict_id IN ({marks}) ORDER BY a.started_at", verdict_ids
+        ).fetchall()
+        out["seen_on"] = [{"sha": r["target_sha"], "at": r["started_at"]} for r in seen]
+        case = store.conn.execute(
+            "SELECT case_id FROM regression_cases WHERE finding_id = ?", (finding["finding_id"],)
+        ).fetchone()
+        out["regression_case"] = case["case_id"] if case else None
         return out
+
+    def _replays_for_finding(self, store, finding_id: str) -> list[dict]:
+        """Regression replays of this finding's frozen case (spec ids `<frozen>-rt<hex>`)."""
+        case = store.conn.execute(
+            "SELECT spec_id FROM regression_cases WHERE finding_id = ?", (finding_id,)
+        ).fetchone()
+        if case is None or not case["spec_id"]:
+            return []
+        rows = store.conn.execute(
+            "SELECT a.target_sha, a.started_at, v.outcome FROM attempts a "
+            "JOIN verdicts v ON v.attempt_id = a.attempt_id WHERE a.spec_id LIKE ? ORDER BY a.started_at",
+            (case["spec_id"] + "-rt%",),
+        ).fetchall()
+        return [{"sha": r["target_sha"], "at": r["started_at"], "outcome": r["outcome"]} for r in rows]
+
+    def _report_row(self, store, finding_id: str) -> dict | None:
+        row = store.conn.execute(
+            "SELECT report_id, status, approval FROM vuln_reports WHERE finding_id = ?", (finding_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def context(self, store, finding: dict, registry=None) -> dict:
+        """Everything render_markdown needs beyond the finding row."""
+        evidence = self._evidence_for_finding(store, finding)
+        target = registry.by_id(evidence["target_id"]) if registry and evidence.get("target_id") else None
+        return {"evidence": evidence, "target": target, "report": self._report_row(store, finding["finding_id"]),
+                "replays": self._replays_for_finding(store, finding["finding_id"])}
+
+    # ---- classification --------------------------------------------------------------
+
+    @staticmethod
+    def _violations(evidence: dict) -> list[dict]:
+        return [o for o in evidence.get("oracle_results", []) if o.get("outcome") == "violation"]
+
+    def _kind(self, finding: dict, evidence: dict) -> str:
+        """'read-mint' | 'write-mint' | 'mint-rate-limit' | 'generic' — component-aware override."""
+        component = finding.get("component") or ""
+        if not component.endswith("-context"):
+            return "generic"
+        if any(o.get("oracle") == "rate_limit" for o in self._violations(evidence)):
+            return "mint-rate-limit"
+        if finding["primary_category"] == "broken-authentication":
+            body = " ".join(str(ex.get("response") or "") for ex in evidence.get("exchanges", []))
+            return "write-mint" if ("source-document" in component or '"scope":"write' in body) else "read-mint"
+        return "generic"
+
+    # ---- rendering -------------------------------------------------------------------
 
     def _render_evidence(self, evidence: dict) -> str:
         if not evidence:
             return "_No evidence captured for this finding (attempt predates evidence capture)._\n"
         lines = []
-        violations = [o for o in evidence.get("oracle_results", []) if o.get("outcome") == "violation"]
+        violations = self._violations(evidence)
         if violations:
             lines.append("**Oracle(s) that fired:** " + ", ".join(
                 f"`{o['oracle']}` — {o.get('detail') or 'violation'}" for o in violations))
@@ -75,85 +222,295 @@ class DocumentationAgent:
             req = json.dumps(ex.get("request"), ensure_ascii=False)
             resp = (ex.get("response") or "")
             resp = resp if len(resp) <= 1200 else resp[:1200] + " …[truncated]"
+            latency = ex.get("latency_ms")
+            latency = f"{latency:.0f}ms" if isinstance(latency, (int, float)) else f"{latency}ms"
             lines.append(
-                f"\n- `{ex.get('method')} {ex.get('route')}` → **HTTP {ex.get('status_code')}** "
-                f"({ex.get('latency_ms')}ms)\n"
-                f"  - request: `{req}`\n"
+                f"\n- `{ex.get('method')} {ex.get('route')}` → **HTTP {ex.get('status_code')}** ({latency})\n"
+                f"  - request (fields starting `_` are harness annotations, not sent): `{req}`\n"
                 f"  - response: `{resp}`"
             )
+            claims = self._token_claims(ex)
+            if claims:
+                lines.append("  - decoded token payload (unsigned view): `"
+                             + json.dumps(claims, ensure_ascii=False) + "`")
         return "\n".join(lines) + "\n"
 
-    def render_markdown(self, finding: dict, level: str, evidence: dict | None = None) -> str:
+    @staticmethod
+    def _token_claims(exchange: dict) -> dict:
+        try:
+            body = json.loads(exchange.get("response") or "")
+        except (ValueError, TypeError):
+            return {}
+        token = body.get("demo_token") if isinstance(body, dict) else None
+        return _decode_token_claims(token) if isinstance(token, str) else {}
+
+    @staticmethod
+    def _base_url(target) -> str:
+        if target is None:
+            return "$TARGET_BASE"   # documented in the repro when the registry wasn't available
+        return f"{target.origin}{target.base_path}"
+
+    @staticmethod
+    def _url(ex: dict, base: str) -> str:
+        url = f"{base}{ex.get('route')}"
+        params = _public_params(ex.get("request"))
+        if (ex.get("method") or "GET").upper() == "GET" and params:
+            url += "?" + urlencode(params)
+        return url
+
+    def _curl(self, ex: dict, base: str) -> str:
+        method = (ex.get("method") or "GET").upper()
+        params = _public_params(ex.get("request"))
+        url = self._url(ex, base)
+        if method == "GET":
+            return f'curl -s "{url}"'
+        body = shlex.quote(json.dumps(params, ensure_ascii=False))
+        return f'curl -s -X {method} "{url}" -H "Content-Type: application/json" -d {body}'
+
+    def _render_repro(self, finding: dict, evidence: dict, target, kind: str) -> str:
+        exchanges = evidence.get("exchanges", [])
+        if not exchanges:
+            return ("No request/response evidence was captured for this finding, so no exact request "
+                    "can be given. Re-run the probe that produced it before relying on this report.\n")
+        base = self._base_url(target)
+        target_id = evidence.get("target_id") or (target.id if target else "<target-id>")
+        out = []
+        if target is None:
+            out.append("Set `TARGET_BASE` to the target's origin + base path from `authorization.yaml`.\n")
+        out.append(f"Record the build under test first: `curl -s \"{base}/health\"` → note `git_sha`.\n")
+        out.append("Minimal attack sequence (no credentials, no cookies, no headers):\n")
+        steps = []
+        validate = ""
+        for ex in exchanges:
+            req = ex.get("request") if isinstance(ex.get("request"), dict) else {}
+            cmd = self._curl(ex, base)
+            n = req.get("_repeated")
+            if isinstance(n, int) and n > 1:
+                url = self._url(ex, base)
+                steps.append(f'for i in $(seq 1 {n}); do curl -s -o /dev/null -w "%{{http_code}}\\n" "{url}"; done '
+                             f"| sort | uniq -c")
+                validate = (f"**Validate (deterministic):** fixed when at least one `429` appears within {n} "
+                            f"requests (and later requests carry `Retry-After`). Vulnerable when all {n} return "
+                            f"`200`, as observed: {ex.get('response')}.")
+            else:
+                steps.append(cmd)
+        out.append("```bash\n" + "\n".join(steps) + "\n```\n")
+        if not validate:
+            if kind in ("read-mint", "write-mint"):
+                validate = ("**Validate (deterministic):** fixed when the request above returns `401`/`403` "
+                            "(or `404` with the synthetic mint disabled) and the body contains no `demo_token`. "
+                            "Vulnerable when it returns `200` with a `demo_token`, as observed.")
+            else:
+                oracles = ", ".join(f"`{o['oracle']}`" for o in self._violations(evidence)) or "the oracle"
+                validate = (f"**Validate (deterministic):** fixed when the response no longer triggers "
+                            f"{oracles} (see Observed vs expected for the invariant).")
+        out.append(validate + "\n")
+        case_note = f" (this finding's case is `{evidence['regression_case']}`)" if evidence.get("regression_case") else ""
+        out.append(f"Platform replay: re-runs every frozen regression case{case_note} with the same probe and "
+                   "oracle against the live target; exit code 0 only if all held. Needs this repo's `.env` "
+                   "(see README).\n")
+        out.append(f"```bash\nuv run redteam regression --target {target_id} --sha <git_sha from /health>\n```\n")
+        return "\n".join(out)
+
+    def _observed(self, evidence: dict, kind: str) -> str:
+        exchanges = evidence.get("exchanges", [])
+        violations = self._violations(evidence)
+        detail = "; ".join(f"`{o['oracle']}`: {o.get('detail') or 'violation'}" for o in violations)
+        if kind in ("read-mint", "write-mint") and exchanges:
+            ex = exchanges[0]
+            claims = self._token_claims(ex)
+            scope = claims.get("scope") or "unknown"
+            subj = claims.get("patient_uuid") or _public_params(ex.get("request")).get("patient_uuid", "?")
+            ttl = ""
+            try:
+                ttl = f", valid {json.loads(ex.get('response') or '{}').get('expires_in_seconds')} s"
+            except (ValueError, TypeError):
+                pass
+            return (f"an anonymous `{ex.get('method')} {ex.get('route')}` returned HTTP {ex.get('status_code')} "
+                    f"with a signed `demo_token` (scope `{scope}`, patient `{subj}`{ttl}). {detail}")
+        if exchanges:
+            ex = exchanges[0]
+            return f"`{ex.get('method')} {ex.get('route')}` → HTTP {ex.get('status_code')}. {detail or 'oracle violation'}"
+        return detail or "the deterministic oracle detected a violation"
+
+    def _description(self, finding: dict, kind: str) -> tuple[str, str]:
+        c = finding["component"]
+        if kind == "read-mint":
+            return (f"`{c}` issues a signed, patient-scoped **read** token (`read-briefing`) to any caller, "
+                    "with no authentication. The patient routes do verify that token and its patient binding, "
+                    "but because the token is free, that check protects nothing: an anonymous caller mints a "
+                    "token for any patient id and then reads that patient's chart and AI briefing.",
+                    "Anyone on the internet can read any patient's chart. In a real deployment this is a PHI "
+                    "confidentiality breach, HIPAA-reportable.")
+        if kind == "write-mint":
+            return (f"`{c}` issues a signed **write** token (`write-source-document`) to any caller, with no "
+                    "authentication. That token is what the document-upload route (`/v1/source-documents`) "
+                    "accepts, so an anonymous caller obtains upload capability for a patient's record "
+                    "(limited by the target's per-patient upload allow-list).",
+                    "Anyone can upload source documents into a patient's record: an integrity breach. A poisoned "
+                    "document then feeds the clinician's AI briefing, so it can shape what the clinician reads "
+                    "about that patient.")
+        if kind == "mint-rate-limit":
+            return (f"`{c}` is anonymous and applies no rate limit: every rapid repeated request from one client "
+                    "was served with `200`. Absence of a `429` within the observed count is evidence, not proof, "
+                    "that no throttle exists at higher volume.",
+                    "Lets a script probe patient ids at full speed (enumeration) and abuse cost/availability of "
+                    "the Co-Pilot at the point of care. Combined with the anonymous mint, nothing slows bulk "
+                    "harvesting of patient-scoped tokens.")
+        cat = finding["primary_category"]
+        return (_DESCRIPTION.get(cat, f"A confirmed {cat} weakness.") + f" Component: `{c}`.",
+                _CLINICAL_IMPACT.get(cat, "Assess against patient safety before triage."))
+
+    @staticmethod
+    def _later_replays(finding: dict, evidence: dict, replays: list[dict]) -> list[dict]:
+        """Replays on a build other than the ones the finding was observed on."""
+        seen = {s["sha"] for s in evidence.get("seen_on", [])}
+        if finding.get("first_seen_sha"):
+            seen.add(finding["first_seen_sha"])
+        return [r for r in replays if r["sha"] not in seen]
+
+    def _fix_validation(self, finding: dict, evidence: dict, replays: list[dict]) -> str:
+        later = self._later_replays(finding, evidence, replays)
+        if not later:
+            return json.dumps({"sha": None, "result": None})
+        last = later[-1]
+        result = {"FAIL": "held", "SUCCESS": "reappeared"}.get(last["outcome"], "inconclusive")
+        return json.dumps({"sha": last["sha"], "result": result, "at": last["at"]})
+
+    def _render_status(self, finding: dict, evidence: dict, report: dict | None, replays: list[dict]) -> str:
+        lines = [f"- **Finding status:** `{finding.get('status') or 'new'}`"]
+        if report:
+            try:
+                approval = json.loads(report.get("approval") or "{}")
+            except ValueError:
+                approval = {}
+            appr = ""
+            if approval.get("approver"):
+                appr = f" (approved by {approval['approver']} at {approval.get('at')})"
+            elif approval.get("required"):
+                appr = " (held for human approval: critical/high or unevidenced)"
+            lines.append(f"- **Report {report['report_id']}:** `{report['status']}`{appr}")
+        else:
+            lines.append("- **Report:** not yet written to the store")
+        seen = list({s["sha"]: s for s in reversed(evidence.get("seen_on", []))}.values())[::-1]  # first sighting per build
+        if seen:
+            labels = any(not _is_git_sha(s["sha"]) for s in seen)
+            lines.append("- **Observed on builds:** " + ", ".join(
+                f"`{s['sha'] or 'unrecorded'}` ({(s['at'] or '')[:10]})" for s in seen)
+                + (" (non-hex values are run labels recorded before `/health` git SHAs were passed, "
+                   "not target commits)" if labels else ""))
+        later = self._later_replays(finding, evidence, replays)
+        lines.append("\n**Fix validation:**")
+        if later:
+            word = {"FAIL": "held", "SUCCESS": "reappeared"}
+            for r in later:
+                lines.append(f"- `{r['sha']}` — {word.get(r['outcome'], 'inconclusive (not a pass)')} "
+                             f"({(r['at'] or '')[:10]})")
+            if not any(r["outcome"] == "FAIL" for r in later):
+                lines.append("- No replay has held yet: not fixed.")
+        else:
+            where = _FIX_TRACKING.get(evidence.get("target_id") or "")
+            pending = f"fix pending in target repo ({where})" if where else "no fix build replayed yet"
+            lines.append(f"Not yet validated: {pending}; validate with the commands above on the new "
+                         "`/health` `git_sha`.")
+        return "\n".join(lines) + "\n"
+
+    def render_markdown(self, finding: dict, level: str, evidence: dict | None = None, *,
+                        target=None, report: dict | None = None, replays: list[dict] | None = None) -> str:
         evidence = evidence or {}
-        taxonomy = ", ".join(f"{t['scheme']}:{t['id']}" for t in json.loads(finding["taxonomy"] or "[]"))
-        remediation = _REMEDIATION.get(finding["primary_category"], "Constrain the affected behavior and add a regression test.")
-        has_evidence = bool(evidence.get("exchanges"))
-        # Reproduction wording is conditional: only claim "the request shown above" when a request
-        # was actually captured (T2.3 — no unfounded reproducibility claim).
-        repro = ("Replay the attempts referenced in the Finding's verdicts against the same target "
-                 "build; the oracle re-fires deterministically on the request shown above."
-                 if has_evidence else
-                 "No request/response evidence was captured for this finding; reproduce from the "
-                 "attempt referenced in the verdict before relying on it.")
+        kind = self._kind(finding, evidence)
+        taxonomy = "; ".join(owasp_label(t["id"]) for t in json.loads(finding["taxonomy"] or "[]")) or "unmapped"
+        if kind in ("read-mint", "write-mint"):
+            remediation = _MINT_REMEDIATION
+        elif kind == "mint-rate-limit":
+            remediation = _RATE_LIMIT_REMEDIATION
+        else:
+            remediation = _REMEDIATION.get(finding["primary_category"],
+                                           "Constrain the affected behavior and add a regression test.")
+        description, impact = self._description(finding, kind)
         # Expected behavior is the case's own invariant, not a hardcoded LLM-refusal line (wrong for
         # authz/DoS findings where no assistant is in the loop) — derived from expected_safe (T2.3).
         expected = evidence.get("expected_safe") or "the protected invariant holds"
+        where = f"{self._base_url(target)}{finding['component']}" if target else finding["component"]
+        refs = ", ".join(json.loads(finding.get("verdict_ids") or "[]"))
         return (
             f"# {finding['finding_id']} — {finding['title']}\n\n"
+            f"- **ID:** {finding['finding_id']}\n"
             f"- **Severity (provisional):** {level} — confirm with CVSS v4\n"
-            f"- **Category / taxonomy:** {finding['primary_category']} ({taxonomy})\n"
-            f"- **Component:** {finding['component']}\n\n"
-            f"## Description\n"
-            f"A confirmed exploit of {finding['primary_category']} at `{finding['component']}` on the "
-            f"authorized synthetic target. Backed by verdicts {finding['verdict_ids']}.\n\n"
-            f"## Evidence (what actually happened)\n{self._render_evidence(evidence)}\n"
-            f"## Reproduction\n{repro}\n\n"
+            f"- **Category:** {finding['primary_category']}\n"
+            f"- **Taxonomy:** {taxonomy}\n"
+            f"- **Component:** `{where}`\n\n"
+            f"## Description\n{description}\n\n"
+            f"**Clinical impact:** {impact}\n\n"
+            f"_{_SYNTHETIC_NOTE}_\n\n"
+            f"## Reproduction\n{self._render_repro(finding, evidence, target, kind)}\n"
             f"## Observed vs expected\n"
-            f"Observed: the deterministic oracle detected a violation (see Evidence). "
-            f"Expected: {expected}.\n\n"
+            f"- **Observed:** {self._observed(evidence, kind)}\n"
+            f"- **Expected:** {expected}.\n\n"
+            f"## Evidence (what actually happened)\n{self._render_evidence(evidence)}\n"
             f"## Recommended remediation\n{remediation}\n\n"
-            f"## Status\nProvisional. Fix validation pending a re-test on a candidate build.\n"
+            f"## Status\n{self._render_status(finding, evidence, report, replays or [])}\n"
+            f"## References\n"
+            f"- Verdicts: {refs or 'none'} (platform store; `uv run redteam evidence <attempt_id>` dumps the "
+            f"raw exchange{', first attempt `' + evidence['attempt_id'] + '`' if evidence.get('attempt_id') else ''})\n"
         )
 
-    def document(self, store, finding_id: str) -> str:
-        """Write a VulnReport for a Finding. Returns the report_id. Idempotent per Finding."""
+    # ---- persistence -----------------------------------------------------------------
+
+    def document(self, store, finding_id: str, registry=None) -> str:
+        """Write a VulnReport for a Finding. Returns the report_id. Idempotent per Finding: a
+        second call refreshes the derived text fields of the existing report but never creates
+        a second row and never touches its status or approval."""
         row = store.conn.execute("SELECT * FROM findings WHERE finding_id = ?", (finding_id,)).fetchone()
         if row is None:
             raise ValueError(f"no such finding: {finding_id}")
         finding = dict(row)
         self._validate(finding)
 
-        existing = store.conn.execute("SELECT report_id FROM vuln_reports WHERE finding_id = ?", (finding_id,)).fetchone()
-        if existing is not None:
-            return existing["report_id"]
-
         try:
             level = json.loads(finding["severity"]).get("provisional_level", "")
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, AttributeError):
             level = ""
+        ctx = self.context(store, finding, registry)
+        evidence = ctx["evidence"]
+        kind = self._kind(finding, evidence)
+        description, impact = self._description(finding, kind)
+        remediation = (_MINT_REMEDIATION if kind in ("read-mint", "write-mint")
+                       else _RATE_LIMIT_REMEDIATION if kind == "mint-rate-limit"
+                       else _REMEDIATION.get(finding["primary_category"], ""))
+        derived = {
+            "description": description,
+            "clinical_impact": impact,
+            "repro": json.dumps({"verdict_ids": json.loads(finding["verdict_ids"] or "[]"),
+                                 "exchanges": evidence.get("exchanges", []),
+                                 "steps": self._render_repro(finding, evidence, ctx["target"], kind)}),
+            "observed_vs_expected": f"{self._observed(evidence, kind)} vs. "
+                                    f"{evidence.get('expected_safe') or 'invariant should hold'}",
+            "remediation": remediation,
+            "fix_validation": self._fix_validation(finding, evidence, ctx["replays"]),
+        }
+
+        existing = store.conn.execute("SELECT report_id FROM vuln_reports WHERE finding_id = ?", (finding_id,)).fetchone()
+        if existing is not None:
+            sets = ", ".join(f"{k} = ?" for k in derived)
+            store.conn.execute(f"UPDATE vuln_reports SET {sets} WHERE report_id = ?",
+                               (*derived.values(), existing["report_id"]))
+            store.conn.commit()
+            return existing["report_id"]
+
         report_id = "R-" + finding_id[2:]
-        evidence = self._evidence_for_finding(store, finding)
         # Fail closed (role-review T1.5): only an explicit low/medium finding backed by captured
         # evidence may auto-publish. High/critical, an unmapped or malformed severity, or a finding
         # with no evidence is held for a human — the gate never fails open on an unknown.
         has_evidence = bool(evidence.get("exchanges"))
         gated = level not in {"low", "medium"} or not has_evidence
-        violations = [o for o in evidence.get("oracle_results", []) if o.get("outcome") == "violation"]
-        observed = "; ".join(f"{o['oracle']}: {o.get('detail') or 'violation'}" for o in violations) \
-            or "oracle detected a violation"
         store.insert("vuln_reports", {
             "schema_version": 1,
             "report_id": report_id,
             "finding_id": finding_id,
             "severity": finding["severity"],
-            "description": f"Confirmed {finding['primary_category']} at {finding['component']}.",
-            "clinical_impact": "Potential impact on a clinical workflow; assess against patient safety before triage.",
-            "repro": json.dumps({"verdict_ids": json.loads(finding["verdict_ids"] or "[]"),
-                                 "exchanges": evidence.get("exchanges", [])}),
-            "observed_vs_expected": f"{observed} vs. {evidence.get('expected_safe') or 'invariant should hold'}",
-            "remediation": _REMEDIATION.get(finding["primary_category"], ""),
+            **derived,
             "status": "pending_approval" if gated else "published",
-            "fix_validation": json.dumps({"sha": None, "result": None}),
             "approval": json.dumps({"required": gated, "approver": None, "at": None}),
             "created_at": _now(),
         })

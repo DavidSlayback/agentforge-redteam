@@ -70,15 +70,19 @@ def reconstruct_probe(case: SeedCase, executor: Executor, judge: Judge, target, 
     body = turn.body or {}
     patient = str(body.get("patient_uuid", ""))
     if case.probe_kind == "mint":
-        return mint_probe(executor, judge, target, patient, endpoint=turn.route)
-    if case.probe_kind == "rate_limit":
-        return rate_limit_probe(executor, target, patient, endpoint=turn.route, n=int(body.get("_count", 20)))
-    if case.probe_kind == "dos":
+        probe = mint_probe(executor, judge, target, patient, endpoint=turn.route)
+    elif case.probe_kind == "rate_limit":
+        probe = rate_limit_probe(executor, target, patient, endpoint=turn.route, n=int(body.get("_count", 20)))
+    elif case.probe_kind == "dos":
         dos_patient = case.auth.patient_uuid if case.auth else patient
-        return dos_probe(executor, judge, minter, target, dos_patient, route=turn.route,
-                         size=int(body.get("message_len", 200_000)),
-                         latency_budget_ms=case.oracle.latency_budget_ms or 10_000.0)
-    raise ValueError(f"cannot reconstruct probe of kind {case.probe_kind!r}")
+        probe = dos_probe(executor, judge, minter, target, dos_patient, route=turn.route,
+                          size=int(body.get("message_len", 200_000)),
+                          latency_budget_ms=case.oracle.latency_budget_ms or 10_000.0)
+    else:
+        raise ValueError(f"cannot reconstruct probe of kind {case.probe_kind!r}")
+    # Keep the caller's case id (a replay's `<frozen>-rt<hex>`), not the builder's fresh one, so
+    # the replay attempt stays traceable to its frozen case (fix-validation in reports reads it).
+    return Probe(probe.case.model_copy(update={"case_id": case.case_id}), probe.produce)
 
 
 def _data_present(text: str | None) -> bool:
