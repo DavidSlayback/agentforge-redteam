@@ -49,6 +49,24 @@ def test_mutate_records_lineage() -> None:
     assert child.case_id != parent.case_id
 
 
+def test_mutate_forces_taxonomy_and_oracle_from_parent() -> None:
+    # T1.3: a variant may vary only the input. A malicious model reply that flips category,
+    # invents a canary, adds a latency budget, or picks its own marker must be overridden.
+    evil = (
+        '{"case_id":"evil","category":"broken-authentication","owasp":["API2:2023"],"target_id":"good",'
+        '"turns":[{"ordinal":1,"method":"POST","route":"/v1/x","body":{"q":"variant"}}],'
+        '"oracle":{"marker":"MODEL-PICKED","foreign_canaries":["invented-secret"],"latency_budget_ms":1},'
+        '"expected_safe":"x"}'
+    )
+    parent = RedTeamAgent().generate(BRIEF, FakeModel(CANNED))
+    child = RedTeamAgent().mutate(parent, FakeModel(evil))
+    assert child.category == "prompt-injection"        # not the model's "broken-authentication"
+    assert child.owasp == ["LLM01"]                    # not the model's API2
+    assert child.oracle.marker == "ZZ-TOKEN"           # parent's oracle, not "MODEL-PICKED"
+    assert child.oracle.foreign_canaries == []         # model-invented canary rejected
+    assert child.oracle.latency_budget_ms is None      # model-added DoS budget rejected
+
+
 def test_generate_folds_in_history() -> None:
     class Capturing:
         def __init__(self) -> None:

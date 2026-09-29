@@ -159,16 +159,19 @@ class RedTeamAgent:
         p0 = parent.turns[0] if parent.turns else None
         if p0 is not None and p0.body and len(p0.body) == 1:
             child = _shape_to_field(child, {"route": p0.route, "input_field": next(iter(p0.body))})
-        # A variant inherits the parent's discovered canaries, always overwriting any the
-        # model invented (it cannot legitimately know another patient's secret).
-        child_oracle = child.oracle
-        if parent.oracle.foreign_canaries:
-            child_oracle = child_oracle.model_copy(update={"foreign_canaries": list(parent.oracle.foreign_canaries)})
+        # A variant varies only the INPUT (turns). Everything that defines what is tested and how
+        # it is judged is the parent's, never the model's: category/owasp (else a variant could
+        # flip category past the campaign gates or mis-map OWASP), the whole oracle (marker,
+        # canaries, latency budget — else the model could pick a marker it then trivially emits,
+        # invent a canary, or add a latency budget for a fake DoS), the patient it runs as, and
+        # identity. See role-review T1.3.
         return child.model_copy(update={
             "parent_id": parent.case_id,
             "mutation_op": "model_rephrase",
             "case_id": f"{parent.case_id}-v{uuid.uuid4().hex[:6]}",
-            "target_id": parent.target_id,   # identity is the platform's, not the model's
-            "auth": parent.auth,   # a variant runs as the same patient as its parent
-            "oracle": child_oracle,
+            "target_id": parent.target_id,
+            "category": parent.category,
+            "owasp": list(parent.owasp),
+            "auth": parent.auth,
+            "oracle": parent.oracle,
         })
