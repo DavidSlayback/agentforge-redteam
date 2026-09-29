@@ -486,9 +486,9 @@ doc overclaims. Checklist (— = todo, ✓ = done):
 **Tier 3 — features (some need human input — flag, don't fake)**
 - [~] T3.1 Oracles (output-handling done; agency/prompt-leak need rubric) for excessive-agency, system-prompt-leakage, improper-output-handling.
 - [ ] T3.2 LLM rubric tier (non-Qwen) for no-oracle categories — NEEDS a non-Qwen model key.
-- [ ] T3.3 Judge-drift detection — NEEDS a human-labeled calibration set.
-- [ ] T3.4 Multi-turn attacks — target is stateless (recon), so document as N/A vs build.
-- [ ] T3.5 Recon/SHA-diff signal + Orchestrator regression trigger + CI regression gate.
+- [~] T3.3 Judge-drift detection (scaffold + agreement metric done; NEEDS labelled calibration set) — NEEDS a human-labeled calibration set.
+- [x] T3.4 Multi-turn attacks (N/A — target composer is stateless; documented in ARCHITECTURE.md) — target is stateless (recon), so document as N/A vs build.
+- [~] T3.5 Recon/SHA-diff (BLOCKED — deployed target is a black box with no version endpoint; regression CLI runs manually) signal + Orchestrator regression trigger + CI regression gate.
 - [x] T3.6 DoS payload synthesis in the harness (size param, not model tokens); surface finish_reason.
 - [x] T3.7 Orchestrator prioritization: outcome-mix momentum, route-granular coverage, SHA/cost
   signals, is_deterministic_only candidate filter, Jev vendor-outage fallback, `--max-model-calls`.
