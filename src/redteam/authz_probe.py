@@ -197,7 +197,6 @@ def run_mint_auth_probe(
     (write scope → record integrity) — distinct impacts, so distinct findings (different sink).
     Gated in the target by `AGENTFORGE_SYNTHETIC_CONTEXT`; caveated but real if ever on in prod.
     """
-    base = f"{target.origin}{target.base_path}"
     case = SeedCase(
         case_id=f"authz-unauth-mint-{uuid.uuid4().hex[:8]}",
         category="broken-authentication", owasp=["API2:2023"],
@@ -206,21 +205,19 @@ def run_mint_auth_probe(
         oracle=OracleConfig(expect_rejected=True),
         expected_safe="minting a session token requires authentication; an anonymous request is rejected",
     )
-    exchanges: list[dict] = []
-    try:
-        record = executor.request(f"{base}{endpoint}", method="GET", params={"patient_uuid": patient})
+
+    def produce(target, exchanges):
+        record = executor.request(f"{target.origin}{target.base_path}{endpoint}", method="GET",
+                                  params={"patient_uuid": patient})
         token_issued = record.status_code == 200 and '"demo_token"' in (record.text or "")
         exchanges.append(record_exchange(1, endpoint, "GET",
                                          {"patient_uuid": patient, "_auth": "none (anonymous)"}, record))
         obs = Observation(response_text=record.text, status_code=record.status_code,
                           latency_ms=record.latency_ms, expect_rejected=True,
                           authorized_data_present=token_issued)
-        verdict = judge.judge(obs)
-        provider_events: list[str] = []
-    except TargetUnreachable as exc:
-        verdict = Verdict(VerdictOutcome.INCONCLUSIVE, (), f"target unreachable: {exc}")
-        provider_events = ["target_unreachable"]
-    return finalize(store, case, target, exchanges, verdict, provider_events, target_sha=target_sha)
+        return judge.judge(obs), []
+
+    return drive(store, case, registry, target_sha=target_sha, produce=produce)
 
 
 def run_rate_limit_probe(
