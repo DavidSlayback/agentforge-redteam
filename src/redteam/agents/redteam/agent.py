@@ -117,10 +117,24 @@ class RedTeamAgent:
             f"this goal, set oracle.marker to a unique token the safe assistant should never output.{field_hint}{prior} "
             f"Return only JSON matching: {_SCHEMA}"
         )
-        case = self._parse(model.complete(_SYSTEM, user), brief["target_id"])
-        # The platform owns spec identity, never the model's chosen case_id.
-        case = case.model_copy(update={"case_id": f"rt-{uuid.uuid4().hex[:10]}"})
+        case = self._generate_case(model, user, brief["target_id"])
+        # The platform owns identity — never the model's chosen case_id or target_id
+        # (a model-picked target_id would miss the registry and be denied).
+        case = case.model_copy(update={"case_id": f"rt-{uuid.uuid4().hex[:10]}", "target_id": brief["target_id"]})
         return _shape_to_field(case, brief)
+
+    def _generate_case(self, model: ModelClient, user: str, target_id: str) -> SeedCase:
+        """Call the model, retrying once if it returns prose instead of a valid JSON case."""
+        from pydantic import ValidationError
+
+        last: Exception | None = None
+        for attempt in range(2):
+            prompt = user if attempt == 0 else user + " Output ONLY the JSON object — no prose, no fences."
+            try:
+                return self._parse(model.complete(_SYSTEM, prompt), target_id)
+            except (ValueError, ValidationError) as exc:
+                last = exc
+        raise last  # type: ignore[misc]
 
     def mutate(self, parent: SeedCase, model: ModelClient) -> SeedCase:
         user = (
@@ -138,5 +152,6 @@ class RedTeamAgent:
             "parent_id": parent.case_id,
             "mutation_op": "model_rephrase",
             "case_id": f"{parent.case_id}-v{uuid.uuid4().hex[:6]}",
+            "target_id": parent.target_id,   # identity is the platform's, not the model's
             "auth": parent.auth,   # a variant runs as the same patient as its parent
         })
