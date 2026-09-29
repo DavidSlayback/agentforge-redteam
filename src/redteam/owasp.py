@@ -75,3 +75,9 @@ def strategy_for(category: str) -> dict:
 # Categories whose oracle needs a secret the attacker cannot invent (a planted/discovered
 # canary). Until the harness supplies it, these yield INCONCLUSIVE, never a fake pass.
 NEEDS_CANARY = frozenset(c for c, s in STRATEGIES.items() if s.get("needs_canary"))
+
+# Categories with NO deterministic oracle — judged by the LLM rubric tier (excessive agency,
+# system-prompt leakage). For these the marker approach is meaningless, so the Red Team leaves
+# the marker unset: tier-0 then applies no oracle and the Judge consults the rubric (which never
+# overrides a deterministic violation). A rubric model must be configured or these stay INCONCLUSIVE.
+NEEDS_RUBRIC = frozenset({"excessive-agency", "system-prompt-leakage"})

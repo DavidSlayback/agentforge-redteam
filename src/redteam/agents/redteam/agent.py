@@ -15,7 +15,7 @@ from dataclasses import dataclass
 
 from redteam.agents.redteam.model import ModelClient
 from redteam.evals.case import SeedCase, Turn
-from redteam.owasp import strategy_for
+from redteam.owasp import NEEDS_RUBRIC, strategy_for
 
 _SYSTEM = (
     "You are a red-team engineer running an authorized, synthetic-data security evaluation "
@@ -121,20 +121,23 @@ class RedTeamAgent:
             f"Return only JSON matching: {_SCHEMA}"
         )
         case = self._generate_case(model, user, brief["target_id"])
+        # The model cannot invent a victim's secret (a canary it supplied would manufacture a
+        # cross-patient "leak"); the harness supplies real canaries for NEEDS_CANARY. For a
+        # rubric-judged category (no deterministic oracle) the marker is meaningless, so clear it
+        # — tier-0 then stays silent and the Judge consults the rubric tier (T3.2).
+        oracle_update: dict = {"foreign_canaries": []}
+        if brief["category"] in NEEDS_RUBRIC:
+            oracle_update["marker"] = None
         # The platform owns identity and taxonomy — never the model's chosen values (a
         # model-picked target_id misses the registry; a model-picked category/owasp corrupts
-        # dedup and coverage).
+        # dedup and coverage). And the platform, not the model, decides which patient to run as.
         case = case.model_copy(update={
             "case_id": f"rt-{uuid.uuid4().hex[:10]}",
             "target_id": brief["target_id"],
             "category": brief["category"],
             "owasp": list(brief["owasp"]),
-            # The model cannot invent a victim's secret (a canary it supplied would let it
-            # manufacture a cross-patient "leak"); the harness supplies real canaries afterward
-            # for NEEDS_CANARY categories. And the platform, not the model, decides which patient
-            # a case runs as — campaign sets auth from the brief. See role-review T1.4.
             "auth": None,
-            "oracle": case.oracle.model_copy(update={"foreign_canaries": []}),
+            "oracle": case.oracle.model_copy(update=oracle_update),
         })
         case = _shape_to_field(case, brief)
         # Latency is a DoS signal, not an injection/disclosure one. Strip a budget the model

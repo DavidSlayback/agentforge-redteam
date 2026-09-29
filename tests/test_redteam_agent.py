@@ -49,6 +49,14 @@ def test_mutate_records_lineage() -> None:
     assert child.case_id != parent.case_id
 
 
+def test_generate_clears_marker_for_rubric_categories() -> None:
+    # T3.2: for a rubric-judged category the marker is meaningless; clearing it lets tier-0 stay
+    # silent so the Judge consults the rubric. A normal category keeps its marker.
+    agency = {"category": "excessive-agency", "owasp": ["LLM06"], "target_id": "good", "route": "/v1/x"}
+    assert RedTeamAgent().generate(agency, FakeModel(CANNED)).oracle.marker is None
+    assert RedTeamAgent().generate(BRIEF, FakeModel(CANNED)).oracle.marker == "ZZ-TOKEN"
+
+
 def test_generate_clears_model_invented_canaries_and_auth() -> None:
     # T1.4: the model must not invent a victim canary (would fake a leak) or pick the patient.
     evil = (
