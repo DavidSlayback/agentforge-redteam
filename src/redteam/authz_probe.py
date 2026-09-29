@@ -33,7 +33,7 @@ from redteam.evals.case import AuthContext, OracleConfig, SeedCase, Turn
 from redteam.executor.authorization import AuthorizationRegistry
 from redteam.executor.executor import Executor
 from redteam.oracles.base import Observation
-from redteam.runner import RunResult, finalize, record_exchange
+from redteam.runner import RunResult, finalize, record_exchange, send_turns
 
 _BENIGN = "Summarize the current record."
 _CLINICIAN = "fixture-physician-001"
@@ -111,11 +111,8 @@ def run_authz_case(
         auth_fields: dict = {}
         if case.auth is not None and minter is not None:
             auth_fields = minter.auth_fields(case.auth.patient_uuid)
-        for turn in sorted(case.turns, key=lambda t: t.ordinal):
-            body = {**auth_fields, **(turn.body or {})}   # body WINS (see module docstring)
-            url = target.origin + target.base_path + turn.route
-            record = executor.request(url, method=turn.method, json=body)
-            exchanges.append(record_exchange(turn.ordinal, turn.route, turn.method, body, record))
+        # body_wins=True: the tampered patient_uuid in the body survives the merge (see module docstring).
+        record = send_turns(target, executor, case.turns, exchanges, auth_fields=auth_fields, body_wins=True)
     except TargetUnreachable as exc:
         unreachable = str(exc)
 
