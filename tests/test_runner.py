@@ -7,12 +7,12 @@ from pathlib import Path
 import pytest
 
 from redteam.agents.judge.judge import Judge, VerdictOutcome
-from redteam.errors import AuthorizationDenied
+from redteam.errors import AuthorizationDenied, TargetUnreachable
 from redteam.evals.case import OracleConfig, SeedCase, Turn
 from redteam.executor.authorization import AuthorizationRegistry
 from redteam.executor.executor import Executor
 from redteam.executor.http_sender import ResponseRecord
-from redteam.runner import run_case, send_turns
+from redteam.runner import drive, run_case, send_turns
 from redteam.store.store import Store
 
 
@@ -71,6 +71,37 @@ def test_send_turns_merge_precedence(tmp_path: Path) -> None:
     send_turns(target, ex, turns, [], auth_fields=auth, body_wins=True)
     assert seen["patient_uuid"] == "victim"
     assert seen["demo_token"] == "tok"
+
+
+def test_drive_maps_unreachable_to_inconclusive_and_persists(tmp_path: Path) -> None:
+    # Closes a coverage gap: a transport failure is INCONCLUSIVE (never a defense holding), and
+    # the attempt is still persisted with whatever exchanges were captured before the failure.
+    reg = _registry(tmp_path)
+    store = Store.open(tmp_path / "s.db")
+    case = SeedCase(
+        case_id="c-unreach", category="prompt-injection", owasp=["LLM01"], target_id="good",
+        turns=[Turn(ordinal=1, route="/v1/x")], expected_safe="",
+    )
+
+    def produce(target, exchanges):
+        exchanges.append({"ordinal": 1, "route": "/v1/x", "status_code": None, "latency_ms": None})
+        raise TargetUnreachable("connection reset")
+
+    result = drive(store, case, reg, produce=produce)
+    assert result.verdict.outcome is VerdictOutcome.INCONCLUSIVE
+    assert store.count("attempts") == 1          # persisted despite the failure
+    assert store.count("findings") == 0          # INCONCLUSIVE never promotes
+    store.close()
+
+
+def test_drive_denies_unknown_target(tmp_path: Path) -> None:
+    reg = _registry(tmp_path)
+    store = Store.open(tmp_path / "s.db")
+    case = SeedCase(case_id="c-unknown", category="x", owasp=["LLM01"], target_id="nope",
+                    turns=[Turn(ordinal=1, route="/x")], expected_safe="")
+    with pytest.raises(AuthorizationDenied):
+        drive(store, case, reg, produce=lambda t, e: None)
+    store.close()
 
 
 def test_run_case_denies_unknown_target(tmp_path: Path) -> None:

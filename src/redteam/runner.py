@@ -225,3 +225,27 @@ def finalize(store, case: SeedCase, target, exchanges: list[dict], verdict: Verd
         if is_new:
             regression.freeze(store, finding_id, case)
     return RunResult(attempt_id=attempt_id, verdict=verdict)
+
+
+def drive(store, case: SeedCase, registry: AuthorizationRegistry, *, target_sha: str | None = None,
+          produce) -> RunResult:
+    """The shared execution driver: resolve the target, run ``produce``, and persist.
+
+    ``produce(target, exchanges) -> (Verdict, list[str])`` runs the path-specific execution,
+    appending rich exchanges to ``exchanges`` as it goes, and returns the verdict plus its
+    provider events. It may return a terminal verdict directly (e.g. a document short-circuit)
+    or raise ``TargetUnreachable`` — which the driver converts to an INCONCLUSIVE verdict,
+    preserving whatever exchanges were captured (a transport failure is not a defense holding).
+    Every attack path funnels through here so target resolution, the unreachable handling, and
+    ``finalize`` live in exactly one place.
+    """
+    target = registry.by_id(case.target_id)
+    if target is None:
+        raise AuthorizationDenied(case.target_id)
+    exchanges: list[dict] = []
+    try:
+        verdict, provider_events = produce(target, exchanges)
+    except TargetUnreachable as exc:
+        verdict = Verdict(VerdictOutcome.INCONCLUSIVE, (), f"target unreachable: {exc}")
+        provider_events = ["target_unreachable"]
+    return finalize(store, case, target, exchanges, verdict, provider_events, target_sha=target_sha)
