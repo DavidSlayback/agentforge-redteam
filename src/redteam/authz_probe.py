@@ -28,12 +28,11 @@ from datetime import datetime, timezone
 
 from redteam.agents.judge.judge import Judge, Verdict, VerdictOutcome
 from redteam.canary import discover_foreign_canaries
-from redteam.errors import AuthorizationDenied, TargetUnreachable
 from redteam.evals.case import AuthContext, OracleConfig, SeedCase, Turn
 from redteam.executor.authorization import AuthorizationRegistry
 from redteam.executor.executor import Executor
 from redteam.oracles.base import Observation
-from redteam.runner import RunResult, drive, finalize, record_exchange, send_turns
+from redteam.runner import RunResult, drive, record_exchange, send_turns
 
 _BENIGN = "Summarize the current record."
 _CLINICIAN = "fixture-physician-001"
@@ -242,7 +241,6 @@ def run_rate_limit_probe(
 
     from redteam.oracles.base import OracleOutcome, OracleResult
 
-    base = f"{target.origin}{target.base_path}"
     case = SeedCase(
         case_id=f"authz-no-rate-limit-{uuid.uuid4().hex[:8]}",
         category="denial-of-service", owasp=["API4:2023", "LLM10"],
@@ -251,8 +249,9 @@ def run_rate_limit_probe(
         oracle=OracleConfig(),
         expected_safe="an unauthenticated endpoint throttles rapid repeated requests (429) to resist enumeration/DoS",
     )
-    exchanges: list[dict] = []
-    try:
+
+    def produce(target, exchanges):
+        base = f"{target.origin}{target.base_path}"
         statuses: list[int] = []
         first = None
         for _ in range(n):
@@ -269,16 +268,11 @@ def run_rate_limit_probe(
         if not throttled and all(s < 400 for s in statuses):
             result = OracleResult("rate_limit", 0, OracleOutcome.VIOLATION,
                                   f"no 429 across {n} rapid anonymous requests (statuses {counts})")
-            verdict = Verdict(VerdictOutcome.SUCCESS, (result,), result.detail)
-        else:
-            result = OracleResult("rate_limit", 0, OracleOutcome.SAFE,
-                                  f"throttled or rejected (statuses {counts})")
-            verdict = Verdict(VerdictOutcome.FAIL, (result,), result.detail)
-        provider_events: list[str] = []
-    except TargetUnreachable as exc:
-        verdict = Verdict(VerdictOutcome.INCONCLUSIVE, (), f"target unreachable: {exc}")
-        provider_events = ["target_unreachable"]
-    return finalize(store, case, target, exchanges, verdict, provider_events, target_sha=target_sha)
+            return Verdict(VerdictOutcome.SUCCESS, (result,), result.detail), []
+        result = OracleResult("rate_limit", 0, OracleOutcome.SAFE, f"throttled or rejected (statuses {counts})")
+        return Verdict(VerdictOutcome.FAIL, (result,), result.detail), []
+
+    return drive(store, case, registry, target_sha=target_sha, produce=produce)
 
 
 def run_authz_probes(
