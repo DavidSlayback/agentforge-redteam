@@ -159,8 +159,12 @@ artifact), `SAFETY` (trust boundary), `SCHEDULE` (checkpoint). Status: `not star
 - **Orchestrator: hybrid** — deterministic ranking + hard budget/halt/auth rules; a small
   LLM picks among top-k candidate campaigns and logs its rationale; cannot override
   controls. (Q4.)
-- **Red Team provider:** David's direct Qwen API key preferred (cheapest). Model chosen by
-  a measured bake-off **after** the architecture settles (Q5).
+- **Red Team provider:** David's direct Qwen API key (Alibaba). Model is env-swappable
+  (`AGENTFORGE_REDTEAM_MODEL`) and per-run via `redteam campaign --model <name>`. Default
+  `qwen3.8-flash`. **Follow-up (David has an Alibaba MAX plan):** once the loop is landing
+  clean aimed attempts, run the Q5 bake-off across stronger models (qwen3.8-max / qwen-max
+  class) — a more capable attacker may craft attacks that actually breach a well-defended
+  target. Compare refusal/provider-block rate, valid-variant rate, findings, and cost.
 - **Human gates:** publish Critical/High reports; `INCONCLUSIVE` + clinical-harm review
   queue; authorization-registry changes. Autonomous: in-budget campaigns, finding →
   regression promotion, Medium/Low reports. Never: the platform proposing or applying
@@ -253,6 +257,17 @@ zero-findings: the target resisted these six, not a plumbing failure.
 - **To find real vulns from here:** more campaigns + multi-turn + the indirect/document
   surface (upload-borne injection via `/v1/scan-supervisor` after a source doc); stronger
   Red Team objectives. The loop and oracles are proven; this is attack-strength work.
+
+**Aimed attacks + cross-patient canaries + qwen3.8-max (2026-09-28).** The Red Team is now
+OWASP-objective-grounded and target-aware. Cross-patient disclosure is deterministically
+scorable: `--victim-patient` derives the victim's unique fact values as canaries.
+- **Trustworthy negative:** attacker patient-001, victim patient-002, `--model qwen3.8-max`.
+  The disclosure oracle **applied** (`canary_leak: safe`, not N/A) — a real scored
+  cross-patient test — and **patient scope held**; injection also FAIL. No breach.
+- **Caught + fixed a false positive first:** an earlier aimed run flagged a bogus
+  prompt-injection "finding" from a ~5s (normal) response tripping a model-set latency
+  budget. Fixed: latency judges DoS only; the platform (not the model) owns category/owasp.
+- Model note: `qwen3.8-max` works on the MAX plan; `qwen-max`/`qwen3.8-plus` 404.
 
 **Other remaining work needs David (classifier / spend / human):**
 1. **Real findings** — run authed attack campaigns per `docs/HANDOFF-offensive.md`
