@@ -10,18 +10,17 @@ replay faithful (see the 2026-09-29 self-audit in docs/PLAN.md).
 
 from __future__ import annotations
 
-from redteam.authz_probe import AUTHZ_CATEGORIES, run_authz_case
+from redteam.authz_probe import run_authz_case
 from redteam.document_attack import run_document_attack
+from redteam.routing import execution_kind
 from redteam.runner import RunResult, run_case
-
-# Categories whose execution is a document upload+scan flow rather than a direct HTTP turn.
-DOCUMENT_CATEGORIES = frozenset({"indirect-injection"})
 
 
 def dispatch(case, registry, executor, judge, store, minter, target_sha: str | None = None) -> RunResult:
-    """Route a case to the execution path its category requires."""
-    if case.category in AUTHZ_CATEGORIES:
+    """Route a case to the execution path its category requires (per redteam.routing)."""
+    kind = execution_kind(case.category)
+    if kind == "authz":
         return run_authz_case(case, registry, executor, judge, store, minter=minter, target_sha=target_sha)
-    if case.category in DOCUMENT_CATEGORIES:
+    if kind == "document":
         return run_document_attack(case, registry, executor, judge, store, minter, target_sha=target_sha)
     return run_case(case, registry, executor, judge, store, minter=minter, target_sha=target_sha)
