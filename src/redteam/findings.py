@@ -86,6 +86,7 @@ def promote(store, case: SeedCase, verdict: Verdict, verdict_id: str) -> tuple[s
 
     try:
         store.insert("findings", {
+            "schema_version": 1,
             "finding_id": finding_id,
             "title": f"{category} via {sink}",
             "taxonomy": json.dumps([{"scheme": "OWASP-LLM", "version": "2025", "id": t} for t in owasp]),

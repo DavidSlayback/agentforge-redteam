@@ -83,9 +83,14 @@ finding if that gate is ever enabled in production.
 - Synthetic data throughout; no real PHI is processed, logged, or stored.
 - Findings are conditional on the deployed configuration: the mint finding is real **iff**
   `AGENTFORGE_SYNTHETIC_CONTEXT` is enabled in a non-demo deployment.
-- **Not yet exercised:** sustained-load DoS; injection in the mint's `patient_uuid` parameter;
-  the `/v1/conversations` multi-turn surface; a deterministic excessive-agency oracle. These
-  are tracked in `docs/PLAN.md`.
+- **Mint input handling (tested, negative):** `/v1/demo-context` validates the `patient_uuid`
+  format — an arbitrary string and an SQLi-style value are rejected with a clean `400
+  invalid_synthetic_patient` and no error leak. It does, however, issue a token for any
+  well-formed `fixture-patient-NNN` including a nonexistent `-999`; this is over-permissive but
+  the **same root cause** as finding #1 (unauthenticated synthetic-context issuance), not a
+  separate vulnerability.
+- **Not yet exercised:** sustained-load DoS; the `/v1/conversations` multi-turn surface; a
+  deterministic excessive-agency oracle. These are tracked in `docs/PLAN.md`.
 - The platform reports **trustworthy negatives**: a "held" above means a deterministic oracle
   or a verified live 403/clean-response, not an untested assumption. Where a control could not
   be cleanly isolated (row 5), it is marked as such rather than claimed.

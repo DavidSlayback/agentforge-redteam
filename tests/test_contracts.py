@@ -63,7 +63,7 @@ def test_every_schema_is_valid() -> None:
 
 def test_attack_spec_conforms(live) -> None:
     r = _row(live, "SELECT * FROM attack_specs LIMIT 1")
-    msg = {"schema_version": 1, "spec_id": r["spec_id"], "category": r["category"],
+    msg = {"schema_version": r["schema_version"], "spec_id": r["spec_id"], "category": r["category"],
            "target_route": r["target_route"], "turns": json.loads(r["turns"]),
            "owasp": json.loads(r["owasp"]), "expected_safe_ref": r["expected_safe_ref"]}
     Draft202012Validator(_schema("attack_spec")).validate(msg)
@@ -71,7 +71,7 @@ def test_attack_spec_conforms(live) -> None:
 
 def test_attempt_conforms(live) -> None:
     r = _row(live, "SELECT * FROM attempts LIMIT 1")
-    msg = {"schema_version": 1, "attempt_id": r["attempt_id"], "spec_id": r["spec_id"],
+    msg = {"schema_version": r["schema_version"], "attempt_id": r["attempt_id"], "spec_id": r["spec_id"],
            "target_id": r["target_id"], "target_env": r["target_env"],
            "exchanges": json.loads(r["exchanges"]), "provider_events": json.loads(r["provider_events"]),
            "evidence_ref": r["evidence_ref"]}
@@ -80,7 +80,7 @@ def test_attempt_conforms(live) -> None:
 
 def test_verdict_conforms(live) -> None:
     r = _row(live, "SELECT * FROM verdicts LIMIT 1")
-    msg = {"schema_version": 1, "verdict_id": r["verdict_id"], "attempt_id": r["attempt_id"],
+    msg = {"schema_version": r["schema_version"], "verdict_id": r["verdict_id"], "attempt_id": r["attempt_id"],
            "outcome": r["outcome"], "oracle_results": json.loads(r["oracle_results"]),
            "evidence_ref": r["evidence_ref"], "judged_at": r["judged_at"]}
     Draft202012Validator(_schema("verdict")).validate(msg)
@@ -88,7 +88,7 @@ def test_verdict_conforms(live) -> None:
 
 def test_finding_conforms(live) -> None:
     r = _row(live, "SELECT * FROM findings LIMIT 1")
-    msg = {"schema_version": 1, "finding_id": r["finding_id"], "title": r["title"],
+    msg = {"schema_version": r["schema_version"], "finding_id": r["finding_id"], "title": r["title"],
            "taxonomy": json.loads(r["taxonomy"]), "primary_category": r["primary_category"],
            "severity": json.loads(r["severity"]), "severity_score": r["severity_score"],
            "component": r["component"], "status": r["status"],
@@ -100,7 +100,7 @@ def test_vuln_report_conforms(live) -> None:
     finding_id = live.conn.execute("SELECT finding_id FROM findings LIMIT 1").fetchone()["finding_id"]
     DocumentationAgent().document(live, finding_id)
     r = _row(live, "SELECT * FROM vuln_reports LIMIT 1")
-    msg = {"schema_version": 1, "report_id": r["report_id"], "finding_id": r["finding_id"],
+    msg = {"schema_version": r["schema_version"], "report_id": r["report_id"], "finding_id": r["finding_id"],
            "severity": json.loads(r["severity"]), "description": r["description"],
            "clinical_impact": r["clinical_impact"], "repro": json.loads(r["repro"]),
            "observed_vs_expected": r["observed_vs_expected"], "remediation": r["remediation"],
@@ -110,7 +110,10 @@ def test_vuln_report_conforms(live) -> None:
 
 
 def test_campaign_conforms() -> None:
-    # The Orchestrator emits this shape to direct a hunt.
+    # NOTE: Campaign has no persisting producer yet (the Orchestrator passes a brief + campaign_id
+    # to run_campaign and logs agent_actions; it does not write a Campaign row). This validates a
+    # HAND-BUILT instance of the intended shape — the contract is defined but "wired: no". The
+    # other five messages above are validated against REAL persisted records.
     msg = {"schema_version": 1, "campaign_id": "orch-1", "target_id": "agentforge-w2",
            "category": ["prompt-injection"], "status": "running",
            "budget": {"max_campaigns": 5, "max_no_signal": 5},
@@ -131,8 +134,25 @@ def test_typed_errors_conform() -> None:
     assert seen_codes == set(schema["properties"]["code"]["enum"])
 
 
-def test_negative_control_rejects_bad_verdict() -> None:
-    bad = {"schema_version": 1, "verdict_id": "v", "attempt_id": "a",
-           "outcome": "DEFINITELY_PWNED", "oracle_results": [], "judged_at": "now"}  # outcome not in enum
+# One malformed instance per schema, so every contract is shown to be able to REJECT — a
+# schema that accepts everything tests nothing. Each violates a specific constraint.
+_BAD = {
+    "verdict": {"schema_version": 1, "verdict_id": "v", "attempt_id": "a",
+                "outcome": "DEFINITELY_PWNED", "oracle_results": [], "judged_at": "now"},   # outcome enum
+    "attempt": {"schema_version": 1, "attempt_id": "a", "spec_id": "s", "target_id": "t",
+                "target_env": "prod", "exchanges": []},                                     # target_env enum
+    "finding": {"schema_version": 1, "finding_id": "f", "title": "t", "primary_category": "c",
+                "severity": {"provisional_level": "SEV1"}, "status": "new", "dedup_key": "k"},  # level enum
+    "vuln_report": {"schema_version": 1, "report_id": "r", "finding_id": "f", "status": "approved"},  # status enum
+    "campaign": {"schema_version": 1, "campaign_id": "c", "target_id": "t",
+                 "category": ["x"], "status": "invented"},                                  # status enum
+    "error": {"schema_version": 1, "code": "boom", "message": "m", "retriable": False},      # code enum
+    "attack_spec": {"schema_version": 1, "spec_id": "s", "category": "c",
+                    "target_route": "/r", "turns": []},                                     # turns minItems
+}
+
+
+@pytest.mark.parametrize("name", sorted(_BAD))
+def test_negative_control_rejects_malformed(name: str) -> None:
     with pytest.raises(ValidationError):
-        Draft202012Validator(_schema("verdict")).validate(bad)
+        Draft202012Validator(_schema(name)).validate(_BAD[name])

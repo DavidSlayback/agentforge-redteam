@@ -20,7 +20,7 @@ EXPECTED_INDEXES = {
 
 def test_open_applies_migrations(tmp_path: Path) -> None:
     store = Store.open(tmp_path / "s.db")
-    assert store.schema_version() == 4
+    assert store.schema_version() == 5
     assert EXPECTED_TABLES <= store.table_names()
     assert EXPECTED_INDEXES <= store.index_names()
     # migration 0002 added the owasp column; 0003 added regression case_json
@@ -34,10 +34,10 @@ def test_migrations_are_idempotent(tmp_path: Path) -> None:
     db = tmp_path / "s.db"
     Store.open(db).close()
     reopened = Store.open(db)
-    assert reopened.schema_version() == 4
+    assert reopened.schema_version() == 5
     # one row per applied migration, none re-applied
     count = reopened.conn.execute("SELECT COUNT(*) AS c FROM schema_version").fetchone()["c"]
-    assert count == 4
+    assert count == 5
     reopened.close()
 
 

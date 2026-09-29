@@ -1,0 +1,42 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Red Team Dashboard</title><style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#161a20;--muted:#616a76;--line:#e4e7eb;--accent:#b4531f;
+--good:#0d8a7a;--bad:#d6402c;--warn:#b8860b}
+@media(prefers-color-scheme:dark){:root{--bg:#14161a;--card:#1d2026;--ink:#e9ebef;--muted:#9aa2ad;
+--line:#2c313a;--accent:#e8895a;--good:#3fc7b4;--bad:#f0806e;--warn:#e6c34d}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);
+font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+.wrap{max-width:1040px;margin:0 auto;padding:28px 20px}
+h1{font-size:22px;margin:0 0 2px}.sub{color:var(--muted);font-size:13px;margin:0 0 20px}
+.cards{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:22px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;flex:1;min-width:150px}
+.card .n{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums}
+.card .l{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.05em}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);
+border-bottom:1px solid var(--line);padding-bottom:6px;margin:26px 0 10px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+td.n{font-variant-numeric:tabular-nums}
+.pill{display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px;font-weight:600}
+.s-SUCCESS,.s-new{background:color-mix(in srgb,var(--bad) 18%,transparent);color:var(--bad)}
+.s-FAIL,.s-published{background:color-mix(in srgb,var(--good) 18%,transparent);color:var(--good)}
+.s-INCONCLUSIVE,.s-pending_approval{background:color-mix(in srgb,var(--warn) 20%,transparent);color:var(--warn)}
+.muted{color:var(--muted)}code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.92em}
+</style></head><body><div class="wrap">
+<h1>AgentForge Red Team</h1>
+<p class="sub">Read-only snapshot · generated 2026-09-29T13:21:53+00:00</p>
+<div class="cards">
+  <div class="card"><div class="n">17</div><div class="l">Cases run</div></div>
+  <div class="card"><div class="n">0</div><div class="l">Findings</div></div>
+  <div class="card"><div class="n">4</div><div class="l">Categories</div></div>
+  <div class="card"><div class="n">5</div><div class="l">Model calls</div></div>
+</div>
+<h2>Pass / fail by category</h2><table><tr><th>Category</th><th>FAIL</th></tr><tr><td><code>broken-authentication</code></td><td class="n">9</td></tr><tr><td><code>broken-object-authorization</code></td><td class="n">3</td></tr><tr><td><code>indirect-injection</code></td><td class="n">3</td></tr><tr><td><code>prompt-injection</code></td><td class="n">2</td></tr></table>
+<h2>OWASP coverage</h2><table><tr><th>OWASP</th><th>FAIL</th></tr><tr><td><code>API1:2023</code></td><td class="n">3</td></tr><tr><td><code>API2:2023</code></td><td class="n">6</td></tr><tr><td><code>API8:2023</code></td><td class="n">3</td></tr><tr><td><code>LLM01</code></td><td class="n">5</td></tr><tr><td><code>LLM02</code></td><td class="n">3</td></tr></table>
+<h2>Resilience by target build</h2><table><tr><th>Build (SHA)</th><th>FAIL</th></tr><tr><td><code>live-2026-09-29</code></td><td class="n">4</td></tr><tr><td><code>unknown</code></td><td class="n">13</td></tr></table>
+<h2>Findings</h2><p class="muted">No findings yet.</p>
+<h2>Recent agent actions</h2><table><tr><th>Time</th><th>Agent</th><th>Reason</th></tr><tr><td class='muted'>02:34:39</td><td>orchestrator/select</td><td class='muted'>score=1.000 {&#x27;tried&#x27;: 0, &#x27;open_findings&#x27;: 0} {&#x27;selector&#x27;: &#x27;deterministic&#x27;, &#x27;chosen_score&#x27;: 1.0}</td></tr><tr><td class='muted'>02:35:56</td><td>judge/verdict</td><td class='muted'>all applicable oracles clean</td></tr><tr><td class='muted'>02:37:28</td><td>campaign/brief_error</td><td class='muted'>TargetUnreachable: attacker model endpoint unreachable: The read operation timed out</td></tr><tr><td class='muted'>02:37:28</td><td>orchestrator/select</td><td class='muted'>score=1.000 {&#x27;tried&#x27;: 0, &#x27;open_findings&#x27;: 0} {&#x27;selector&#x27;: &#x27;deterministic&#x27;, &#x27;chosen_score&#x27;: 1.0}</td></tr><tr><td class='muted'>02:38:05</td><td>judge/verdict</td><td class='muted'>all applicable oracles clean</td></tr><tr><td class='muted'>02:38:31</td><td>judge/verdict</td><td class='muted'>all applicable oracles clean</td></tr><tr><td class='muted'>02:38:31</td><td>orchestrator/select</td><td class='muted'>score=0.500 {&#x27;tried&#x27;: 1, &#x27;open_findings&#x27;: 0} {&#x27;selector&#x27;: &#x27;deterministic&#x27;, &#x27;chosen_score&#x27;: 0.5}</td></tr><tr><td class='muted'>02:40:01</td><td>campaign/brief_error</td><td class='muted'>TargetUnreachable: attacker model endpoint unreachable: The read operation timed out</td></tr><tr><td class='muted'>02:40:01</td><td>orchestrator/select</td><td class='muted'>score=0.500 {&#x27;tried&#x27;: 1, &#x27;open_findings&#x27;: 0} {&#x27;selector&#x27;: &#x27;deterministic&#x27;, &#x27;chosen_score&#x27;: 0.5}</td></tr><tr><td class='muted'>02:41:33</td><td>campaign/brief_error</td><td class='muted'>TargetUnreachable: attacker model endpoint unreachable: The read operation timed out</td></tr><tr><td class='muted'>02:41:33</td><td>orchestrator/select</td><td class='muted'>score=0.500 {&#x27;tried&#x27;: 1, &#x27;open_findings&#x27;: 0} {&#x27;selector&#x27;: &#x27;deterministic&#x27;, &#x27;chosen_score&#x27;: 0.5}</td></tr><tr><td class='muted'>02:43:03</td><td>campaign/brief_error</td><td class='muted'>TargetUnreachable: attacker model endpoint unreachable: The read operation timed out</td></tr><tr><td class='muted'>02:43:03</td><td>orchestrator/select</td><td class='muted'>score=0.500 {&#x27;tried&#x27;: 1, &#x27;open_findings&#x27;: 0} {&#x27;selector&#x27;: &#x27;deterministic&#x27;, &#x27;chosen_score&#x27;: 0.5}</td></tr><tr><td class='muted'>02:44:34</td><td>campaign/brief_error</td><td class='muted'>TargetUnreachable: attacker model endpoint unreachable: The read operation timed out</td></tr><tr><td class='muted'>02:44:34</td><td>orchestrator/select</td><td class='muted'>score=0.500 {&#x27;tried&#x27;: 1, &#x27;open_findings&#x27;: 0} {&#x27;selector&#x27;: &#x27;deterministic&#x27;, &#x27;chosen_score&#x27;: 0.5}</td></tr></table>
+<p class="sub" style="margin-top:22px">Synthetic data only · one authorized target · cost in model calls (not USD).</p>
+</div></body></html>

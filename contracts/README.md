@@ -10,7 +10,7 @@ itself through numbered migrations.
 
 | Schema | Producer → Consumer |
 |---|---|
-| `campaign.schema.json` | Orchestrator → Red Team |
+| `campaign.schema.json` | Orchestrator → Red Team **(wired: no — see below)** |
 | `attack_spec.schema.json` | Red Team → Executor |
 | `attempt.schema.json` | Executor → Judge |
 | `verdict.schema.json` | Judge → store |
@@ -23,12 +23,17 @@ itself through numbered migrations.
 `tests/test_contracts.py` verifies both halves of each contract:
 
 1. **Schema validity** — every file is a well-formed Draft 2020-12 schema.
-2. **Producer conformance** — a *real* record produced by the code (a live `run_case`/authz
-   attempt's spec, attempt, verdict, and promoted finding; a rendered vuln report; each typed
-   error in `redteam.errors`) validates against its schema. The test parses the JSON columns
-   the store persists, so it checks the actual shapes, not hand-built stand-ins.
-3. **Negative control** — a deliberately malformed record is rejected, so the schemas can
-   actually fail (a contract that accepts everything tests nothing).
+2. **Producer conformance** — a *real* record produced by the code validates against its
+   schema: a live `run_case`/authz attempt's AttackSpec, Attempt, Verdict, the promoted
+   Finding, and a rendered VulnReport, plus each typed error in `redteam.errors`. The record is
+   assembled from the store row (JSON columns parsed back to arrays/objects) and its
+   `schema_version` is read **off the row** — every such record now persists one (migration
+   0005), so nothing is hand-stamped. **Exception:** `Campaign` has no persisting producer yet
+   (the Orchestrator logs `agent_actions`, it does not write a Campaign row), so its schema is
+   exercised by a hand-built instance and marked `wired: no`. The other five messages are
+   checked against real records.
+3. **Negative control** — one deliberately malformed instance **per schema** is rejected, so
+   every contract is shown able to fail (a contract that accepts everything tests nothing).
 
 ## Versioning policy
 

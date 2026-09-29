@@ -138,6 +138,7 @@ def finalize(store, case: SeedCase, target, exchanges: list[dict], verdict: Verd
     finding promotion, and regression freezing are identical."""
     first_route = sorted(case.turns, key=lambda t: t.ordinal)[0].route if case.turns else None
     store.insert("attack_specs", {
+        "schema_version": 1,
         "spec_id": case.case_id,
         "parent_spec_id": case.parent_id,
         "mutation_op": case.mutation_op,
@@ -158,6 +159,7 @@ def finalize(store, case: SeedCase, target, exchanges: list[dict], verdict: Verd
     lean = [{"route": e.get("route"), "status_code": e.get("status_code"),
              "latency_ms": e.get("latency_ms")} for e in exchanges]
     store.insert("attempts", {
+        "schema_version": 1,
         "attempt_id": attempt_id,
         "spec_id": case.case_id,
         "target_id": target.id,
@@ -176,6 +178,7 @@ def finalize(store, case: SeedCase, target, exchanges: list[dict], verdict: Verd
     })
     verdict_id = _new_id("ver")
     store.insert("verdicts", {
+        "schema_version": 1,
         "verdict_id": verdict_id,
         "attempt_id": attempt_id,
         "outcome": str(verdict.outcome),

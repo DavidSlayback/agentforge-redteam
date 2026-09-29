@@ -123,6 +123,7 @@ class DocumentationAgent:
         observed = "; ".join(f"{o['oracle']}: {o.get('detail') or 'violation'}" for o in violations) \
             or "oracle detected a violation"
         store.insert("vuln_reports", {
+            "schema_version": 1,
             "report_id": report_id,
             "finding_id": finding_id,
             "severity": finding["severity"],
