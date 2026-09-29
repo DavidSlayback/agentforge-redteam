@@ -28,7 +28,7 @@ class QwenClient:
     base_url: str
     api_key: str
     model: str
-    timeout: float = 40.0
+    timeout: float = 90.0   # aimed prompts make the model reason longer
 
     @classmethod
     def from_env(cls) -> "QwenClient":
