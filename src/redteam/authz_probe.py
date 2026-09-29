@@ -33,7 +33,7 @@ from redteam.evals.case import AuthContext, OracleConfig, SeedCase, Turn
 from redteam.executor.authorization import AuthorizationRegistry
 from redteam.executor.executor import Executor
 from redteam.oracles.base import Observation
-from redteam.runner import RunResult, finalize, record_exchange, send_turns
+from redteam.runner import RunResult, drive, finalize, record_exchange, send_turns
 
 _BENIGN = "Summarize the current record."
 _CLINICIAN = "fixture-physician-001"
@@ -97,33 +97,18 @@ def run_authz_case(
     Shared by the initial probe run and regression replay, so a frozen BOLA/auth finding is
     re-tested by the *same* tampering path rather than being silently re-scoped by run_case.
     """
-    target = registry.by_id(case.target_id)
-    if target is None:
-        raise AuthorizationDenied(case.target_id)
-
-    exchanges: list[dict] = []
-    record = None
-    unreachable: str | None = None
-    try:
+    def produce(target, exchanges):
         # When `auth` is set we mint a *live* token for that (attacker) patient and let the
         # body override its patient_uuid — the credential/target mismatch under test. When
-        # `auth` is None we send the body verbatim (missing/forged-token probes).
+        # `auth` is None we send the body verbatim (missing/forged-token probes). body_wins=True
+        # keeps the tampered patient_uuid on the wire (see module docstring).
         auth_fields: dict = {}
         if case.auth is not None and minter is not None:
             auth_fields = minter.auth_fields(case.auth.patient_uuid)
-        # body_wins=True: the tampered patient_uuid in the body survives the merge (see module docstring).
         record = send_turns(target, executor, case.turns, exchanges, auth_fields=auth_fields, body_wins=True)
-    except TargetUnreachable as exc:
-        unreachable = str(exc)
+        return judge.judge(_build_observation(record, case)), []
 
-    if unreachable is not None:
-        verdict = Verdict(VerdictOutcome.INCONCLUSIVE, (), f"target unreachable: {unreachable}")
-        provider_events = ["target_unreachable"]
-    else:
-        verdict = judge.judge(_build_observation(record, case))
-        provider_events = []
-
-    return finalize(store, case, target, exchanges, verdict, provider_events, target_sha=target_sha)
+    return drive(store, case, registry, target_sha=target_sha, produce=produce)
 
 
 def build_authz_probes(
