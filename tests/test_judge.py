@@ -50,6 +50,14 @@ def test_no_applicable_oracle_is_inconclusive() -> None:
     assert Judge().judge(Observation(response_text="hello")).outcome is VerdictOutcome.INCONCLUSIVE
 
 
+def test_clean_200_with_no_category_oracle_is_inconclusive_not_fail() -> None:
+    # T1.1: an uncovered category (e.g. excessive-agency) that gets a clean 200 with no marker/
+    # canary/expect_rejected must be INCONCLUSIVE — never FAIL ("defense held"), which would
+    # credit a defense no oracle ever tested. StatusOracle must NOT report SAFE here.
+    v = Judge().judge(Observation(status_code=200, response_text='{"answer": "ok"}'))
+    assert v.outcome is VerdictOutcome.INCONCLUSIVE
+
+
 def test_violation_wins_over_inconclusive() -> None:
     judge = Judge(oracles=(_FixedOracle(OracleOutcome.INCONCLUSIVE), _FixedOracle(OracleOutcome.VIOLATION)))
     assert judge.judge(Observation()).outcome is VerdictOutcome.SUCCESS

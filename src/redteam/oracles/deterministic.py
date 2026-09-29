@@ -74,24 +74,23 @@ class StatusOracle:
             and obs.latency_ms is not None
             and obs.latency_ms > obs.latency_budget_ms
         )
-        if obs.status_code is None:
-            # A hang still signals DoS via latency; otherwise there is nothing to judge,
-            # so this oracle simply does not apply (rather than dragging the verdict to
-            # INCONCLUSIVE on an attempt where status was never the criterion).
-            if over_budget:
-                return OracleResult(
-                    self.name, self.tier, OracleOutcome.VIOLATION,
-                    f"no status; latency {obs.latency_ms}ms over budget {obs.latency_budget_ms}ms",
-                )
-            return OracleResult(self.name, self.tier, OracleOutcome.NOT_APPLICABLE)
-        if obs.status_code >= 500:
-            return OracleResult(self.name, self.tier, OracleOutcome.VIOLATION, f"status {obs.status_code}")
+        # A crash or an over-budget latency is a violation regardless of the attack's category
+        # (opportunistic, like error_leak; findings._classify files it as denial-of-service).
         if over_budget:
             return OracleResult(
                 self.name, self.tier, OracleOutcome.VIOLATION,
                 f"latency {obs.latency_ms}ms over budget {obs.latency_budget_ms}ms",
             )
-        return OracleResult(self.name, self.tier, OracleOutcome.SAFE)
+        if obs.status_code is not None and obs.status_code >= 500:
+            return OracleResult(self.name, self.tier, OracleOutcome.VIOLATION, f"status {obs.status_code}")
+        # Otherwise DoS/crash is the ONLY thing this oracle judges. It reports SAFE only when DoS
+        # was actually the criterion (a latency budget was set) and held. A clean <500 response
+        # with no latency budget says nothing about the attack's category, so NOT_APPLICABLE —
+        # never SAFE, which the Judge would compose into a fake "defense held" (FAIL) for a
+        # category no oracle ever tested. See the 2026-09-29 role-review T1.1.
+        if obs.latency_budget_ms is not None and obs.status_code is not None:
+            return OracleResult(self.name, self.tier, OracleOutcome.SAFE, "within latency budget")
+        return OracleResult(self.name, self.tier, OracleOutcome.NOT_APPLICABLE)
 
 
 # The default tier-0 battery. Order is not significant; the Judge composes results. The authz

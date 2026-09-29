@@ -459,6 +459,42 @@ previously-missing `TargetUnreachable`→INCONCLUSIVE test. `uv run pytest` = 11
 dispatch dispatches on `execution_kind`, campaign refuses via `is_deterministic_only`, the
 scattered category sets removed. 4 tiny commits, suite green.
 
+## 2026-09-29 — six-role architecture review + remediation (all three tiers)
+
+Six subagents reviewed each role (Orchestrator, Red Team, Judge, Documentation, Executor,
+Regression) for full-featured + coherent + integrity. David chose to fix all three tiers.
+Deterministic core is sound; the gaps cluster as fake-verdict/finding vectors + coverage gaps +
+doc overclaims. Checklist (— = todo, ✓ = done):
+
+**Tier 1 — integrity (fake verdict/finding), highest priority**
+- [x] T1.1 Judge: a category with no applied *category-relevant* oracle → INCONCLUSIVE, never FAIL
+  (StatusOracle NOT_APPLICABLE unless DoS is the criterion; Judge guard on uncovered categories).
+- [ ] T1.2 Red Team `run_case`: echo-strip the marker before judging (as the document path does).
+- [ ] T1.3 Red Team `mutate()`: re-force category/owasp, re-strip latency_budget, clear model auth.
+- [ ] T1.4 Red Team `generate()`: clear model-invented foreign_canaries for non-NEEDS_CANARY; clear auth.
+- [ ] T1.5 Documentation: gate fails CLOSED on unknown/malformed severity; refuse/gate no-evidence findings.
+- [ ] T1.6 Regression: faithful replay of the closure probes (mint ×2, rate-limit) — persist a
+  probe/oracle kind in the frozen case and replay on it; treat frozen-critical INCONCLUSIVE /
+  unreplayable as non-green.
+
+**Tier 2 — honesty & hardening**
+- [ ] T2.1 Executor: pin `follow_redirects=False`; validate `route` rooted-path; enforce or downgrade `scope`.
+- [ ] T2.2 Judge: wire `provider_block` onto the target-response path; implement or remove `PARTIAL`.
+- [ ] T2.3 Docs: derive report "Observed vs expected" from `expected_safe`; fix ARCHITECTURE/PLAN
+  overclaims (rubric, drift, recon/SHA, regression-trigger, mid-campaign stop); refresh PLAN P0–P6.
+
+**Tier 3 — features (some need human input — flag, don't fake)**
+- [ ] T3.1 Oracles for excessive-agency, system-prompt-leakage, improper-output-handling.
+- [ ] T3.2 LLM rubric tier (non-Qwen) for no-oracle categories — NEEDS a non-Qwen model key.
+- [ ] T3.3 Judge-drift detection — NEEDS a human-labeled calibration set.
+- [ ] T3.4 Multi-turn attacks — target is stateless (recon), so document as N/A vs build.
+- [ ] T3.5 Recon/SHA-diff signal + Orchestrator regression trigger + CI regression gate.
+- [ ] T3.6 DoS payload synthesis in the harness (size param, not model tokens); surface finish_reason.
+- [ ] T3.7 Orchestrator prioritization: outcome-mix momentum, route-granular coverage, SHA/cost
+  signals, is_deterministic_only candidate filter, Jev vendor-outage fallback, `--max-model-calls`.
+- [ ] T3.8 Red Team: thread verdict/oracle-results + techniques into `mutate`; memory payload digest;
+  provider-block handling + fallback.
+
 **Refactor (GitHub #3) — DONE.** Uniform `Probe = (case, produce)` + `run_probe`; `mint_probe`,
 `rate_limit_probe`, `turn_probe` builders separate construction from execution; the public
 `run_*` functions are thin build-then-`run_probe` wrappers; `run_authz_probes` is now one flat
