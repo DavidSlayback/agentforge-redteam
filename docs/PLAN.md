@@ -453,3 +453,14 @@ one `drive()` driver (owns target-resolve + `TargetUnreachable`→INCONCLUSIVE +
 path is now a thin `produce` closure. `finalize` is called from exactly one place; the authz
 observation reuses `build_observation`. 10 tiny commits, suite green at each; added the
 previously-missing `TargetUnreachable`→INCONCLUSIVE test. `uv run pytest` = 115.
+
+**Refactor (GitHub #2) — DONE.** Category routing policy consolidated into one low-level
+`routing.py` (`AUTHZ_CATEGORIES`, `DOCUMENT_CATEGORIES`, `execution_kind`, `is_deterministic_only`);
+dispatch dispatches on `execution_kind`, campaign refuses via `is_deterministic_only`, the
+scattered category sets removed. 4 tiny commits, suite green.
+
+**Refactor (GitHub #3) — DONE.** Uniform `Probe = (case, produce)` + `run_probe`; `mint_probe`,
+`rate_limit_probe`, `turn_probe` builders separate construction from execution; the public
+`run_*` functions are thin build-then-`run_probe` wrappers; `run_authz_probes` is now one flat
+build-then-run loop. 4 tiny commits, suite green. `uv run pytest` = 118; live smoke re-confirmed
+the 3 findings + BOLA-held against the deployed target after both refactors.
