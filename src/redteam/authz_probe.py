@@ -188,25 +188,16 @@ def build_authz_probes(
     return probes
 
 
-def run_mint_auth_probe(
-    registry: AuthorizationRegistry,
-    executor: Executor,
-    judge: Judge,
-    store,
-    target,
-    patient: str,
-    endpoint: str = "/v1/demo-context",
-    target_sha: str | None = None,
-) -> RunResult:
-    """Confirm a mint endpoint issues a valid session token with NO authentication.
+def mint_probe(executor: Executor, judge: Judge, target, patient: str,
+               endpoint: str = "/v1/demo-context") -> Probe:
+    """Build a probe that confirms a mint endpoint issues a valid session token with NO auth.
 
     The patient routes are well-defended precisely because a token is bound to its patient —
-    but that binding is only meaningful if a token cannot be minted at will. This probe sends
-    the mint with no credentials; a 200 carrying a `demo_token` is unauthenticated credential
-    issuance (broken authentication / insecure design). Run against both mints:
-    `/v1/demo-context` (read scope → PHI confidentiality) and `/v1/source-document-context`
-    (write scope → record integrity) — distinct impacts, so distinct findings (different sink).
-    Gated in the target by `AGENTFORGE_SYNTHETIC_CONTEXT`; caveated but real if ever on in prod.
+    but that binding is only meaningful if a token cannot be minted at will. A 200 carrying a
+    `demo_token` from an anonymous request is unauthenticated credential issuance (broken
+    authentication / insecure design). Built for both mints: `/v1/demo-context` (read scope →
+    PHI confidentiality) and `/v1/source-document-context` (write scope → record integrity) —
+    distinct impacts, so distinct findings (different sink). Gated by `AGENTFORGE_SYNTHETIC_CONTEXT`.
     """
     case = SeedCase(
         case_id=f"authz-unauth-mint-{uuid.uuid4().hex[:8]}",
@@ -228,10 +219,10 @@ def run_mint_auth_probe(
                           authorized_data_present=token_issued)
         return judge.judge(obs), []
 
-    return drive(store, case, registry, target_sha=target_sha, produce=produce)
+    return Probe(case, produce)
 
 
-def run_rate_limit_probe(
+def run_mint_auth_probe(
     registry: AuthorizationRegistry,
     executor: Executor,
     judge: Judge,
@@ -239,11 +230,17 @@ def run_rate_limit_probe(
     target,
     patient: str,
     endpoint: str = "/v1/demo-context",
-    n: int = 20,
     target_sha: str | None = None,
 ) -> RunResult:
-    """Fire `n` rapid anonymous mints; no `429` across them = no rate limiting observed on an
-    unauthenticated endpoint (API4 unrestricted resource consumption → enables enumeration/DoS).
+    """Build and run the mint-auth probe (back-compat wrapper over mint_probe + run_probe)."""
+    return run_probe(mint_probe(executor, judge, target, patient, endpoint), store, registry, target_sha=target_sha)
+
+
+def rate_limit_probe(executor: Executor, target, patient: str,
+                     endpoint: str = "/v1/demo-context", n: int = 20) -> Probe:
+    """Build a probe that fires `n` rapid anonymous mints; no `429` across them = no rate
+    limiting observed on an unauthenticated endpoint (API4 unrestricted resource consumption →
+    enables enumeration/DoS).
 
     Honest scoping: absence of a 429 at `n` requests is evidence, not proof, of no throttle —
     the finding is worded as 'no rate limiting observed in n rapid requests' and the evidence
@@ -284,7 +281,22 @@ def run_rate_limit_probe(
         result = OracleResult("rate_limit", 0, OracleOutcome.SAFE, f"throttled or rejected (statuses {counts})")
         return Verdict(VerdictOutcome.FAIL, (result,), result.detail), []
 
-    return drive(store, case, registry, target_sha=target_sha, produce=produce)
+    return Probe(case, produce)
+
+
+def run_rate_limit_probe(
+    registry: AuthorizationRegistry,
+    executor: Executor,
+    judge: Judge,
+    store,
+    target,
+    patient: str,
+    endpoint: str = "/v1/demo-context",
+    n: int = 20,
+    target_sha: str | None = None,
+) -> RunResult:
+    """Build and run the rate-limit probe (back-compat wrapper over rate_limit_probe + run_probe)."""
+    return run_probe(rate_limit_probe(executor, target, patient, endpoint, n), store, registry, target_sha=target_sha)
 
 
 def run_authz_probes(
