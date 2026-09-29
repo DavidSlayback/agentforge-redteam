@@ -29,9 +29,14 @@ def http_sender(url: str, /, *, method: str = "GET", timeout: float = 90.0, **kw
     (timeout, dropped connection, refused) becomes a typed TargetUnreachable so the runner
     records it as INCONCLUSIVE instead of crashing the campaign.
     """
+    # Hard-pin: never follow redirects. Only the authorized origin's URL passes the gate; a 3xx
+    # (or an open redirect on the target) would send the next hop to an unauthorized origin that
+    # never hits assert_authorized. Pop any caller-supplied value so this cannot be overridden
+    # (role-review T2.1). If a redirect is ever needed, re-authorize each hop explicitly.
+    kwargs.pop("follow_redirects", None)
     start = time.perf_counter()
     try:
-        resp = httpx.request(method, url, timeout=timeout, **kwargs)
+        resp = httpx.request(method, url, timeout=timeout, follow_redirects=False, **kwargs)
     except httpx.HTTPError as exc:
         raise TargetUnreachable(f"{method} {url}: {type(exc).__name__}: {exc}") from exc
     latency_ms = (time.perf_counter() - start) * 1000.0

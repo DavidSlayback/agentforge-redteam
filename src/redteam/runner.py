@@ -71,6 +71,16 @@ def record_exchange(ordinal: int, route: str, method: str, request_body: object,
     }
 
 
+def _assert_rooted_route(route: str) -> None:
+    """A (possibly model-supplied) route must be a rooted path on the authorized origin, not a
+    way to relocate it. Reject a scheme, an authority (`//`), an `@`, or a backslash before the
+    URL is assembled — defense-in-depth ahead of the final-URL authorization gate (T2.1)."""
+    from redteam.errors import AuthorizationDenied
+
+    if not route.startswith("/") or route.startswith("//") or "://" in route or "@" in route or "\\" in route:
+        raise AuthorizationDenied(route)
+
+
 def send_turns(target, executor: Executor, turns, exchanges: list[dict], *,
                auth_fields: dict | None = None, body_wins: bool = False):
     """Play a case's ordered turns through the Executor, appending one rich exchange per turn
@@ -86,6 +96,7 @@ def send_turns(target, executor: Executor, turns, exchanges: list[dict], *,
     auth_fields = auth_fields or {}
     record = None
     for turn in sorted(turns, key=lambda t: t.ordinal):
+        _assert_rooted_route(turn.route)
         base = turn.body or {}
         body = {**auth_fields, **base} if body_wins else {**base, **auth_fields}
         url = target.origin + target.base_path + turn.route

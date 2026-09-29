@@ -3,7 +3,13 @@ only at targets it is allowed to attack (SA1, ADR 0002).
 
 The registry is a human-edited, git-tracked YAML file. Nothing else grants a target. The
 Executor asks this module before every request; an origin absent or disabled here cannot
-be reached. Matching is by exact origin (scheme + host + port), never by path.
+be reached. Matching is by exact origin (scheme + host + port), never by path — this is the
+enforced control (ADR 0002).
+
+``Target.scope`` is **human-audit metadata only**, not an enforced runtime control: it records
+the written scope of the authorization for a reader/auditor. Path-level confinement is
+deliberately not enforced (origin-only matching, ADR 0002); enforcing it would be an ADR change.
+Do not read ``scope`` as a runtime restriction (role-review T2.1).
 """
 
 from __future__ import annotations
@@ -38,7 +44,7 @@ class Target:
     origin: str
     owner: str
     proof: str
-    scope: tuple[str, ...]
+    scope: tuple[str, ...]   # human-audit metadata only; NOT enforced at runtime (see module doc)
     enabled: bool
     base_path: str = ""  # path prefix the app is served under, e.g. "/agentforge-w2"
 

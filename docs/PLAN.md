@@ -478,7 +478,7 @@ doc overclaims. Checklist (— = todo, ✓ = done):
   unreplayable as non-green.
 
 **Tier 2 — honesty & hardening**
-- [ ] T2.1 Executor: pin `follow_redirects=False`; validate `route` rooted-path; enforce or downgrade `scope`.
+- [x] T2.1 Executor: pin `follow_redirects=False`; validate `route` rooted-path; enforce or downgrade `scope`.
 - [ ] T2.2 Judge: wire `provider_block` onto the target-response path; implement or remove `PARTIAL`.
 - [ ] T2.3 Docs: derive report "Observed vs expected" from `expected_safe`; fix ARCHITECTURE/PLAN
   overclaims (rubric, drift, recon/SHA, regression-trigger, mid-campaign stop); refresh PLAN P0–P6.
