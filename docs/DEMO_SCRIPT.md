@@ -15,11 +15,15 @@ runs live against the authorized, owner-operated target with synthetic patients 
 3. **Confirm the suite is green and the target is up** (off-camera):
    ```
    uv run pytest -q
-   curl -s https://dtstest.64.177.10.182.nip.io/agentforge-w2/health
+   curl.exe -s https://dtstest.64.177.10.182.nip.io/agentforge-w2/health
    ```
-   Copy the `git_sha` from that health response. Set it once so every command below can reuse it:
+   > In PowerShell, `curl` is an alias for `Invoke-WebRequest` (different flags — `curl -s` will
+   > hang at a `Uri:` prompt). Always type `curl.exe` for the real binary.
+
+   Set the SHA once so every command below can reuse it. `Invoke-RestMethod` parses the JSON for you:
    ```
-   $SHA = (curl -s https://dtstest.64.177.10.182.nip.io/agentforge-w2/health | ConvertFrom-Json).git_sha
+   $SHA = (Invoke-RestMethod https://dtstest.64.177.10.182.nip.io/agentforge-w2/health).git_sha
+   $SHA
    ```
 4. **Dry-run the campaign step once** (step 5 below). It calls the attacker + judge models and
    takes tens of seconds; you want to know its timing before recording.
@@ -52,7 +56,7 @@ runs live against the authorized, owner-operated target with synthetic patients 
 ### 3 · The live build — 0:55–1:10
 - **Do:**
   ```
-  curl -s https://dtstest.64.177.10.182.nip.io/agentforge-w2/health
+  curl.exe -s https://dtstest.64.177.10.182.nip.io/agentforge-w2/health
   ```
 - **Say:** "This is the deployed target. Every result we record is tied to this build SHA."
 
@@ -115,5 +119,7 @@ runs live against the authorized, owner-operated target with synthetic patients 
 ## If something goes wrong on camera
 - **Campaign hangs / model error:** stop it, say "the attacker model is rate-limited, here's a
   prior run," and cut to `redteam report` or the dashboard, which show earlier results.
-- **A command 400s:** you're probably in Git Bash — switch to PowerShell.
+- **A command 400s on `--route`:** you're probably in Git Bash — switch to PowerShell.
+- **`curl` hangs at a `Uri:` prompt:** you typed `curl`, not `curl.exe`. Press Ctrl+C and retry
+  with `curl.exe`.
 - **Target 5xx:** the platform records this as `INCONCLUSIVE`, not a pass. Say so; it's a feature.
