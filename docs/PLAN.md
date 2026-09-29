@@ -700,6 +700,46 @@ redeploying — so `40cfbdff` is a **transient build**; do not freeze validation
 - **Proceed now** on credential-independent slices: **S2** (SHA-change poller — will auto-catch the
   incoming redeploy), **S3** (cross-category flagging), **S4/S5** (benign + calibration authoring).
 
+### Fix-validation result (2026-09-29 late) — settled build `da7451d1`, and a harness-fidelity defect
+
+David settled the target (`git_sha da7451d1c9bb2c32bd0625840d28103fa13d4529`) after **removing the
+evaluator-credential gate**. Validation with the **live-attack form** (GET + `patient_uuid` as a
+query param — exactly what `mint_probe`/`rate_limit_probe` send with `params=`):
+
+| Finding | GET+query probe | Real state |
+|---|---|---|
+| F-831 anon **read** mint (`/v1/demo-context`) | `200` + `demo_token` issued | **OPEN (risk-accepted)** |
+| F-24b anon **write** mint (`/v1/source-document-context`) | `200` + `demo_token` issued | **OPEN (risk-accepted)** |
+| F-6ee rate-limit (`/v1/demo-context`) | 9×`200` then `429` | **FIXED** (rate-limit deployed) |
+
+**Posture (empirical):** the anonymous synthetic-demo mint stays (the public UI needs it;
+`issuer: synthetic-demo`, `authn: synthetic`), so F-831/F-24b are **risk-accepted**, and the
+deployed compensating control is **rate-limiting** (a 429 now fires ~9/window) — which *fixes*
+F-6ee. Only one of three was a code fix; two are accepted risk. (Earlier confusion: POST
+`/v1/source-document-context` → 404, but the route is **GET**-only and issues a write token — do not
+read the 404 as "route removed.")
+
+**HARNESS-FIDELITY DEFECT (integrity, must-fix).** `redteam regression --sha da7451d1` reported
+`held=2 reappeared=0 inconclusive=1 -> ATTENTION` — **every verdict wrong or unverified**:
+- The frozen mint/rate-limit cases store `patient_uuid` in `Turn.body` (`method=GET, route=…,
+  body={patient_uuid}`), but the target validates on the **query param**. Replay sends the body
+  form → target `400` → the `unauthorized_access` oracle reads `rejected (400)` → **false "held"**
+  for the two still-open mints, and **INCONCLUSIVE** for the rate-limit case (a single body-form GET,
+  not 10 rapid query mints).
+- Root cause: `mint_probe` (`authz_probe.py:237` vs `:244`) executes via `params=` in its *produce
+  closure*, but the frozen `Turn` only carries `body`; `probe_kind` froze as `None`, so `dispatch`
+  replays a generic body turn instead of reconstructing the query-form mint / N-rapid rate probe.
+  Same class as the 2026-09-29 self-audit (a test that "passes" on shifted plumbing is worse than
+  none). Verified read-only on a **copy** of `var/redteam.db` (canonical store untouched; no
+  reports regenerated, no finding status changed pending the fix + David's posture call).
+
+**New slice S9 (integrity, ahead of report regen):** make mint + rate-limit regression replay
+faithful — persist a `probe_kind`/`params` on freeze (or reconstruct the mint/rate probe in
+`dispatch` from the finding's category+route) so replay sends the query-form mint and the N-rapid
+rate probe. Acceptance: on `da7451d1`, regression reads **F-6ee held-fixed (429), F-831/F-24b still
+issue a token (200)** — i.e. the harness distinguishes the one real fix from the two accepted risks.
+Then S8 (report/dashboard regen + finding status) can tell the truth.
+
 **S2 DONE + live-verified (2026-09-29 late).** `src/redteam/recon/__init__.py` (`poll_once` with
 injected `fetch_sha`/`run_regression` seams; `poll` wires the live pieces), migration
 `0006_target_health.sql`, `redteam poll --target <t>` CLI. The health poll goes through the
