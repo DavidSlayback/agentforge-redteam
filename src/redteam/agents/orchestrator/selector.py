@@ -69,6 +69,10 @@ class JevSelector:
                     criteria=criteria,
                 )},
             )
+        except Exception as exc:  # vendor/network outage: degrade to the deterministic top-1 rather
+            # than kill an unattended run — the ranker sitting right here is the safe fallback (T3.7).
+            return top[0], {"selector": "jev", "model": self.model, "fell_back": True,
+                            "error": f"{type(exc).__name__}: {exc}"[:200]}
         finally:
             client.close()
 

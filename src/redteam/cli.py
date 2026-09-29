@@ -205,8 +205,11 @@ def cmd_campaign(args: argparse.Namespace) -> int:
     # For a hunt, default the no-signal halt to the full campaign budget so it doesn't stop
     # after a few clean campaigns; --max-no-signal overrides.
     max_no_signal = args.max_no_signal if args.max_no_signal is not None else args.max_campaigns
+    budget_kwargs = {"max_campaigns": args.max_campaigns, "max_no_signal": max_no_signal}
+    if args.max_model_calls is not None:
+        budget_kwargs["max_model_calls"] = args.max_model_calls
     run = orch.run(target_id=args.target, surfaces=args.route, categories=categories,
-                   budget=Budget(max_campaigns=args.max_campaigns, max_no_signal=max_no_signal),
+                   budget=Budget(**budget_kwargs),
                    patient_uuid=args.patient, route_fields=_ROUTE_FIELDS, canaries=canaries or None,
                    target_sha=args.target_sha)
     print(f"campaign done: campaigns={run.campaigns} findings_opened={run.findings_opened} "
@@ -267,6 +270,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="halt after this many findingless campaigns (default: the campaign budget, i.e. hunt fully)")
     cp.add_argument("--selector", choices=["deterministic", "jev"], default="deterministic")
     cp.add_argument("--model", default=None, help="override the attacker model (e.g. qwen3.8-max)")
+    cp.add_argument("--max-model-calls", type=int, default=None, dest="max_model_calls",
+                    help="hard cap on attacker-model calls (the cost circuit-breaker); default 200")
     cp.add_argument("--target-sha", default=None, dest="target_sha",
                     help="label attempts with the target build id, for resilience-by-version trends")
     cp.set_defaults(func=cmd_campaign)

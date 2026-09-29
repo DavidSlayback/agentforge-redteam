@@ -88,6 +88,33 @@ def test_jev_selector_requires_configuration(monkeypatch) -> None:
         JevSelector().select([Candidate(brief={}, score=1.0)])
 
 
+def test_jev_falls_back_on_vendor_outage(monkeypatch) -> None:
+    # T3.7: a vendor/network outage must degrade to the deterministic top-1, not kill the run.
+    import sys
+    import types
+
+    from redteam.agents.orchestrator.candidates import Candidate
+    from redteam.agents.orchestrator.selector import JevSelector
+
+    monkeypatch.setenv("AGENTFORGE_REDTEAM_JEV_KEY", "k")
+    fake = types.ModuleType("typesafe_sdk")
+
+    class _Client:
+        def __init__(self, **kw): ...
+        def system_one(self, *a, **k):
+            raise RuntimeError("vendor down")
+        def close(self): ...
+
+    fake.TypeSafeClient = _Client
+    fake.Choice = lambda **kw: None
+    monkeypatch.setitem(sys.modules, "typesafe_sdk", fake)
+
+    top1 = Candidate(brief={"category": "prompt-injection"}, score=1.0, inputs={"tried": 0, "open_findings": 0})
+    chosen, meta = JevSelector().select([top1, Candidate(brief={"category": "x"}, score=0.5)])
+    assert chosen is top1                      # deterministic fallback, not a crash
+    assert meta["fell_back"] is True and "error" in meta
+
+
 def test_jev_confidence_bands() -> None:
     from redteam.agents.orchestrator.candidates import Candidate
     from redteam.agents.orchestrator.selector import _apply_bands
