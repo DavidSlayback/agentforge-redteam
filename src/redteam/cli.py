@@ -124,9 +124,12 @@ def cmd_campaign(args: argparse.Namespace) -> int:
 
     orch = Orchestrator(registry=registry, executor=executor, judge=judge, store=store,
                         agent=agent, model=model, minter=minter, selector=selector)
+    # For a hunt, default the no-signal halt to the full campaign budget so it doesn't stop
+    # after a few clean campaigns; --max-no-signal overrides.
+    max_no_signal = args.max_no_signal if args.max_no_signal is not None else args.max_campaigns
     run = orch.run(target_id=args.target, surfaces=args.route, categories=categories,
-                   budget=Budget(max_campaigns=args.max_campaigns), patient_uuid=args.patient,
-                   route_fields=_ROUTE_FIELDS, canaries=canaries or None)
+                   budget=Budget(max_campaigns=args.max_campaigns, max_no_signal=max_no_signal),
+                   patient_uuid=args.patient, route_fields=_ROUTE_FIELDS, canaries=canaries or None)
     print(f"campaign done: campaigns={run.campaigns} findings_opened={run.findings_opened} "
           f"halt={run.halt_reason!r}")
     store.close()
@@ -162,6 +165,8 @@ def build_parser() -> argparse.ArgumentParser:
     cp.add_argument("--victim-patient", default=None, dest="victim_patient",
                     help="a different patient whose data a cross-patient attack tries to leak")
     cp.add_argument("--max-campaigns", type=int, default=5, dest="max_campaigns")
+    cp.add_argument("--max-no-signal", type=int, default=None, dest="max_no_signal",
+                    help="halt after this many findingless campaigns (default: the campaign budget, i.e. hunt fully)")
     cp.add_argument("--selector", choices=["deterministic", "jev"], default="deterministic")
     cp.add_argument("--model", default=None, help="override the attacker model (e.g. qwen3.8-max)")
     cp.set_defaults(func=cmd_campaign)
