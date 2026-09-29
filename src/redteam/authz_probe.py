@@ -41,8 +41,6 @@ _CLINICIAN = "fixture-physician-001"
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
-# Categories executed by this deterministic track (see dispatch.py / regression replay).
-AUTHZ_CATEGORIES = frozenset({"broken-object-authorization", "broken-authentication"})
 
 
 def _data_present(text: str | None) -> bool:

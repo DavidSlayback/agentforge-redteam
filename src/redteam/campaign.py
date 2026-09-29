@@ -17,13 +17,13 @@ from datetime import datetime, timezone
 from redteam.agents.judge.judge import Judge, VerdictOutcome
 from redteam.agents.redteam.agent import RedTeamAgent
 from redteam.agents.redteam.model import ModelClient
-from redteam.authz_probe import AUTHZ_CATEGORIES
 from redteam.dispatch import dispatch as _dispatch
 from redteam.evals.case import AuthContext
 from redteam.executor.authorization import AuthorizationRegistry
 from redteam.executor.executor import Executor
 from redteam.memory import history_brief
 from redteam.owasp import NEEDS_CANARY
+from redteam.routing import is_deterministic_only
 from redteam.runner import RunResult
 
 # Outcomes worth spending a mutation on: the attack did not clearly succeed, but the
@@ -71,7 +71,7 @@ def run_campaign(
             # tampered request (expect_rejected / harness canaries) the campaign path does not
             # build. Routing one through here would exercise only StatusOracle and score a real
             # BOLA as FAIL ("defense held") — a fake pass. Refuse; they run via the `authz` command.
-            if brief["category"] in AUTHZ_CATEGORIES:
+            if is_deterministic_only(brief["category"]):
                 summary.outcomes["SKIPPED"] += 1
                 store.insert("agent_actions", {
                     "ts": _now(), "agent": "campaign", "action": "skipped",
