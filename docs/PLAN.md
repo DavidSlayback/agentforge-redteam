@@ -419,3 +419,20 @@ contract tests where behavior exists; subagent review per slice.
 | G | `KEY_METRICS.md` / `USERS.md` at the CTO-defensible bar | exist (41/50 lines) | re-read against the gate; fill gaps | quick verify |
 
 Slices A and B first (David's instruction). Each slice: build → subagent review → verify → record here.
+
+**Progress (2026-09-29 afternoon):**
+- **A contracts — DONE + reviewed.** `contracts/v1/` (6 messages + typed errors), `test_contracts`
+  validates real persisted records (self-describing via migration 0005), per-schema negative
+  controls. Subagent review applied (schema_version was overstated; now honestly persisted).
+- **B THREAT_MODEL.md — DONE.** All 6 dimensions, OWASP-mapped, grounded in verified live results.
+- **F observability — VERIFIED.** `redteam report` + `dashboard.html` render coverage, pass/fail,
+  resilience-by-sha, findings, honest cost, agent trace.
+- **D vuln reports — DONE (3 distinct, live-verified).** David chose to hunt for new findings;
+  the hunt yielded three genuinely distinct, reproducible impacts of the synthetic-context mint:
+  F-831d4df407 (anonymous **read** token → confidentiality), F-24b44c5180 (anonymous **write**
+  token → integrity), F-6ee92046fb (**no rate limiting** → enumeration/DoS). Reports +
+  shared-root-cause index in `docs/findings/`. Hunt also produced strong negatives:
+  **multi-turn N/A (composer is stateless)**, `/v1/conversations` is not an API (404),
+  oversized-input DoS handled, token tampering rejected. Not fabricated — all three are
+  live-verified facts under a shared root, reported separately by distinct impact/remediation.
+- **C evals / E cost analysis / G metrics-users — TODO.**

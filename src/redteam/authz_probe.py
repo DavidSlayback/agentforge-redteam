@@ -202,36 +202,99 @@ def run_mint_auth_probe(
     store,
     target,
     patient: str,
+    endpoint: str = "/v1/demo-context",
     target_sha: str | None = None,
 ) -> RunResult:
-    """Confirm `/v1/demo-context` issues a valid session token with NO authentication.
+    """Confirm a mint endpoint issues a valid session token with NO authentication.
 
-    The read/patient routes are well-defended precisely because they bind a token to its
-    patient — but that binding is only meaningful if a token cannot be minted at will. This
-    probe sends the mint with no credentials; a 200 carrying a `demo_token` is unauthenticated
-    credential issuance (broken authentication / insecure design). It is gated in the target by
-    `AGENTFORGE_SYNTHETIC_CONTEXT`; the finding is caveated accordingly but is real if that gate
-    is ever on in production. Deterministic — no LLM.
+    The patient routes are well-defended precisely because a token is bound to its patient —
+    but that binding is only meaningful if a token cannot be minted at will. This probe sends
+    the mint with no credentials; a 200 carrying a `demo_token` is unauthenticated credential
+    issuance (broken authentication / insecure design). Run against both mints:
+    `/v1/demo-context` (read scope → PHI confidentiality) and `/v1/source-document-context`
+    (write scope → record integrity) — distinct impacts, so distinct findings (different sink).
+    Gated in the target by `AGENTFORGE_SYNTHETIC_CONTEXT`; caveated but real if ever on in prod.
     """
     base = f"{target.origin}{target.base_path}"
     case = SeedCase(
         case_id=f"authz-unauth-mint-{uuid.uuid4().hex[:8]}",
         category="broken-authentication", owasp=["API2:2023"],
         target_id=target.id,
-        turns=[Turn(ordinal=1, method="GET", route="/v1/demo-context", body={"patient_uuid": patient})],
+        turns=[Turn(ordinal=1, method="GET", route=endpoint, body={"patient_uuid": patient})],
         oracle=OracleConfig(expect_rejected=True),
-        expected_safe="minting a patient session token requires authentication; an anonymous request is rejected",
+        expected_safe="minting a session token requires authentication; an anonymous request is rejected",
     )
     exchanges: list[dict] = []
     try:
-        record = executor.request(f"{base}/v1/demo-context", method="GET", params={"patient_uuid": patient})
+        record = executor.request(f"{base}{endpoint}", method="GET", params={"patient_uuid": patient})
         token_issued = record.status_code == 200 and '"demo_token"' in (record.text or "")
-        exchanges.append(record_exchange(1, "/v1/demo-context", "GET",
+        exchanges.append(record_exchange(1, endpoint, "GET",
                                          {"patient_uuid": patient, "_auth": "none (anonymous)"}, record))
         obs = Observation(response_text=record.text, status_code=record.status_code,
                           latency_ms=record.latency_ms, expect_rejected=True,
                           authorized_data_present=token_issued)
         verdict = judge.judge(obs)
+        provider_events: list[str] = []
+    except TargetUnreachable as exc:
+        verdict = Verdict(VerdictOutcome.INCONCLUSIVE, (), f"target unreachable: {exc}")
+        provider_events = ["target_unreachable"]
+    return finalize(store, case, target, exchanges, verdict, provider_events, target_sha=target_sha)
+
+
+def run_rate_limit_probe(
+    registry: AuthorizationRegistry,
+    executor: Executor,
+    judge: Judge,
+    store,
+    target,
+    patient: str,
+    endpoint: str = "/v1/demo-context",
+    n: int = 20,
+    target_sha: str | None = None,
+) -> RunResult:
+    """Fire `n` rapid anonymous mints; no `429` across them = no rate limiting observed on an
+    unauthenticated endpoint (API4 unrestricted resource consumption → enables enumeration/DoS).
+
+    Honest scoping: absence of a 429 at `n` requests is evidence, not proof, of no throttle —
+    the finding is worded as 'no rate limiting observed in n rapid requests' and the evidence
+    records the count and statuses. Deterministic; no LLM.
+    """
+    from collections import Counter
+
+    from redteam.oracles.base import OracleOutcome, OracleResult
+
+    base = f"{target.origin}{target.base_path}"
+    case = SeedCase(
+        case_id=f"authz-no-rate-limit-{uuid.uuid4().hex[:8]}",
+        category="denial-of-service", owasp=["API4:2023", "LLM10"],
+        target_id=target.id,
+        turns=[Turn(ordinal=1, method="GET", route=endpoint, body={"patient_uuid": patient, "_count": n})],
+        oracle=OracleConfig(),
+        expected_safe="an unauthenticated endpoint throttles rapid repeated requests (429) to resist enumeration/DoS",
+    )
+    exchanges: list[dict] = []
+    try:
+        statuses: list[int] = []
+        first = None
+        for _ in range(n):
+            r = executor.request(f"{base}{endpoint}", method="GET", params={"patient_uuid": patient})
+            statuses.append(r.status_code)
+            first = first or r
+        throttled = 429 in statuses
+        counts = dict(Counter(statuses))
+        exchanges.append({"ordinal": 1, "route": endpoint, "method": "GET",
+                          "request": {"patient_uuid": patient, "_auth": "none", "_repeated": n},
+                          "status_code": first.status_code if first else None,
+                          "response": f"{n} rapid anonymous requests -> statuses {counts}",
+                          "latency_ms": first.latency_ms if first else None})
+        if not throttled and all(s < 400 for s in statuses):
+            result = OracleResult("rate_limit", 0, OracleOutcome.VIOLATION,
+                                  f"no 429 across {n} rapid anonymous requests (statuses {counts})")
+            verdict = Verdict(VerdictOutcome.SUCCESS, (result,), result.detail)
+        else:
+            result = OracleResult("rate_limit", 0, OracleOutcome.SAFE,
+                                  f"throttled or rejected (statuses {counts})")
+            verdict = Verdict(VerdictOutcome.FAIL, (result,), result.detail)
         provider_events: list[str] = []
     except TargetUnreachable as exc:
         verdict = Verdict(VerdictOutcome.INCONCLUSIVE, (), f"target unreachable: {exc}")
@@ -276,8 +339,16 @@ def run_authz_probes(
         })
         print(f"  COVERAGE-GAP   cross-patient BOLA not tested: {reason}")
 
-    # Unauthenticated-mint probe: independent of route, run once.
-    results = [run_mint_auth_probe(registry, executor, judge, store, target, attacker_patient, target_sha=target_sha)]
+    # Mint probes (independent of the patient routes): both mints are anonymous, and the
+    # endpoint has no rate limiting — three distinct impacts of the synthetic-context gate.
+    results = [
+        run_mint_auth_probe(registry, executor, judge, store, target, attacker_patient,
+                            endpoint="/v1/demo-context", target_sha=target_sha),
+        run_mint_auth_probe(registry, executor, judge, store, target, attacker_patient,
+                            endpoint="/v1/source-document-context", target_sha=target_sha),
+        run_rate_limit_probe(registry, executor, judge, store, target, attacker_patient,
+                             endpoint="/v1/demo-context", target_sha=target_sha),
+    ]
     # Per-route BOLA / missing-token / forged-token / malformed battery.
     for route in routes:
         for case in build_authz_probes(target.id, attacker_patient, victim_patient=victim_patient,

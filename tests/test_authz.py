@@ -7,7 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from redteam.agents.judge.judge import Judge, VerdictOutcome
-from redteam.authz_probe import build_authz_probes, run_authz_case, run_mint_auth_probe
+from redteam.authz_probe import (build_authz_probes, run_authz_case, run_mint_auth_probe,
+                                 run_rate_limit_probe)
 from redteam.executor.authorization import AuthorizationRegistry
 from redteam.executor.executor import Executor
 from redteam.executor.http_sender import ResponseRecord
@@ -175,6 +176,44 @@ def test_unauth_mint_holds_when_the_mint_requires_auth(tmp_path: Path) -> None:
     store = Store.open(tmp_path / "s.db")
     res = run_mint_auth_probe(reg, Executor(reg, lambda u, **k: ResponseRecord(401, "unauthorized", 1.0)),
                               Judge(), store, _target(reg), ATTACKER)
+    assert res.verdict.outcome is VerdictOutcome.FAIL
+    assert store.count("findings") == 0
+    store.close()
+
+
+def test_write_mint_is_a_distinct_finding(tmp_path: Path) -> None:
+    # the write-scoped mint is also anonymous -> a distinct finding (different sink)
+    reg = _registry(tmp_path)
+    store = Store.open(tmp_path / "s.db")
+    token_body = json.dumps({"demo_token": "eyJ...", "patient_uuid": ATTACKER})
+    res = run_mint_auth_probe(reg, Executor(reg, lambda u, **k: ResponseRecord(200, token_body, 2.0)),
+                              Judge(), store, _target(reg), ATTACKER, endpoint="/v1/source-document-context")
+    assert res.verdict.outcome is VerdictOutcome.SUCCESS
+    r = store.conn.execute("SELECT component FROM findings").fetchone()
+    assert r["component"] == "/v1/source-document-context"   # distinct sink from the read mint
+    store.close()
+
+
+def test_no_rate_limit_is_a_finding(tmp_path: Path) -> None:
+    reg = _registry(tmp_path)
+    store = Store.open(tmp_path / "s.db")
+    res = run_rate_limit_probe(reg, Executor(reg, lambda u, **k: ResponseRecord(200, '{"demo_token":"x"}', 5.0)),
+                               Judge(), store, _target(reg), ATTACKER, n=5)
+    assert res.verdict.outcome is VerdictOutcome.SUCCESS
+    assert store.count("findings") == 1
+    store.close()
+
+
+def test_rate_limit_holds_when_throttled(tmp_path: Path) -> None:
+    reg = _registry(tmp_path)
+    store = Store.open(tmp_path / "s.db")
+    calls = {"n": 0}
+
+    def sender(u, **k):
+        calls["n"] += 1
+        return ResponseRecord(429 if calls["n"] > 2 else 200, "rate limited", 5.0)
+
+    res = run_rate_limit_probe(reg, Executor(reg, sender), Judge(), store, _target(reg), ATTACKER, n=5)
     assert res.verdict.outcome is VerdictOutcome.FAIL
     assert store.count("findings") == 0
     store.close()
