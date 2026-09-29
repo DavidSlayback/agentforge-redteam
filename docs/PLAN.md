@@ -525,15 +525,15 @@ an untracked file in the kickoff worktree; `w3.txt` is the text used.
 **Early-submission gaps (tonight):**
 1. README stale ("scaffold"), no setup/run guide — **DONE** (`5c42aa9`).
 2. Eval cases lack per-case observed result, severity, exploitability; every case is
-   `regression: false`; the 3 findings have no seed case in `evals/cases/` — **todo**.
+   `regression: false`; the 3 findings have no seed case in `evals/cases/` — **DONE** (`541bb5f`).
 3. Vuln reports fail the "engineer not present" bar: repro says "replay the referenced attempts"
    (the store is gitignored), description is boilerplate, no clinical impact, remediation
-   generic/mismatched — **todo** (fix the Documentation agent template, regenerate).
+   generic/mismatched — **DONE** (`6860058`; template upgraded, 3 reports regenerated).
 4. Doc drift: ARCHITECTURE "Implementation status" says rubric NOT DONE; AI-use disclosure says
    "bake-off"; PLAN matrix rows P2/E1/SA1–SA3 stale; COST_ANALYSIS omits DeepSeek judge calls —
-   **partial** (PLAN T3.2/T3.5 corrected here; the rest todo).
+   **DONE** (`dac9734`, `541bb5f`; P-matrix rows P2/E1/SA1–SA3 still read stale — superseded by this section).
 5. E1 (graded): SSRF, logging failures, vulnerable components, supply chain are not mentioned in
-   THREAT_MODEL/evals — each needs at least an N/A-with-reason line — **todo**.
+   THREAT_MODEL/evals — **DONE** (THREAT_MODEL "OWASP coverage (E1)" table).
 
 **Final-submission gaps:** fixes + fix validation (in progress, below); SHA-change regression
 trigger (T3.5, now known unblocked); cross-category regression flagging (P5); benign set
