@@ -121,33 +121,17 @@ def run_case(
     minter=None,
     target_sha: str | None = None,
 ) -> RunResult:
-    target = registry.by_id(case.target_id)
-    if target is None:
-        raise AuthorizationDenied(case.target_id)
-
-    exchanges: list[dict] = []
-    record = None
-    unreachable: str | None = None
-    try:
+    def produce(target, exchanges):
         # When the case runs as a synthetic patient and a minter is available, obtain the
         # session token once and inject it into each turn so the request is authorized.
         auth_fields: dict = {}
         if case.auth is not None and minter is not None:
             auth_fields = minter.auth_fields(case.auth.patient_uuid)
         record = send_turns(target, executor, case.turns, exchanges, auth_fields=auth_fields, body_wins=False)
-    except TargetUnreachable as exc:
-        # A transport failure or a failed mint is not a defense holding — it is INCONCLUSIVE.
-        unreachable = str(exc)
-
-    if unreachable is not None:
-        verdict = Verdict(VerdictOutcome.INCONCLUSIVE, (), f"target unreachable: {unreachable}")
-        provider_events = ["target_unreachable"]
-    else:
         observation = build_observation(record, case.oracle)
-        verdict = judge.judge(observation)
-        provider_events = list(observation.provider_events)
+        return judge.judge(observation), list(observation.provider_events)
 
-    return finalize(store, case, target, exchanges, verdict, provider_events, target_sha=target_sha)
+    return drive(store, case, registry, target_sha=target_sha, produce=produce)
 
 
 def finalize(store, case: SeedCase, target, exchanges: list[dict], verdict: Verdict,
