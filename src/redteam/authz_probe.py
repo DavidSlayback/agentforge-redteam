@@ -94,6 +94,24 @@ def _build_observation(record, case: SeedCase) -> Observation:
                    authorized_data_present=_data_present(record.text))
 
 
+def turn_probe(case: SeedCase, executor: Executor, judge: Judge, minter=None) -> Probe:
+    """Wrap a turn-based authz case (from build_authz_probes) with its produce: mint the
+    attacker's auth (when the case names one), send the turns body-wins so the tampered
+    patient_uuid survives, and judge the authz observation."""
+    def produce(target, exchanges):
+        # When `auth` is set we mint a *live* token for that (attacker) patient and let the body
+        # override its patient_uuid — the credential/target mismatch under test. When `auth` is
+        # None we send the body verbatim (missing/forged-token probes). body_wins=True keeps the
+        # tampered patient_uuid on the wire (see module docstring).
+        auth_fields: dict = {}
+        if case.auth is not None and minter is not None:
+            auth_fields = minter.auth_fields(case.auth.patient_uuid)
+        record = send_turns(target, executor, case.turns, exchanges, auth_fields=auth_fields, body_wins=True)
+        return judge.judge(_build_observation(record, case)), []
+
+    return Probe(case, produce)
+
+
 def run_authz_case(
     case: SeedCase,
     registry: AuthorizationRegistry,
@@ -103,23 +121,12 @@ def run_authz_case(
     minter=None,
     target_sha: str | None = None,
 ) -> RunResult:
-    """Play an authorization probe: send the (possibly mismatched) request, judge, record.
+    """Play an authorization probe (back-compat wrapper over turn_probe + run_probe).
 
     Shared by the initial probe run and regression replay, so a frozen BOLA/auth finding is
     re-tested by the *same* tampering path rather than being silently re-scoped by run_case.
     """
-    def produce(target, exchanges):
-        # When `auth` is set we mint a *live* token for that (attacker) patient and let the
-        # body override its patient_uuid — the credential/target mismatch under test. When
-        # `auth` is None we send the body verbatim (missing/forged-token probes). body_wins=True
-        # keeps the tampered patient_uuid on the wire (see module docstring).
-        auth_fields: dict = {}
-        if case.auth is not None and minter is not None:
-            auth_fields = minter.auth_fields(case.auth.patient_uuid)
-        record = send_turns(target, executor, case.turns, exchanges, auth_fields=auth_fields, body_wins=True)
-        return judge.judge(_build_observation(record, case)), []
-
-    return drive(store, case, registry, target_sha=target_sha, produce=produce)
+    return run_probe(turn_probe(case, executor, judge, minter), store, registry, target_sha=target_sha)
 
 
 def build_authz_probes(
