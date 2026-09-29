@@ -1,0 +1,9 @@
+# Normalize line endings: store LF in the repo, check out native.
+# Prevents the CRLF churn seen twice this session on Windows.
+* text=auto eol=lf
+
+# Explicitly binary (never normalize / diff as text).
+*.png binary
+*.jpg binary
+*.pdf binary
+*.db binary
