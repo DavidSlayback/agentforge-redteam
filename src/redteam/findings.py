@@ -44,6 +44,7 @@ _PROVISIONAL = {
 _OPPORTUNISTIC = {
     "status": ("denial-of-service", ["LLM10"]),
     "error_leak": ("error-disclosure", ["API8:2023", "LLM05"]),
+    "output_handling": ("improper-output-handling", ["LLM05"]),
 }
 # Oracles tied to the attack's stated aim; if one of these fired, the case's own category is
 # the right label for the finding.

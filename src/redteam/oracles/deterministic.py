@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from redteam.oracles.authz import ErrorLeakOracle, UnauthorizedAccessOracle
+from redteam.oracles.authz import ErrorLeakOracle, OutputHandlingOracle, UnauthorizedAccessOracle
 from redteam.oracles.base import Observation, Oracle, OracleOutcome, OracleResult
 
 
@@ -99,5 +99,5 @@ class StatusOracle:
 # present, but when it is, every attempt — not just authz probes — gets that coverage.
 DEFAULT_ORACLES: tuple[Oracle, ...] = (
     MarkerOracle(), CanaryLeakOracle(), StatusOracle(),
-    UnauthorizedAccessOracle(), ErrorLeakOracle(),
+    UnauthorizedAccessOracle(), ErrorLeakOracle(), OutputHandlingOracle(),
 )
