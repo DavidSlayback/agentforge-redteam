@@ -688,3 +688,30 @@ copy in or `--store` at it). S6/S7/S8's live-target half waits on the credential
 
 **Not blocking the plan on #1's positive half:** S2/S3/S5 authoring proceed in parallel; the
 credential arriving flips S6/S7 and completes S8.
+
+**Pivot (David, 2026-09-29 late):** the fix session is **removing the evaluator credential** and
+redeploying — so `40cfbdff` is a **transient build**; do not freeze validation to it. Decisions 2
+(write-mint 404 intent) and 3 (read-mint approach) are deferred to the fix session and will be
+**re-derived empirically by probing** once the SHA settles — no David answer needed. Adjustment:
+- **Hold** all target-validation slices (S1, S6, S7, S8) until the next deploy lands and the SHA
+  stabilizes. Whatever gating the fix session settles on decides whether `TokenMinter` needs a
+  credential at all (credential removed + risk-accepted → mint returns 200 again, no cred needed;
+  credential removed + still-gated → re-derive the new auth shape by probe).
+- **Proceed now** on credential-independent slices: **S2** (SHA-change poller — will auto-catch the
+  incoming redeploy), **S3** (cross-category flagging), **S4/S5** (benign + calibration authoring).
+
+**S2 DONE + live-verified (2026-09-29 late).** `src/redteam/recon/__init__.py` (`poll_once` with
+injected `fetch_sha`/`run_regression` seams; `poll` wires the live pieces), migration
+`0006_target_health.sql`, `redteam poll --target <t>` CLI. The health poll goes through the
+Executor, so it passes the authorization gate (single-door invariant). On a `git_sha` change vs the
+last observation it runs `regression.replay` against the new build and records `recon`
+`target_sha_changed` + `regression_triggered` agent_actions; exits non-zero if a frozen finding did
+not hold (cron/CI can alert). `uv run pytest` = **158** (+7 `tests/test_recon.py`). Live: baseline
+recorded at `da7451d1c9bb`; a seeded prior SHA drove a real change→replay→trigger with both audit
+rows. **Observed during build: the target SHA moved `bfbb1eb2`→`40cfbdff`→`da7451d1` within the
+hour — the fix session is mid-redeploy (David: "removing the eval credential, standby"), confirming
+`40cfbdff` was transient.** Honest caveats: first observation is baseline-only (no trigger; the
+current build is validated by an explicit `redteam regression`); the observation-insert and the
+regression run are not one transaction, and a hard crash mid-regression leaves the new SHA already
+baselined (the next real deploy re-triggers). Maps: checklist #2, P5/T3.5 (recon SHA signal +
+deterministic regression trigger — not the Jev ranker), P3 (partial).

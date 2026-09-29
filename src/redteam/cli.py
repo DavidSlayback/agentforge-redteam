@@ -199,6 +199,32 @@ def cmd_regression(args: argparse.Namespace) -> int:
     return 0 if r.ok else 1
 
 
+def cmd_poll(args: argparse.Namespace) -> int:
+    """Poll /health once; if the target's git_sha changed since the last observation, run the
+    regression suite against the new build and record the trigger. Cron-friendly: run it on a
+    schedule (Q11) — each invocation is one observation."""
+    from redteam.recon import poll
+
+    registry, target, executor, minter, judge = _wire_deterministic(args.target)
+    store = Store.open(args.store)
+    result = poll(store, registry, executor, judge, target, args.target, minter=minter)
+    if not result.reachable:
+        print(f"poll {args.target}: unreachable (nothing recorded)")
+    elif result.previous_sha is None:
+        print(f"poll {args.target}: git_sha {(result.current_sha or '')[:12]} — baseline recorded (no prior build)")
+    elif not result.changed:
+        print(f"poll {args.target}: git_sha {(result.current_sha or '')[:12]} unchanged — no trigger")
+    else:
+        r = result.regression
+        print(f"poll {args.target}: git_sha changed {(result.previous_sha or '')[:12]} -> "
+              f"{(result.current_sha or '')[:12]}; regression held={len(r.held)} "
+              f"reappeared={len(r.reappeared)} inconclusive={len(r.inconclusive)} "
+              f"unreplayable={len(r.unreplayable)} -> {'OK' if r.ok else 'ATTENTION'}")
+    store.close()
+    # Non-zero when a triggered regression did not come back clean, so cron/CI can alert.
+    return 1 if (result.regression is not None and not result.regression.ok) else 0
+
+
 def cmd_campaign(args: argparse.Namespace) -> int:
     from redteam.agents.orchestrator.budget import Budget
     from redteam.agents.orchestrator.orchestrator import Orchestrator
@@ -266,6 +292,10 @@ def build_parser() -> argparse.ArgumentParser:
     rg.add_argument("--target", required=True)
     rg.add_argument("--sha", required=True)
     rg.set_defaults(func=cmd_regression)
+
+    pl = sub.add_parser("poll", help="poll /health; on a git_sha change, run the regression suite")
+    pl.add_argument("--target", required=True)
+    pl.set_defaults(func=cmd_poll)
 
     az = sub.add_parser("authz", help="run the deterministic authorization-probe battery (no attacker model)")
     az.add_argument("--target", required=True)

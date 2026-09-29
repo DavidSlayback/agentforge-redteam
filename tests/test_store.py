@@ -9,18 +9,18 @@ from redteam.store.store import Store
 EXPECTED_TABLES = {
     "schema_version", "campaigns", "attack_specs", "attempts", "verdicts",
     "findings", "vuln_reports", "regression_cases", "agent_actions",
-    "cost_ledger", "coverage", "evidence",
+    "cost_ledger", "coverage", "evidence", "target_health",
 }
 EXPECTED_INDEXES = {
     "ix_attempts_target_sha", "ix_verdicts_attempt", "ix_findings_status",
     "ix_findings_severity", "ix_findings_category", "ix_agent_actions_campaign",
-    "ix_evidence_attempt",
+    "ix_evidence_attempt", "ix_target_health_target",
 }
 
 
 def test_open_applies_migrations(tmp_path: Path) -> None:
     store = Store.open(tmp_path / "s.db")
-    assert store.schema_version() == 5
+    assert store.schema_version() == 6
     assert EXPECTED_TABLES <= store.table_names()
     assert EXPECTED_INDEXES <= store.index_names()
     # migration 0002 added the owasp column; 0003 added regression case_json
@@ -34,10 +34,10 @@ def test_migrations_are_idempotent(tmp_path: Path) -> None:
     db = tmp_path / "s.db"
     Store.open(db).close()
     reopened = Store.open(db)
-    assert reopened.schema_version() == 5
+    assert reopened.schema_version() == 6
     # one row per applied migration, none re-applied
     count = reopened.conn.execute("SELECT COUNT(*) AS c FROM schema_version").fetchone()["c"]
-    assert count == 5
+    assert count == 6
     reopened.close()
 
 
