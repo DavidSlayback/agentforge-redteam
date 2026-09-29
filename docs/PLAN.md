@@ -740,6 +740,30 @@ rate probe. Acceptance: on `da7451d1`, regression reads **F-6ee held-fixed (429)
 issue a token (200)** — i.e. the harness distinguishes the one real fix from the two accepted risks.
 Then S8 (report/dashboard regen + finding status) can tell the truth.
 
+**S9 DONE (2026-09-29 late).** Root cause was **stale data, not a code bug**: `mint_probe`/
+`rate_limit_probe`/`dos_probe` already set `probe_kind` and `dispatch`→`reconstruct_probe` already
+rebuilds the query-form probe (T1.6); the three findings were just frozen before the field existed
+(`probe_kind: None`). Fix: `scripts/repair_probe_kind.py` back-fills `probe_kind` on any regression
+case where it is null, inferring the exact inverse of the builders (mint / rate_limit / dos), idempotent,
+dry-run by default. Backed up `var/redteam.pre-s9.db`, applied to the canonical store (3 rows:
+F-831→mint, F-24b→mint, F-6ee→rate_limit). **Regression on `da7451d1` now reads honestly:
+`held=1 reappeared=2` — F-6ee HELD** (`statuses {200:13, 429:7}`, rate-limit fires), **F-831/F-24b
+REAPPEARED/open** (`issued a credential on a request that should have been rejected`). Before the
+repair it lied (`held=2 inconclusive=1`). Recurrence guards: `tests/test_probe_kind.py` (every
+closure builder stamps `probe_kind`; the repair infers the builders' kinds; non-closure cases stay
+null). `uv run pytest` = **164**. Noted sharp edge (follow-up, not exploitable now that `probe_kind`
+is set): `UnauthorizedAccessOracle` scores a bare 400/404 as SAFE (`oracles/authz.py:75`) — a
+request-validation error is not a confirmed auth denial; a mis-frozen closure probe is the only way
+to reach it, which the builders + this repair now prevent.
+
+**Current honest fix-validation state (build `da7451d1`, harness now faithful):** F-6ee **fixed**
+(rate-limit deployed); F-831 (anon read) + F-24b (anon write) **still open** — David chose to
+**gate them for real** (not risk-accept), so they await the fix session's next deploy. When the
+gated build lands, the mints must flip REAPPEARED→HELD (401/403); the poller (S2) will auto-catch
+the SHA change and re-run. Reports/dashboard regen + finding-status update (S8) wait for that build;
+canonical store `var/redteam.db` now carries the da7451d1 validation attempts (backup at
+`var/redteam.pre-s9.db`).
+
 **S2 DONE + live-verified (2026-09-29 late).** `src/redteam/recon/__init__.py` (`poll_once` with
 injected `fetch_sha`/`run_regression` seams; `poll` wires the live pieces), migration
 `0006_target_health.sql`, `redteam poll --target <t>` CLI. The health poll goes through the
