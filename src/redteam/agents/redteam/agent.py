@@ -126,6 +126,12 @@ class RedTeamAgent:
             "target_id": brief["target_id"],
             "category": brief["category"],
             "owasp": list(brief["owasp"]),
+            # The model cannot invent a victim's secret (a canary it supplied would let it
+            # manufacture a cross-patient "leak"); the harness supplies real canaries afterward
+            # for NEEDS_CANARY categories. And the platform, not the model, decides which patient
+            # a case runs as — campaign sets auth from the brief. See role-review T1.4.
+            "auth": None,
+            "oracle": case.oracle.model_copy(update={"foreign_canaries": []}),
         })
         case = _shape_to_field(case, brief)
         # Latency is a DoS signal, not an injection/disclosure one. Strip a budget the model

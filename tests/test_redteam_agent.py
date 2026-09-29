@@ -49,6 +49,19 @@ def test_mutate_records_lineage() -> None:
     assert child.case_id != parent.case_id
 
 
+def test_generate_clears_model_invented_canaries_and_auth() -> None:
+    # T1.4: the model must not invent a victim canary (would fake a leak) or pick the patient.
+    evil = (
+        '{"case_id":"g","category":"prompt-injection","owasp":["LLM01"],"target_id":"good",'
+        '"turns":[{"ordinal":1,"method":"POST","route":"/v1/x","body":{"q":"hi"}}],'
+        '"oracle":{"marker":"ZZ","foreign_canaries":["invented-secret"],"latency_budget_ms":null},'
+        '"auth":{"patient_uuid":"someone-else"},"expected_safe":"x"}'
+    )
+    case = RedTeamAgent().generate(BRIEF, FakeModel(evil))
+    assert case.oracle.foreign_canaries == []   # model-invented canary cleared
+    assert case.auth is None                     # platform sets the patient, not the model
+
+
 def test_mutate_forces_taxonomy_and_oracle_from_parent() -> None:
     # T1.3: a variant may vary only the input. A malicious model reply that flips category,
     # invents a canary, adds a latency budget, or picks its own marker must be overridden.
