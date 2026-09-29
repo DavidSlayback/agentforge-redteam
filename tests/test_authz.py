@@ -234,6 +234,24 @@ def test_rate_limit_holds_when_throttled(tmp_path: Path) -> None:
     store.close()
 
 
+def test_dos_probe_holds_within_budget_and_flags_over_budget(tmp_path: Path) -> None:
+    # T3.6: harness-synthesized oversized input, judged by latency budget.
+    from redteam.authz_probe import dos_probe, run_probe
+
+    reg = _registry(tmp_path)
+    target = _target(reg)
+    store = Store.open(tmp_path / "s.db")
+    fast = Executor(reg, lambda u, **k: ResponseRecord(200, "ok", 100.0))
+    held = run_probe(dos_probe(fast, Judge(), FakeMinter(), target, ATTACKER, size=1000, latency_budget_ms=5000),
+                     store, reg)
+    assert held.verdict.outcome is VerdictOutcome.FAIL          # within budget -> defense held
+    slow = Executor(reg, lambda u, **k: ResponseRecord(200, "ok", 9000.0))
+    hit = run_probe(dos_probe(slow, Judge(), FakeMinter(), target, ATTACKER, size=1000, latency_budget_ms=5000),
+                    store, reg)
+    assert hit.verdict.outcome is VerdictOutcome.SUCCESS        # over budget -> DoS
+    store.close()
+
+
 def test_bola_probe_is_omitted_without_canaries() -> None:
     families = {c.case_id.rsplit("-", 1)[0] for c in build_authz_probes("good", ATTACKER)}
     assert "authz-bola-cross-patient" not in families   # nothing to detect a leak with

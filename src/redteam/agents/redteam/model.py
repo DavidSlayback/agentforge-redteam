@@ -61,6 +61,12 @@ class QwenClient:
 
         data = resp.json()
         try:
-            return data["choices"][0]["message"]["content"]
+            choice = data["choices"][0]
+            content = choice["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
             raise TargetUnreachable(f"unexpected attacker model response shape: {data}") from exc
+        # Surface truncation explicitly: a reply cut off at max_tokens yields invalid JSON, and a
+        # cryptic parse error would waste a retry. Raise a clear, actionable error instead (T3.6).
+        if choice.get("finish_reason") == "length":
+            raise ValueError(f"attacker model reply truncated at max_tokens={max_tokens}; raise the cap for this prompt")
+        return content

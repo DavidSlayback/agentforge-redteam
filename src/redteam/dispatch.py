@@ -26,7 +26,7 @@ def dispatch(case, registry, executor, judge, store, minter, target_sha: str | N
         target = registry.by_id(case.target_id)
         if target is None:
             raise AuthorizationDenied(case.target_id)
-        return run_probe(reconstruct_probe(case, executor, judge, target), store, registry, target_sha=target_sha)
+        return run_probe(reconstruct_probe(case, executor, judge, target, minter), store, registry, target_sha=target_sha)
     kind = execution_kind(case.category)
     if kind == "authz":
         return run_authz_case(case, registry, executor, judge, store, minter=minter, target_sha=target_sha)
