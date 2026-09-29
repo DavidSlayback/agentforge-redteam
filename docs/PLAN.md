@@ -593,3 +593,35 @@ mints through the same routes and must send the credential once the mint is gate
 <new>` + `redteam regression --target agentforge-w2 --sha <new>` → the 3 findings must read
 *held* on a changed observable response (401/429), not a quieter model → regenerate reports with
 fix-validation status → dashboard resilience-by-SHA shows before/after.
+
+## 2026-09-29 — EARLY SUBMISSION DONE; final-submission checklist
+
+**Early submission submitted** (Tue): deployed target URL (the Co-Pilot,
+`https://dtstest.64.177.10.182.nip.io/agentforge-w2/`), demo video (recorded + linked),
+GitLab repo `agentforge-redteam` @ `e1a1f97`. All hard-gate docs present; store populated with
+real-SHA runs; 3 findings reported.
+
+**Final submission (Fri noon) — remaining work, in priority order:**
+
+1. **Deploy the fixes + validate they hold (CORE — "fix it and show you fixed it").**
+   - The target-repo session (`agentforge-week1`, branch `agentforge/w3-redteam-fixes`) fixes the
+     3 findings. David must choose the read-mint approach (evaluator access code vs risk-accepted).
+   - After deploy: capture the new `/health` SHA, then re-run `redteam authz … --target-sha <new>`
+     and `redteam regression --target agentforge-w2 --sha <new>`. The 3 findings must read *held*
+     on a changed observable response (401/403/429), not a quieter model.
+   - Regenerate the 3 reports (fix-validation section now populated) + dashboard (resilience-by-SHA
+     shows before/after). Update `docs/findings/` status → resolved where held.
+2. **Regression-on-SHA-change trigger (P5/T3.5).** `/health` exposes `git_sha`; nothing polls it.
+   Add a poller (cron acceptable per staff) that runs the regression suite when the SHA changes and
+   records the trigger. This is also the demo's fix-validation centerpiece.
+3. **Cross-category regression flagging (P5).** Flag when fixing one category regresses another.
+4. **Benign + calibration eval sets (KEY_METRICS #4, #5).** A ~10-case benign clinician set
+   (over-refusal ceiling) run before/after the fix; a 20–30 case human-labeled calibration set for
+   Judge κ + drift. Needed to claim "fixes hold without breaking the clinician."
+5. **Excessive-agency at volume.** Currently n=1 (rubric-judged, held). Run more for confidence.
+6. **Final-submission-only artifacts:** social post (X/LinkedIn, tag @GauntletAI); AI interview
+   (email after submission); refreshed demo video showing the full find→fix→validate arc.
+7. **Hygiene:** add `.gitattributes` (`* text=auto eol=lf`) — two CRLF incidents this session.
+
+**Not required (optional E-items), pick by value if time:** triage exercise (E4), ATO evidence
+packet (E15), load/baseline profiles (E13/E14), SQL index SLO in CI (E12).
