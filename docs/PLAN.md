@@ -484,7 +484,7 @@ doc overclaims. Checklist (— = todo, ✓ = done):
   overclaims (rubric, drift, recon/SHA, regression-trigger, mid-campaign stop); refresh PLAN P0–P6.
 
 **Tier 3 — features (some need human input — flag, don't fake)**
-- [ ] T3.1 Oracles for excessive-agency, system-prompt-leakage, improper-output-handling.
+- [~] T3.1 Oracles (output-handling done; agency/prompt-leak need rubric) for excessive-agency, system-prompt-leakage, improper-output-handling.
 - [ ] T3.2 LLM rubric tier (non-Qwen) for no-oracle categories — NEEDS a non-Qwen model key.
 - [ ] T3.3 Judge-drift detection — NEEDS a human-labeled calibration set.
 - [ ] T3.4 Multi-turn attacks — target is stateless (recon), so document as N/A vs build.

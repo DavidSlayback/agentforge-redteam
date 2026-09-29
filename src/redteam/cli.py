@@ -40,6 +40,7 @@ _TARGET_CONTEXT = (
 def _wire(target_id: str, model_name: str | None = None):
     """Build the live pieces for an attack command (import-heavy; done lazily)."""
     from redteam.agents.judge.judge import Judge
+    from redteam.agents.judge.rubric import ModelRubric
     from redteam.agents.redteam.agent import RedTeamAgent
     from redteam.agents.redteam.model import QwenClient
     from redteam.config import load_dotenv
@@ -58,7 +59,10 @@ def _wire(target_id: str, model_name: str | None = None):
     model = QwenClient.from_env()
     if model_name:
         model.model = model_name   # override the attacker model per run (e.g. a MAX-plan model)
-    return registry, target, executor, TokenMinter(executor, target), Judge(), agent, model
+    # The rubric tier activates automatically when a non-Qwen rubric model is configured; until
+    # then ModelRubric.available is False and the Judge stays deterministic-only (no-op).
+    judge = Judge(rubric=ModelRubric.from_env())
+    return registry, target, executor, TokenMinter(executor, target), judge, agent, model
 
 
 def _wire_deterministic(target_id: str):
