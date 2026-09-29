@@ -174,9 +174,12 @@ def cmd_regression(args: argparse.Namespace) -> int:
     store = Store.open(args.store)
     r = replay(store, registry, executor, judge, args.sha, minter=minter)
     print(f"regression @ {args.sha}: held={len(r.held)} reappeared={len(r.reappeared)} "
-          f"inconclusive={len(r.inconclusive)} unreplayable={len(r.unreplayable)}")
+          f"inconclusive={len(r.inconclusive)} unreplayable={len(r.unreplayable)} "
+          f"-> {'OK' if r.ok else 'ATTENTION'}")
     store.close()
-    return 1 if r.reappeared else 0
+    # Non-zero unless every frozen case held: a reappearance, or a critical that couldn't be
+    # verified fixed (inconclusive/unreplayable), must fail the gate loudly.
+    return 0 if r.ok else 1
 
 
 def cmd_campaign(args: argparse.Namespace) -> int:

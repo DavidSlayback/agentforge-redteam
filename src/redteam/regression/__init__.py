@@ -54,7 +54,10 @@ class RegressionReport:
 
     @property
     def ok(self) -> bool:
-        return not self.reappeared
+        # Green only when every frozen case actually HELD. A reappearance is a regression; an
+        # INCONCLUSIVE or unreplayable frozen finding means a known (often critical) vuln could
+        # not be verified as fixed — that must not read as green (role-review T1.6).
+        return not (self.reappeared or self.inconclusive or self.unreplayable)
 
 
 def replay(

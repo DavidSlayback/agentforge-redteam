@@ -48,3 +48,7 @@ class SeedCase(BaseModel):
     auth: AuthContext | None = None   # synthetic patient to run as (token is minted at run time)
     parent_id: str | None = None   # set on a Red Team variant: the case it was derived from
     mutation_op: str | None = None
+    # For closure-based deterministic probes (mint, rate-limit) whose execution + oracle are not
+    # expressible in `turns`/`oracle` alone: names the builder so a frozen finding replays through
+    # the SAME probe instead of a generic path (which would fake a green). See role-review T1.6.
+    probe_kind: str | None = None

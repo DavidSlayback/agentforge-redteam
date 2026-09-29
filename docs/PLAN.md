@@ -473,7 +473,7 @@ doc overclaims. Checklist (— = todo, ✓ = done):
 - [x] T1.3 Red Team `mutate()`: re-force category/owasp, re-strip latency_budget, clear model auth.
 - [x] T1.4 Red Team `generate()`: clear model-invented foreign_canaries for non-NEEDS_CANARY; clear auth.
 - [x] T1.5 Documentation: gate fails CLOSED on unknown/malformed severity; refuse/gate no-evidence findings.
-- [ ] T1.6 Regression: faithful replay of the closure probes (mint ×2, rate-limit) — persist a
+- [x] T1.6 Regression: faithful replay of the closure probes (mint ×2, rate-limit) — persist a
   probe/oracle kind in the frozen case and replay on it; treat frozen-critical INCONCLUSIVE /
   unreplayable as non-green.
 

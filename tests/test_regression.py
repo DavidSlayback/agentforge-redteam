@@ -57,6 +57,30 @@ def test_replay_reports_held_then_reappeared(tmp_path: Path) -> None:
     store.close()
 
 
+def test_mint_finding_replays_faithfully_not_fake_green(tmp_path: Path) -> None:
+    # T1.6: the closure-based mint probe (our real critical finding) must replay through the SAME
+    # probe. Before the fix it degraded to a generic path and fake-greened; now an open mint
+    # reappears (red) and a fixed mint holds (green).
+    from redteam.authz_probe import mint_probe, run_probe
+
+    reg = _registry(tmp_path)
+    store = Store.open(tmp_path / "s.db")
+    target = reg.by_id("good")
+    issues_token = lambda u, **k: ResponseRecord(200, '{"demo_token":"x","patient_uuid":"p"}', 2.0)  # noqa: E731
+    run_probe(mint_probe(Executor(reg, issues_token), Judge(), target, "fixture-patient-001"), store, reg)
+    assert store.count("regression_cases") == 1        # the mint finding froze
+
+    # OPEN build: mint still issues a token anonymously -> must NOT be a fake green
+    r_open = replay(store, reg, Executor(reg, issues_token), Judge(), target_sha="open")
+    assert r_open.reappeared and not r_open.held and not r_open.ok
+
+    # FIXED build: the mint now requires auth (401) -> the fix holds, suite green
+    denied = lambda u, **k: ResponseRecord(401, "unauthorized", 1.0)  # noqa: E731
+    r_fixed = replay(store, reg, Executor(reg, denied), Judge(), target_sha="fixed")
+    assert r_fixed.held and r_fixed.ok
+    store.close()
+
+
 def test_replay_surfaces_unreplayable_pre_migration_cases(tmp_path: Path) -> None:
     reg = _registry(tmp_path)
     store = Store.open(tmp_path / "s.db")

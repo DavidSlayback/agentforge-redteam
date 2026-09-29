@@ -61,6 +61,21 @@ def run_probe(probe: Probe, store, registry: AuthorizationRegistry, *,
     return drive(store, probe.case, registry, target_sha=target_sha, produce=probe.produce)
 
 
+def reconstruct_probe(case: SeedCase, executor: Executor, judge: Judge, target) -> Probe:
+    """Rebuild a closure-based probe (mint / rate-limit) from a frozen case, so regression replay
+    runs the SAME probe that produced the finding rather than a generic path that fakes a green
+    (role-review T1.6). The frozen turn carries the endpoint (route), the patient (body), and —
+    for rate-limit — the request count."""
+    turn = case.turns[0]
+    body = turn.body or {}
+    patient = str(body.get("patient_uuid", ""))
+    if case.probe_kind == "mint":
+        return mint_probe(executor, judge, target, patient, endpoint=turn.route)
+    if case.probe_kind == "rate_limit":
+        return rate_limit_probe(executor, target, patient, endpoint=turn.route, n=int(body.get("_count", 20)))
+    raise ValueError(f"cannot reconstruct probe of kind {case.probe_kind!r}")
+
+
 def _data_present(text: str | None) -> bool:
     """True if the body carries substantive patient data — the thing that must not leak.
 
@@ -213,6 +228,7 @@ def mint_probe(executor: Executor, judge: Judge, target, patient: str,
         turns=[Turn(ordinal=1, method="GET", route=endpoint, body={"patient_uuid": patient})],
         oracle=OracleConfig(expect_rejected=True),
         expected_safe="minting a session token requires authentication; an anonymous request is rejected",
+        probe_kind="mint",   # so a frozen finding replays via this exact probe (T1.6)
     )
 
     def produce(target, exchanges):
@@ -264,6 +280,7 @@ def rate_limit_probe(executor: Executor, target, patient: str,
         turns=[Turn(ordinal=1, method="GET", route=endpoint, body={"patient_uuid": patient, "_count": n})],
         oracle=OracleConfig(),
         expected_safe="an unauthenticated endpoint throttles rapid repeated requests (429) to resist enumeration/DoS",
+        probe_kind="rate_limit",   # so a frozen finding replays via this exact probe (T1.6)
     )
 
     def produce(target, exchanges):
