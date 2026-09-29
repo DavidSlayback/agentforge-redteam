@@ -435,4 +435,13 @@ Slices A and B first (David's instruction). Each slice: build → subagent revie
   **multi-turn N/A (composer is stateless)**, `/v1/conversations` is not an API (404),
   oversized-input DoS handled, token tampering rejected. Not fabricated — all three are
   live-verified facts under a shared root, reported separately by distinct impact/remediation.
-- **C evals / E cost analysis / G metrics-users — TODO.**
+- **C evals — DONE.** `evals/cases/` holds 5 declarative seed cases across ≥3 OWASP categories
+  (LLM01 direct + indirect, LLM02, LLM06, API1), each with reproduce-command; `test_evals`
+  asserts load + ≥3 categories. `evals/README.md` maps cases → OWASP → results.
+- **E cost analysis — DONE.** `docs/COST_ANALYSIS.md`: unit = model calls (not per-token×n),
+  measured dev spend (5 calls / 37 attempts — deterministic tracks are free), per-run model,
+  projections at 100/1K/10K/100K, Governor circuit-breaker. Linked from KEY_METRICS #7.
+- **G metrics/users — VERIFIED.** KEY_METRICS.md (8 metrics, CTO-defensible) + USERS.md (3
+  users, why-automation, human-in-loop) meet the bar; #7 now links COST_ANALYSIS.md.
+
+**All hard-gate deliverables now present.** Remaining human-only: demo video, portal submission.

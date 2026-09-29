@@ -1,0 +1,69 @@
+# Cost Analysis
+
+**Unit: model calls, not per-token.** The attacker model is Qwen (Alibaba MaaS), billed in
+plan credits, so the platform meters **model calls** in the `cost_ledger` (per campaign, by
+kind: generation / mutation). We deliberately do **not** report a per-token USD figure —
+wiring one would invent a number the plan doesn't bill that way, and (below) most of the
+platform's work costs *zero* model calls, so a per-token×N estimate would be badly wrong.
+
+## The cost structure (why per-token × N overstates)
+
+Three design choices make cost sublinear in "attacks run":
+
+1. **Deterministic-oracles-first Judge.** Tier-0 oracles (marker, canary-leak, status,
+   authorization, error-leak) are pure functions — **0 model calls** to judge an attempt.
+   Judging, the step run on *every* attempt, is free.
+2. **The authorization track is fully deterministic.** BOLA, missing/forged-token, mint-auth,
+   and rate-limit probes are HTTP only — **0 model calls**. All three current findings were
+   found at zero model cost.
+3. **Token minting, canary discovery, regression replay** are HTTP/deterministic — 0 model calls.
+
+So only **novel LLM attack generation** (and its bounded mutation) costs calls. Judging,
+authz, regression, and replay do not.
+
+## Measured dev spend (this store, `var/redteam.db`)
+
+| Kind | Model calls |
+|---|---|
+| generation | 4 |
+| mutation | 1 |
+| **total (LLM)** | **5** |
+| deterministic attempts (authz/probes) | 32 (of 37 total attempts) — **0 calls** |
+
+37 attempts recorded; 5 model calls. The gap is the deterministic work (authz probes, judging,
+minting). Earlier exploratory sessions spent more (aimed campaigns, `qwen3.8-max` runs, and
+~14 flash timeouts during one hunt), but the steady-state per-attempt cost is what projects.
+
+## Per-run cost model
+
+- **Deterministic run** (authz battery, regression replay, a re-judged attempt): **0 calls**.
+- **One LLM attack** (generate + ≤1 mutation; judged by free oracles): **~1.5 calls** avg
+  (1 generation always; a mutation only on a mutable non-success).
+- Add retries for attacker-model timeouts (observed on `qwen3.8-flash` for long prompts):
+  budget ~15% overhead at scale → **~1.7 calls/LLM-attack**.
+
+## Projection
+
+"Runs" = attack attempts. Deterministic runs stay free at any scale; only LLM attacks draw calls.
+
+| Runs | If all LLM attacks (~1.7 calls/run) | Realistic mix (30% LLM, 70% deterministic) |
+|---|---|---|
+| 100 | ~170 calls | ~51 calls |
+| 1,000 | ~1,700 calls | ~510 calls |
+| 10,000 | ~17,000 calls | ~5,100 calls |
+| 100,000 | ~170,000 calls | ~51,000 calls |
+
+The "realistic mix" reflects that continuous red-teaming leans on the free deterministic
+tracks (authz, regression, re-judging) and reserves the model for novel attack generation.
+
+## Controls at scale
+
+- The **Governor** (`agents/orchestrator/budget.py`) meters real model calls from the ledger
+  and halts on `max_model_calls` and `max_no_signal` — cost is a hard circuit-breaker, not a
+  hope. `--max-campaigns` / `--max-no-signal` bound a hunt.
+- To convert to money: `calls × (plan credit cost per call)`. Not wired on purpose — see above.
+- Cheapest reliable model for volume is `qwen3.8-flash`; `qwen3.8-max` is reserved for aimed
+  runs (higher latency/timeout rate made it unsuitable for bulk).
+
+See `KEY_METRICS.md` for the metric definitions and `redteam report` / `dashboard.html` for
+the live per-run call count.

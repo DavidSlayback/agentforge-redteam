@@ -14,7 +14,7 @@ computed from the store, and its current status (measured now vs. needs a compon
 | 4 | **Over-refusal / benign pass rate** | Fixes don't break the clinician — security gains aren't paid for in utility | a benign clinician + XSTest-style set on the same SHA | needs a benign eval set |
 | 5 | **Judge agreement (Cohen's κ) & pair-disagreement rate** | The verdicts are trustworthy and the Judge isn't drifting | a human-labeled calibration set; two-judge disagreement over time | needs calibration set + rubric judge |
 | 6 | **Coverage vector** (categories × routes × oracles × access modes) | What has and has *not* been exercised — honest about blind spots | `owasp_coverage` + recon inventory | partial (category/verdict now) |
-| 7 | **Cost per finding & cost per run, projected to scale** | The platform is economically sustainable to run continuously | `cost_summary` (calls now; USD when pricing lands) | partial (calls; USD pending) |
+| 7 | **Cost per finding & cost per run, projected to scale** | The platform is economically sustainable to run continuously | `cost_summary` (model calls); projections in `docs/COST_ANALYSIS.md` | measured (calls; USD deliberately not wired — see COST_ANALYSIS.md) |
 | 8 | **Time-to-first-finding & planted-vuln recall** | The platform actually finds real bugs, fast, in an unattended drill | drill scoring (reached/triggered/detected) | needs the drill |
 
 ## Rationale for the set
