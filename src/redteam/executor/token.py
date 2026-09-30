@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from redteam.errors import TargetUnreachable
@@ -33,6 +34,12 @@ class TokenMinter:
     executor: Executor
     target: Target
     _cache: dict[str, MintedToken] = field(default_factory=dict)
+    # The target rate-limits its mints per client (429 + Retry-After; W3 fix F-6ee92046fb,
+    # 15 per 60 s by default). A 429 is a wait, not an unreachable target: sleep for
+    # Retry-After (capped) and mint again, up to `max_rate_limit_retries` times.
+    sleep: Callable[[float], None] = time.sleep
+    max_rate_limit_retries: int = 2
+    max_rate_limit_wait_s: float = 60.0
 
     def _mint(self, endpoint: str, patient_uuid: str) -> MintedToken:
         key = f"{endpoint}:{patient_uuid}"
@@ -41,6 +48,14 @@ class TokenMinter:
             return cached
         url = f"{self.target.origin}{self.target.base_path}{endpoint}"
         record = self.executor.request(url, method="GET", params={"patient_uuid": patient_uuid})
+        for _ in range(self.max_rate_limit_retries):
+            if record.status_code != 429:
+                break
+            wait = record.retry_after if record.retry_after is not None else self.max_rate_limit_wait_s
+            self.sleep(min(wait, self.max_rate_limit_wait_s))
+            record = self.executor.request(url, method="GET", params={"patient_uuid": patient_uuid})
+        if record.status_code == 429:
+            raise TargetUnreachable(f"mint {endpoint} still rate-limited (429) after {self.max_rate_limit_retries} retries")
         if record.status_code != 200:
             raise TargetUnreachable(f"mint {endpoint} failed ({record.status_code}): {record.text[:120]}")
         data = json.loads(record.text)
