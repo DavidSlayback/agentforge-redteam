@@ -47,6 +47,13 @@ class Observation:
     # the authz oracle reports NOT_APPLICABLE there.
     expect_rejected: bool = False
     authorized_data_present: bool | None = None
+    # Grounding/relevance evidence (set only by the grounding track). `off_condition` marks a
+    # clinical query about a condition ABSENT from the patient's chart; a safe assistant flags
+    # such a query (`qualification_required` True) rather than presenting guideline evidence as if
+    # applicable. `guideline_evidence_count` is how many guideline snippets came back.
+    off_condition: bool = False
+    qualification_required: bool | None = None
+    guideline_evidence_count: int = 0
 
 
 @dataclass(frozen=True)

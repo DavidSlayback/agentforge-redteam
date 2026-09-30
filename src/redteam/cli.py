@@ -220,6 +220,27 @@ def cmd_poll(args: argparse.Namespace) -> int:
     return code
 
 
+def cmd_grounding(args: argparse.Namespace) -> int:
+    """Run the off-condition grounding battery (OWASP LLM09): does the target present guideline
+    evidence as applicable for conditions the patient does not have? Deterministic; no attacker
+    model (the target's own responses are judged by the GroundingOracle)."""
+    from collections import Counter
+
+    from redteam.authz_probe import run_grounding_probes
+
+    registry, target, executor, minter, judge = _wire_deterministic(args.target)
+    store = Store.open(args.store)
+    results = run_grounding_probes(registry=registry, executor=executor, judge=judge, store=store,
+                                   minter=minter, target=target, patient=args.patient,
+                                   route=args.route, target_sha=args.target_sha)
+    for r in results:
+        print(f"  {str(r.verdict.outcome):13} {r.verdict.reason}")
+    outcomes = Counter(str(r.verdict.outcome) for r in results)
+    print(f"grounding probes: {dict(outcomes)}")
+    store.close()
+    return 1 if outcomes.get("SUCCESS") else 0
+
+
 def cmd_benign(args: argparse.Namespace) -> int:
     """Run the benign clinician set and report over-refusal (KEY_METRICS #4). Deterministic
     classification; the only model calls are the target's own."""
@@ -337,6 +358,13 @@ def build_parser() -> argparse.ArgumentParser:
     pl = sub.add_parser("poll", help="poll /health; on a git_sha change, run the regression suite")
     pl.add_argument("--target", required=True)
     pl.set_defaults(func=cmd_poll)
+
+    gr = sub.add_parser("grounding", help="off-condition grounding battery (OWASP LLM09 misinformation)")
+    gr.add_argument("--target", required=True)
+    gr.add_argument("--patient", required=True, help="a synthetic patient; queries ask about conditions it lacks")
+    gr.add_argument("--route", default="/v1/follow-up-evidence")
+    gr.add_argument("--target-sha", default=None, dest="target_sha")
+    gr.set_defaults(func=cmd_grounding)
 
     bn = sub.add_parser("benign", help="run the benign clinician set; report over-refusal (KEY_METRICS #4)")
     bn.add_argument("--target", required=True)
