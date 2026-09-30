@@ -181,6 +181,17 @@ def test_unauth_mint_holds_when_the_mint_requires_auth(tmp_path: Path) -> None:
     store.close()
 
 
+def test_unauth_mint_rate_limited_is_inconclusive_not_held(tmp_path: Path) -> None:
+    # A 429 is the rate limit, not an auth check: it must never read as "the fix holds".
+    reg = _registry(tmp_path)
+    store = Store.open(tmp_path / "s.db")
+    res = run_mint_auth_probe(reg, Executor(reg, lambda u, **k: ResponseRecord(429, '{"error":"mint_rate_limited"}', 1.0)),
+                              Judge(), store, _target(reg), ATTACKER)
+    assert res.verdict.outcome is VerdictOutcome.INCONCLUSIVE
+    assert store.count("findings") == 0
+    store.close()
+
+
 def test_run_probe_executes_and_persists(tmp_path: Path) -> None:
     reg = _registry(tmp_path)
     store = Store.open(tmp_path / "s.db")
