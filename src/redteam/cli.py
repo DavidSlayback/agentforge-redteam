@@ -220,6 +220,30 @@ def cmd_poll(args: argparse.Namespace) -> int:
     return code
 
 
+def cmd_benign(args: argparse.Namespace) -> int:
+    """Run the benign clinician set and report over-refusal (KEY_METRICS #4). Deterministic
+    classification; the only model calls are the target's own."""
+    from redteam.benign import load_benign_set, run_benign
+
+    bset = load_benign_set(args.set)
+    registry, target, executor, minter, _judge = _wire_deterministic(args.target)
+    store = Store.open(args.store)
+    s = run_benign(store, executor, minter, target, bset, target_sha=args.target_sha)
+    for r in s.results:
+        print(f"  {r['score']:15} {r['case_id']:16} {r['outcome']:12} {r['detail']}")
+    rate = s.over_refusal_rate
+    print(f"benign {bset.version} @ {args.target_sha or 'unlabelled'}: "
+          + ("over-refusal NOT MEASURED" if rate is None
+             else f"over-refusal {s.over_refusals}/{s.answer_measured} = {rate:.0%}")
+          + f"; controls {s.controls_passed}/{s.controls_measured}; inconclusive {s.inconclusive}")
+    store.close()
+    if rate is None:
+        return 1   # not measured is never a pass
+    if args.max_over_refusal is not None and rate > args.max_over_refusal:
+        return 1
+    return 0
+
+
 def cmd_campaign(args: argparse.Namespace) -> int:
     from redteam.agents.orchestrator.budget import Budget
     from redteam.agents.orchestrator.orchestrator import Orchestrator
@@ -291,6 +315,14 @@ def build_parser() -> argparse.ArgumentParser:
     pl = sub.add_parser("poll", help="poll /health; on a git_sha change, run the regression suite")
     pl.add_argument("--target", required=True)
     pl.set_defaults(func=cmd_poll)
+
+    bn = sub.add_parser("benign", help="run the benign clinician set; report over-refusal (KEY_METRICS #4)")
+    bn.add_argument("--target", required=True)
+    bn.add_argument("--set", default="evals/benign/clinician_v1.yaml")
+    bn.add_argument("--target-sha", default=None, help="the /health git_sha under test")
+    bn.add_argument("--max-over-refusal", type=float, default=None,
+                    help="exit non-zero if the over-refusal rate exceeds this fraction (e.g. 0.1)")
+    bn.set_defaults(func=cmd_benign)
 
     az = sub.add_parser("authz", help="run the deterministic authorization-probe battery (no attacker model)")
     az.add_argument("--target", required=True)

@@ -775,6 +775,18 @@ which `ok` already fails on). Surfaced in `redteam regression` output and the po
 `test_regression.py` (fix-in-A-reopens-B → flagged; plain reappearance with no fix → not
 cross-category). `uv run pytest` = **166**. Closes final-checklist #3.
 
+**S4 DONE + live baseline (2026-09-29 late) — benign clinician set (KEY_METRICS #4).**
+`evals/benign/clinician_v1.yaml` (6 clinical, 5 XSTest-style "sounds dangerous but routine",
+2 off-topic controls), `src/redteam/benign.py` (pure `classify_response` + `score`, `run_benign`
+through the Executor with a minted token), migration `0007_benign_runs` (kept out of
+attempts/verdicts so benign traffic never feeds attack metrics), `redteam benign` CLI
+(`--max-over-refusal` gate; exit non-zero when nothing is measurable), and an "Over-refusal"
+section in `redteam report`. Detector is pinned to the target's observed shape: it declines by
+**qualifying** (`qualification.required`), not by refusal phrases. **Live baseline on
+`da7451d1`: over-refusal 0/11 = 0%, controls 2/2, inconclusive 0** — pre-gating; re-run after
+the gated-mint build (needs the evaluator credential once the mint is gated; a gated mint reads
+"not measured", never 0%). `uv run pytest` = **183**. Caveat: n=11, one run.
+
 **S2 DONE + live-verified (2026-09-29 late).** `src/redteam/recon/__init__.py` (`poll_once` with
 injected `fetch_sha`/`run_regression` seams; `poll` wires the live pieces), migration
 `0006_target_health.sql`, `redteam poll --target <t>` CLI. The health poll goes through the
