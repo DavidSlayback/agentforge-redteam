@@ -218,3 +218,23 @@ def test_observe_health_flags_non200_and_missing_and_null_body() -> None:
     assert missing.reachable is True and missing.git_sha is None
     null_body = observe_health(Executor(_AllowRegistry(), _SpySender(_Resp(200, None))), _Target())
     assert null_body.git_sha is None            # a null/None body must not raise
+
+
+def test_discover_runs_after_regression_on_change_only(tmp_path: Path) -> None:
+    """poll -> regression -> discover: the discovery seam runs only on a real SHA change, after
+    regression, and its candidates surface in the summary."""
+    store = Store.open(tmp_path / "s.db")
+    # baseline: discover must NOT run
+    poll_once(store, "t", observe=lambda: _ok("aaaaaaaa"), run_regression=lambda sha: _clean(),
+              discover=lambda sha: (_ for _ in ()).throw(AssertionError("discover on baseline")))
+    seen: list[str] = []
+
+    class _Summary:
+        candidates = [{"x": 1}]
+
+    result = poll_once(store, "t", observe=lambda: _ok("bbbbbbbb"),
+                       run_regression=lambda sha: _clean(),
+                       discover=lambda sha: seen.append(sha) or _Summary())
+    assert seen == ["bbbbbbbb"] and result.discovery is not None
+    assert "discovery 1 candidate" in poll_summary(result)[1]
+    store.close()

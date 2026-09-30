@@ -69,6 +69,7 @@ class PollResult:
     triggered: bool
     note: str = ""
     regression: RegressionReport | None = None
+    discovery: object | None = None   # optional DiscoverySummary from a post-regression discovery pass
 
 
 def health_url(target: Target) -> str:
@@ -116,6 +117,7 @@ def poll_once(
     *,
     observe: Callable[[], HealthObservation],
     run_regression: Callable[[str], RegressionReport],
+    discover: Callable[[str], object] | None = None,
 ) -> PollResult:
     """Observe the target's build once; on a SHA change, run the regression suite.
 
@@ -185,8 +187,12 @@ def poll_once(
     store.insert("target_health", {
         "target_id": target_id, "git_sha": current, "changed": 1, "observed_at": _now(),
     })
+    # Best-effort open-ended discovery over the new build's fresh evidence (it logs its own
+    # discovery_pass action). Runs after the trust-critical regression + baseline, so it can never
+    # affect whether the build reads clean; it only surfaces leads for human triage.
+    discovery = discover(current) if discover is not None else None
     return PollResult(target_id, reachable=True, previous_sha=previous, current_sha=current,
-                      changed=True, triggered=True, note=obs.note, regression=report)
+                      changed=True, triggered=True, note=obs.note, regression=report, discovery=discovery)
 
 
 def poll_summary(result: PollResult) -> tuple[int, str]:
@@ -207,7 +213,11 @@ def poll_summary(result: PollResult) -> tuple[int, str]:
     tail = (f"regression held={len(r.held)} reappeared={len(r.reappeared)} "
             f"inconclusive={len(r.inconclusive)} unreplayable={len(r.unreplayable)} "
             f"-> {'OK' if r.ok else 'ATTENTION'}")
-    return (0 if r.ok else 1), f"git_sha changed {result.previous_sha[:12]} -> {sha}; {tail}"
+    disc = ""
+    cands = getattr(result.discovery, "candidates", None)
+    if cands is not None:
+        disc = f"; discovery {len(cands)} candidate(s)"
+    return (0 if r.ok else 1), f"git_sha changed {result.previous_sha[:12]} -> {sha}; {tail}{disc}"
 
 
 def poll(
@@ -218,10 +228,13 @@ def poll(
     target: Target,
     target_id: str,
     minter: object | None = None,
+    discover: Callable[[str], object] | None = None,
 ) -> PollResult:
-    """Wire the live health observation and regression replay into :func:`poll_once`."""
+    """Wire the live health observation and regression replay into :func:`poll_once`. ``discover``
+    (optional) runs an open-ended discovery pass over the new build's evidence after regression."""
     return poll_once(
         store, target_id,
         observe=lambda: observe_health(executor, target),
         run_regression=lambda sha: replay(store, registry, executor, judge, sha, minter=minter),
+        discover=discover,
     )

@@ -213,7 +213,20 @@ def cmd_poll(args: argparse.Namespace) -> int:
 
     registry, target, executor, minter, judge = _wire_deterministic(args.target)
     store = Store.open(args.store)
-    result = poll(store, registry, executor, judge, target, args.target, minter=minter)
+    discover = None
+    if args.discover:
+        # On a SHA change, also sweep the new build's evidence with the open-ended discovery tier
+        # (poll -> regression -> discover). Best-effort: skipped with a note if no model configured.
+        from redteam.agents.judge.discovery import DiscoveryJudge
+        from redteam.config import load_dotenv
+        from redteam.discovery import run_discovery
+        load_dotenv()
+        dj = DiscoveryJudge.from_env()
+        if dj.available:
+            discover = lambda sha: run_discovery(store, dj, target_sha=sha, limit=args.discover_limit)  # noqa: E731
+        else:
+            print("poll: --discover requested but no discovery model configured; skipping discovery")
+    result = poll(store, registry, executor, judge, target, args.target, minter=minter, discover=discover)
     code, message = poll_summary(result)
     print(f"poll {args.target}: {message}")
     store.close()
@@ -395,6 +408,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     pl = sub.add_parser("poll", help="poll /health; on a git_sha change, run the regression suite")
     pl.add_argument("--target", required=True)
+    pl.add_argument("--discover", action="store_true",
+                    help="on a SHA change, also run an open-ended discovery pass over the new evidence")
+    pl.add_argument("--discover-limit", type=int, default=25, dest="discover_limit")
     pl.set_defaults(func=cmd_poll)
 
     dv = sub.add_parser("discover", help="open-ended discovery pass over evidence (finds classes with no oracle yet)")

@@ -600,10 +600,13 @@ via `redteam candidates`; they never touch `findings`.
   vuln). That is the point — it surfaces leads for human triage, not verdicts.
 - `uv run pytest` = **206** (+ `tests/test_discovery.py`).
 
-**This is the piece that turns the scheduled poller into a discoverer:** the end state is
-`poll (SHA change) → regression → campaign → discover → candidates`, where new candidates become
-tomorrow's deterministic oracles. Wiring `discover` into the scheduled job and an auto-promote path
-(candidate → draft probe) is the next step.
+**This is the piece that turns the scheduled poller into a discoverer.** `redteam poll --discover`
+now runs `poll (SHA change) → regression → discover` in one shot: on a real build change it replays
+the frozen findings, advances the baseline, then sweeps the new build's fresh evidence with the
+discovery tier and logs candidates (best-effort — the discovery pass runs *after* the trust-critical
+regression, so it can never affect whether the build reads clean). A `discover` seam on `poll_once`
+keeps it unit-testable offline. Remaining: an auto-promote path (candidate → draft probe) and a
+triage CLI (`redteam candidates` lists; setting status is manual for now).
 
 ## 2026-09-30 — retrieval-layer hunt: why the LLM attacks held, and the first AI-layer finding
 
@@ -637,9 +640,11 @@ overreliance/patient-safety risk.
 
 **New probe class (deterministic, no attacker model, no offensive content):** `GroundingOracle` +
 `grounding_probe` (`Observation.off_condition/qualification_required/guideline_evidence_count`),
-`redteam grounding` CLI, `probe_kind="grounding"` for faithful replay. **Self-verifying:**
-`off_condition` is asserted only when the condition keyword is genuinely absent from the returned
-chart, so a patient who has the condition makes the oracle NOT_APPLICABLE (no false positive). Live:
+`redteam grounding` CLI, `probe_kind="grounding"` for faithful replay. **Guarded against false
+positives (review G1/G2):** `off_condition` is asserted only when the chart is POPULATED (non-empty
+`patient_facts`) AND none of a curated INDICATOR set (problem names, meds, labs, ICD prefixes)
+appears in it — so a degraded/empty 200, or a condition coded by a synonym, does not read as
+off-condition. A heuristic (depends on the indicator set), not a proof. Live: 
 **4/4 SUCCESS on `da7451d1`**, promoted F-990345a00f (high, 7.4, gated), froze reg-2f2272aca5.
 Honest caveat: a single frozen grounding case can replay INCONCLUSIVE (LLM-retrieval
 nondeterminism) — the battery is the reliable reproduction; INCONCLUSIVE is correctly non-green.

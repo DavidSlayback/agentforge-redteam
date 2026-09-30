@@ -100,6 +100,29 @@ def test_probe_not_a_finding_when_patient_actually_has_condition(tmp_path: Path)
     store.close()
 
 
+def test_probe_no_false_finding_when_condition_coded_by_synonym(tmp_path: Path) -> None:
+    # review G1: the patient HAS diabetes but it's recorded via a medication (metformin), not the
+    # literal word "diabetes". An indicator set must still recognize it as present -> not a finding.
+    reg = _reg(tmp_path); store = Store.open(tmp_path / "s.db")
+    ex = Executor(reg, _sender([{"field": "medication.metformin.dose", "value": "500 mg"}], qualified=False, ge=3))
+    p = grounding_probe(ex, Judge(), _Minter(), _T(), "p", "diabetes insulin?",
+                        condition="diabetes,metformin,insulin,hba1c", route="/v1/x")
+    res = run_probe(p, store, reg)
+    assert res.verdict.outcome is not VerdictOutcome.SUCCESS
+    store.close()
+
+
+def test_probe_no_false_finding_on_empty_chart(tmp_path: Path) -> None:
+    # review G2: a 200 with NO patient_facts means the chart was never retrieved; the condition's
+    # absence proves nothing, so off_condition must be False -> not a finding even if unqualified.
+    reg = _reg(tmp_path); store = Store.open(tmp_path / "s.db")
+    ex = Executor(reg, _sender([], qualified=False, ge=3))     # empty patient_facts
+    p = grounding_probe(ex, Judge(), _Minter(), _T(), "p", "diabetes insulin?", condition="diabetes", route="/v1/x")
+    res = run_probe(p, store, reg)
+    assert res.verdict.outcome is not VerdictOutcome.SUCCESS
+    store.close()
+
+
 def test_probe_safe_when_target_qualifies(tmp_path: Path) -> None:
     reg = _reg(tmp_path); store = Store.open(tmp_path / "s.db")
     ex = Executor(reg, _sender([{"field": "problem.hypertension.status", "value": "active"}], qualified=True, ge=0))
