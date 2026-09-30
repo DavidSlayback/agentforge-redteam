@@ -197,34 +197,49 @@ Written for the Architecture Defense: each is a "what happens when / why X over 
 - Two decisions are deferred to measured bake-offs, not left open: the Red Team model and
   the Judge rubric model (criteria in `docs/PLAN.md`).
 
-## Implementation status vs this document (2026-09-29, honest)
+## Discovery tier (open-ended, candidate-only) — added 2026-09-30
 
-A six-role review reconciled this document against the code. Several capabilities described
-above are **deferred or not-done** and must not be read as built:
+Beyond the verdict-issuing Judge, the platform has a **Discovery tier**
+(`src/redteam/agents/judge/discovery.py`, `src/redteam/discovery.py`): an independent
+less-safeguarded LLM (non-Qwen by default; an explicit same-family model is honored) that reviews
+each captured ⟨request, response⟩ with **no checklist** and emits **candidates** — leads for human
+triage, never verdicts and never findings. It exists because the deterministic oracles and the
+rubric tier only recognize pre-encoded classes; the Discovery tier finds classes with no oracle
+yet. A human hardens a confirmed candidate into a deterministic oracle+probe (this produced the
+`MetadataDisclosureOracle` / F-ca9486ff1b). It is structurally separate from the Judge: it writes
+only to `discovery_candidates`, never to `findings`, so a drifting LLM can never publish a security
+verdict. It runs over stored evidence (`redteam discover`) and in the scheduled loop
+(`redteam poll --discover`: poll → regression → discover).
 
-- **Judge — LLM rubric tier: BUILT; drift detection: mechanism only.** The deterministic tier-0
-  Judge is built, independent, and consistent by construction. The rubric tier is live with
-  `deepseek-v4-pro` (a non-Qwen family, via the Bailian endpoint) for criteria no oracle covers,
-  verified on constructed responses; no end-to-end rubric-judged campaign against the target is
-  recorded yet. Drift detection (calibration agreement) is implemented but has no human-labelled
-  calibration set to run against. `PARTIAL` is reserved for the rubric tier; the deterministic
-  Judge never emits it.
-- **Excessive-agency, system-prompt-leakage:** covered by the rubric tier (no deterministic
-  oracle). **Improper-output-handling:** deterministic active-markup oracle. Without the rubric
-  tier configured, the oracle-less categories resolve to INCONCLUSIVE, never a false FAIL.
-- **Orchestrator — "reads changed-since-SHA and cost", "triggers regression runs",
-  "mid-campaign hard-stop": NOT wired.** Prioritization scores route-granular coverage + open
-  findings; cost enters as the `--max-model-calls` hard cap (budget halt between campaigns), not as
-  a ranking signal. `/health` exposes `git_sha`, but nothing polls it yet, so there is no SHA-diff
-  producer and no orchestrator→regression trigger. The budget/no-signal halt and the decision
-  trace ARE built. Rubric-judge calls are not yet metered in the cost ledger.
-- **Red Team — multi-turn attacks: N/A here.** The target composer is stateless (verified), so
-  multi-turn context-poisoning has no surface; mutation is a single guarded rephrase.
-- **Regression — auto-trigger + CI gate + cross-category flagging: NOT DONE.** Replay is
-  faithful (per-probe reconstruction) and fail-loud, but runs via the `redteam regression` CLI
-  command, not an Orchestrator trigger or CI job.
+## Implementation status vs this document (2026-09-30, honest)
 
-Built and verified: the single-door Executor boundary, deterministic tier-0 Judge, aimed
-generation with identity-lock, dedup/reclassification, evidence capture, the fail-closed
-Documentation gate, faithful regression replay, and the six observability queries. See the
-requirements matrix in `docs/PLAN.md` for per-requirement status.
+Reconciled against the code after the 09-30 work. Corrections to the earlier (09-29) status, which
+now **under-claimed** several capabilities:
+
+- **Judge — deterministic tier-0 + rubric tier both live and exercised end-to-end.** Tier-0 is
+  independent and consistent by construction. The rubric tier (`deepseek-v4-pro`, non-Qwen) has now
+  run **end-to-end against the live target** (a 9× excessive-agency campaign on SHA `da7451d1`, all
+  rubric-judged safe). Deterministic oracles now include **`GroundingOracle`** (off-condition
+  misinformation, LLM09) and **`MetadataDisclosureOracle`** (internal-implementation disclosure,
+  API3/LLM02), both gated by an Observation flag so they fire only on their dedicated probes.
+- **Judge validation (drift/κ): machinery built, NOT yet measured.** `drift.py` computes agreement
+  + Cohen's κ against a human-labelled calibration set; the set (`evals/calibration/`) ships
+  **empty** pending human-authored labels, so "validate the judge" is unmeasured. This is the one
+  genuinely-open Judge item.
+- **Orchestrator → regression on SHA change: NOW WIRED.** The Recon poller (`redteam poll`,
+  `src/redteam/recon/`) reads `/health` `git_sha`; on a change it runs the regression suite and
+  records the trigger — the SHA-diff producer + trigger the 09-29 note said were missing. Ranking
+  still uses route-coverage + open findings (2 of 4 signals); cost remains the `--max-model-calls`
+  cap, not a ranking signal; mid-campaign hard-stop is between-campaigns only.
+- **Regression — auto-trigger + cross-category flagging: DONE; CI gate: not done.** Faithful
+  per-probe replay (`probe_kind` reconstruction), reappearance detection, **cross-category
+  regression flagging** (`RegressionReport.cross_category_regression`), and SHA-change auto-trigger
+  via the poller. Only a CI regression gate is still CLI-only.
+- **Red Team — multi-turn: N/A** (target composer stateless, verified); mutation is a single
+  guarded rephrase.
+
+Built and verified: the single-door Executor boundary, deterministic tier-0 Judge + rubric tier,
+aimed generation with identity-lock, dedup/reclassification, evidence capture, the fail-closed
+Documentation gate, faithful regression replay, the SHA-change poller, the Discovery tier, and the
+six observability queries. See the requirements matrix in `docs/PLAN.md` for per-requirement
+status.

@@ -143,5 +143,7 @@ The store defaults to `var/redteam.db` (gitignored); pass `--store` to use anoth
 The platform needs no target code access; it reaches the Co-Pilot over HTTP only. It uses
 the Co-Pilot's synthetic-context mint (`/v1/demo-context`, enabled by
 `AGENTFORGE_SYNTHETIC_CONTEXT` on the demo deployment) to obtain patient-scoped session
-tokens for fixture patients. That same mint is the root of the three reported findings;
-see [docs/findings/](docs/findings/).
+tokens for fixture patients. That same mint is the root of three of the five reported
+findings (the anonymous read/write mints + the missing rate limit); the other two are
+AI-layer issues in `/v1/follow-up-evidence` (off-condition misinformation and internal-metadata
+disclosure). See [docs/findings/](docs/findings/).

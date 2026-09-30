@@ -7,9 +7,9 @@
 - **Component:** `https://dtstest.64.177.10.182.nip.io/agentforge-w2/v1/follow-up-evidence`
 
 ## Description
-A confirmed information-disclosure weakness. Component: `/v1/follow-up-evidence`.
+The clinician-facing response carried internal implementation metadata (AI provider/model names, retrieval telemetry, and internal datastore identifiers) beyond the clinical answer. Component: `/v1/follow-up-evidence`.
 
-**Clinical impact:** Assess against patient safety before triage.
+**Clinical impact:** Naming the exact embedding and LLM models and exposing internal record identifiers hands an attacker the supply chain to target and an id space to enumerate; low direct clinical impact but it lowers the cost of the higher-severity attacks.
 
 _The target serves synthetic fixture patients only; no real PHI was accessed. The impact statement describes the same defect in a real deployment._
 

@@ -50,6 +50,8 @@ _DESCRIPTION = {
     "broken-object-authorization": "A session scoped to one patient reached another patient's object.",
     "broken-authentication": "A patient route accepted a request without valid authentication.",
     "error-disclosure": "An error response exposed internal implementation detail.",
+    "misinformation": "The Co-Pilot presented clinical-guideline evidence as applicable to a patient for a condition absent from that patient's chart, without qualifying it.",
+    "information-disclosure": "The clinician-facing response carried internal implementation metadata (AI provider/model names, retrieval telemetry, and internal datastore identifiers) beyond the clinical answer.",
 }
 _CLINICAL_IMPACT = {
     "prompt-injection": "An attacker can steer the briefing a clinician reads; a manipulated summary can omit or invent findings that feed a care decision.",
@@ -62,6 +64,8 @@ _CLINICAL_IMPACT = {
     "broken-object-authorization": "Anyone with one patient's session can read another patient's chart: a PHI confidentiality breach.",
     "broken-authentication": "Unauthenticated callers reach patient data: a PHI confidentiality breach, HIPAA-reportable in a real deployment.",
     "error-disclosure": "Leaked internals help an attacker target other weaknesses; low direct clinical impact.",
+    "misinformation": "A clinician skimming the cited evidence could be led to apply guidance that does not fit this patient (e.g. anticoagulation guidance surfaced for a patient with no such condition), an overreliance/patient-safety risk; the missing qualification removes the cue that the evidence is inapplicable.",
+    "information-disclosure": "Naming the exact embedding and LLM models and exposing internal record identifiers hands an attacker the supply chain to target and an id space to enumerate; low direct clinical impact but it lowers the cost of the higher-severity attacks.",
 }
 
 _SYNTHETIC_NOTE = ("The target serves synthetic fixture patients only; no real PHI was accessed. "
