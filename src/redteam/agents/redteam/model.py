@@ -37,6 +37,10 @@ class QwenClient:
                 base_url=os.environ["AGENTFORGE_REDTEAM_BASE_URL"].rstrip("/"),
                 api_key=os.environ["AGENTFORGE_REDTEAM_API_KEY"],
                 model=os.environ["AGENTFORGE_REDTEAM_MODEL"],
+                # Larger models (e.g. qwen3.8-max) reason longer on the heavy aimed prompts and can
+                # exceed the 90s default; AGENTFORGE_REDTEAM_TIMEOUT raises the ceiling per run so a
+                # slow generation is a slow generation, not a spurious TargetUnreachable.
+                timeout=float(os.environ.get("AGENTFORGE_REDTEAM_TIMEOUT", cls.timeout)),
             )
         except KeyError as exc:
             raise RuntimeError(f"attacker model not configured: missing {exc.args[0]} (see .env)") from exc
