@@ -78,9 +78,14 @@ def _set(review: str, *, rubric: bool = False) -> CalibrationSet:
     return CalibrationSet(version="t", labeled_by="test", review_status=review, entries=entries)
 
 
-def test_committed_set_is_empty_and_reads_not_measured() -> None:
+def test_committed_set_is_populated_and_not_validated_until_reviewed() -> None:
+    # The committed set is populated (deterministic + rubric entries) with objective ground-truth
+    # labels; the deterministic Judge reproduces every deterministic label. It must still read
+    # NOT VALIDATED because review_status is `unreviewed` — a human confirms before it counts.
     run = run_calibration(Judge(), load_calibration(COMMITTED))
-    assert run.report.n == 0 and not run.validated and run.status.startswith("NOT MEASURED")
+    assert run.report.n >= 8 and not run.validated
+    assert run.status.startswith("NOT VALIDATED")
+    assert run.report.kappa == 1.0 or run.report.agreement_rate == 1.0  # labels match the judge
 
 
 def test_unreviewed_labels_are_never_validated_even_when_the_judge_agrees() -> None:

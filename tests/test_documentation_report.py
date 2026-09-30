@@ -120,14 +120,14 @@ def test_status_is_honest_before_and_after_a_fix_replay(tmp_path: Path) -> None:
     report_id = doc.document(store, fid, registry=reg)
     md = _render(store, reg, fid)
     assert f"**Report {report_id}:** `pending_approval`" in md
-    assert "Not yet validated" in md and "held" not in md.split("**Fix validation:**")[1]
+    assert "No harness replay" in md and "held" not in md.split("**Fix validation:**")[1]
 
     # a candidate build rejects the anonymous mint -> the regression replay holds
     fixed = Executor(reg, lambda u, **k: ResponseRecord(403, '{"error":"forbidden"}', 2.0))
     replay(store, reg, fixed, Judge(), "build-b")
     md = _render(store, reg, fid)
     fixval = md.split("**Fix validation:**")[1]
-    assert "`build-b` — held" in fixval and "Not yet validated" not in fixval
+    assert "`build-b` — held" in fixval and "No harness replay" not in fixval
 
     # re-documenting refreshes derived fields but never duplicates or resets approval
     doc.approve(store, report_id, approver="david")

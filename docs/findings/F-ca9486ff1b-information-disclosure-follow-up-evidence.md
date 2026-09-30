@@ -50,7 +50,7 @@ Constrain the affected behavior and add a regression test.
 - **Observed on builds:** `da7451d1c9bb2c32bd0625840d28103fa13d4529` (2026-09-30)
 
 **Fix validation:**
-Not yet validated: fix pending in target repo (agentforge-week1 branch agentforge/w3-redteam-fixes); validate with the commands above on the new `/health` `git_sha`.
+No harness replay on a fixed build is recorded in this store yet. See `docs/findings/README.md` for the current fix disposition (a fix may be deployed, risk-accepted, or pending); validate with the commands above on the fixed build's `/health` `git_sha`.
 
 ## References
 - Verdicts: ver-2756116fb9a2 (platform store; `uv run redteam evidence <attempt_id>` dumps the raw exchange, first attempt `att-b41c94122f1d`)

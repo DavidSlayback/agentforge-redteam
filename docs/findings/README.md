@@ -16,7 +16,9 @@ synthetic data only.
 > Fix status is derived from `redteam regression` replay against the live `/health` build. On the
 > current build `da7451d1` (demo-access `open` for W2 grading) the two mints correctly read
 > REAPPEARED — the harness is honest about the *deployed* state. The fix is a deployment flag
-> (`AGENTFORGE_DEMO_ACCESS=key`), verified holding on build `40cfbdff` (anon mint → 401). Flip the
+> (`AGENTFORGE_DEMO_ACCESS=key`), verified holding on build `40cfbdff` (anon mint → 401 — a manual
+> direct probe; no stored harness regression exists on `40cfbdff`, which is why the harness path
+> below is the way to capture graded "held" evidence). Flip the
 > flag to `key` and redeploy, and the SHA-change poller re-runs regression → both flip to `held`
 > (401). Until then they are **risk-accepted** per target commit `dcf033f1`, with the rate-limit
 > (F-6ee, fixed) and aud-check as compensating controls.

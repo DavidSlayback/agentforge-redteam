@@ -7,12 +7,18 @@ against the authorized Clinical Co-Pilot target, converts confirmed exploits int
 regression harness, documents findings professionally, and proves fixes hold without
 raising over-refusal — every claim tied to a target SHA and a reproducible run.
 
-## Status (2026-09-29 evening)
+## Status (latest — 2026-09-30)
 
-Current state: see the last section, **"2026-09-29 evening — readiness review, attack ledger,
-fix handoff"**. All four agents and the deterministic services are built and live-run; 3
-findings (one shared root cause, the anonymous synthetic-context mint) are reported and
-**not yet fixed** (fix in progress in the target repo). The paragraph below is the
+**Current state (read the 2026-09-30 sections at the end for detail):** 5 findings across two
+planes — authorization (F-831/F-24b anonymous mints, F-6ee no-rate-limit) and AI/reasoning
+(F-990345a00f grounding/LLM09, F-ca9486ff1b metadata-disclosure/LLM02). **F-6ee is fixed**
+(429 fires); **F-831/F-24b are fixed by a config flag (`AGENTFORGE_DEMO_ACCESS=key`, verified on
+build `40cfbdff`) but risk-accepted in `open` mode for W2 grading** on the current build `da7451d1`.
+Judge calibration is **measured** (κ=1.00, pending a human review flip). A discovery tier + poller
+were added. `uv run pytest` green.
+
+_Superseded snapshot (2026-09-29 evening): "3 findings, not yet fixed" — kept below for history; see
+the 2026-09-30 sections for the current 5-finding, two-plane state._ The paragraph below is the
 2026-09-28 kickoff snapshot, kept for history.
 
 **2026-09-28 snapshot:** No agents built yet. Live target **confirmed** (`/health` → `git_sha bfbb1eb2…`). Done
@@ -93,7 +99,7 @@ artifact), `SAFETY` (trust boundary), `SCHEDULE` (checkpoint). Status: `not star
 |---|---|---|---|---|---|
 | P0 | p9 | Multi-agent architecture (single-agent/pipeline **fails**); distinct roles, contexts, trust levels, coordinated | CORE | Named distinct agents with separate contexts | **DONE** — Orchestrator/Red Team/Judge/Documentation + deterministic services, distinct contexts |
 | P1 | p9–10 | Red Team Agent: novel inputs, mutate partial successes, multi-turn sequences; model choice defended | CORE | Generates + mutates + multi-turn, live | **PARTIAL** — aimed generate + guarded mutate live; multi-turn deferred (target is stateless, T3.4); mutation aim shallow (T3.8) |
-| P2 | p4–5,12 | Judge Agent: verdict success/fail/partial, consistent across runs+versions, independent of attack engine, no drift, judge itself validated | CORE | Independent context/model; drift detection documented + calibration set | **PARTIAL** — deterministic tier-0 independent+consistent; rubric tier (DeepSeek, non-Qwen) live + run end-to-end vs the target (09-30); drift/κ machinery built (`drift.py`). **One gap:** calibration set ships empty → "validate the judge" unmeasured (needs human-labelled cases) |
+| P2 | p4–5,12 | Judge Agent: verdict success/fail/partial, consistent across runs+versions, independent of attack engine, no drift, judge itself validated | CORE | Independent context/model; drift detection documented + calibration set | **PARTIAL** — deterministic tier-0 independent+consistent; rubric tier (DeepSeek, non-Qwen) live + run end-to-end vs the target (09-30); drift/κ machinery built (`drift.py`). Calibration **measured**: κ=1.00, 12/12 (`redteam calibrate`); reports NOT VALIDATED pending a human `review_status` flip |
 | P3 | p5,11 | Orchestrator: reads state (coverage gaps, open findings, regressions, cost), prioritizes next target, triggers regression on target change, halts when cost accrues without signal | CORE | Prioritization from real signals; budget halt | **PARTIAL** — budget/no-signal halt + decision trace live; prioritizes on 2 of 4 signals (route-coverage + open findings); cost is the `--max-model-calls` cap, not a ranking signal. **Regression-on-SHA-change NOW WIRED** via the Recon poller (`redteam poll`) |
 | P4 | p10 | Documentation Agent: confirmed exploit → professional report, no human writing; human approval gate for high severity | CORE | Report meets S3 bar; critical behind gate | **DONE** — evidence-backed reports, fail-closed gate (T1.5), CLI-triggered (not auto-orchestrated) |
 | P5 | p11 | Regression & validation harness: versioned queryable store; auto full suite on Orchestrator trigger; detect reappearance; flag cross-category regressions; a test passing due to behavior shift is worse than none | CORE | Deterministic replay; reappearance + cross-category detection | **DONE (CI gate pending)** — faithful per-probe replay + reappearance + **cross-category flagging** + **SHA-change auto-trigger** (poller); only a CI regression gate is still CLI-only |
@@ -494,7 +500,7 @@ doc overclaims. Checklist (— = todo, ✓ = done):
 - [x] T3.2 LLM rubric tier (non-Qwen) for no-oracle categories — live with `deepseek-v4-pro` via
   Bailian (`217336b`, `38575d8`); verified on constructed responses. No end-to-end rubric-judged
   campaign against the target is in the store yet (see attack ledger).
-- [~] T3.3 Judge-drift detection — mechanism done + runnable now the rubric exists; NEEDS a labelled calibration set — NEEDS a human-labeled calibration set.
+- [x] T3.3 Judge-drift detection — mechanism done + a populated calibration set (12 entries); `redteam calibrate` = κ=1.00, 12/12, reports NOT VALIDATED pending a human `review_status` flip.
 - [x] T3.4 Multi-turn attacks (N/A — target composer is stateless; documented in ARCHITECTURE.md) — target is stateless (recon), so document as N/A vs build.
 - [ ] T3.5 Recon/SHA-diff signal + Orchestrator regression trigger + CI regression gate. **Not
   blocked** (corrected 2026-09-29 evening): the earlier "no version endpoint" note was wrong —

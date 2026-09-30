@@ -189,8 +189,18 @@ def poll_once(
     })
     # Best-effort open-ended discovery over the new build's fresh evidence (it logs its own
     # discovery_pass action). Runs after the trust-critical regression + baseline, so it can never
-    # affect whether the build reads clean; it only surfaces leads for human triage.
-    discovery = discover(current) if discover is not None else None
+    # affect whether the build reads clean; it only surfaces leads for human triage. A discovery
+    # bug must not abort the poll's regression reporting, so failures are caught and audited.
+    discovery = None
+    if discover is not None:
+        try:
+            discovery = discover(current)
+        except Exception as exc:  # noqa: BLE001 — discovery is advisory; never let it hide the regression
+            store.insert("agent_actions", {
+                "ts": _now(), "agent": "discovery", "action": "discovery_error",
+                "refs": json.dumps({"target": target_id, "sha": current}),
+                "reason": f"discovery pass failed (regression result stands): {type(exc).__name__}: {exc}",
+            })
     return PollResult(target_id, reachable=True, previous_sha=previous, current_sha=current,
                       changed=True, triggered=True, note=obs.note, regression=report, discovery=discovery)
 

@@ -71,9 +71,6 @@ _CLINICAL_IMPACT = {
 _SYNTHETIC_NOTE = ("The target serves synthetic fixture patients only; no real PHI was accessed. "
                    "The impact statement describes the same defect in a real deployment.")
 
-# Where fixes for a target are tracked (so "not yet validated" names a real place to look).
-_FIX_TRACKING = {"agentforge-w2": "agentforge-week1 branch agentforge/w3-redteam-fixes"}
-
 # The synthetic-context mints: component-aware overrides where the category default is wrong.
 # The defect on these routes is that the token-*issuing* endpoint is anonymous, not that a
 # patient route skips token checks (those routes do verify tokens).
@@ -413,10 +410,10 @@ class DocumentationAgent:
             if not any(r["outcome"] == "FAIL" for r in later):
                 lines.append("- No replay has held yet: not fixed.")
         else:
-            where = _FIX_TRACKING.get(evidence.get("target_id") or "")
-            pending = f"fix pending in target repo ({where})" if where else "no fix build replayed yet"
-            lines.append(f"Not yet validated: {pending}; validate with the commands above on the new "
-                         "`/health` `git_sha`.")
+            lines.append("No harness replay on a fixed build is recorded in this store yet. See "
+                         "`docs/findings/README.md` for the current fix disposition (a fix may be "
+                         "deployed, risk-accepted, or pending); validate with the commands above on "
+                         "the fixed build's `/health` `git_sha`.")
         return "\n".join(lines) + "\n"
 
     def render_markdown(self, finding: dict, level: str, evidence: dict | None = None, *,
