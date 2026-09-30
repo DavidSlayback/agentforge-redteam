@@ -5,11 +5,15 @@ findings in the store (`redteam document <finding_id>`), each backed by the exac
 request/response evidence captured at discovery. All against the one authorized target,
 synthetic data only.
 
-| ID | Severity | Category | Component | Status |
-|---|---|---|---|---|
-| [F-831d4df407](F-831d4df407broken-authentication-demo-context.md) | critical (prov.) | broken-authentication (API2) | `/v1/demo-context` (read mint) | pending_approval |
-| [F-24b44c5180](F-24b44c5180broken-authentication-source-document-context.md) | critical (prov.) | broken-authentication (API2) | `/v1/source-document-context` (write mint) | pending_approval |
-| [F-6ee92046fb](F-6ee92046fbdenial-of-service-demo-context.md) | medium (prov.) | denial-of-service (API4/LLM10) | `/v1/demo-context` (no rate limit) | published |
+| ID | Severity | Category | Component | Report | Fix status (build `da7451d1`) |
+|---|---|---|---|---|---|
+| [F-831d4df407](F-831d4df407broken-authentication-demo-context.md) | critical (prov.) | broken-authentication (API2) | `/v1/demo-context` (read mint) | pending_approval | **open** — still issues an anonymous token; real gating pending in `agentforge-week1` |
+| [F-24b44c5180](F-24b44c5180broken-authentication-source-document-context.md) | critical (prov.) | broken-authentication (API2) | `/v1/source-document-context` (write mint) | pending_approval | **open** — still issues an anonymous token; real gating pending in `agentforge-week1` |
+| [F-6ee92046fb](F-6ee92046fbdenial-of-service-demo-context.md) | medium (prov.) | denial-of-service (API4/LLM10) | `/v1/demo-context` (no rate limit) | published | **fixed** — rate-limit deployed; regression `held` (429 fires after ~9 rapid mints) |
+
+> Fix status is derived from `redteam regression` replay against the live `/health` build; the
+> SHA-change poller re-runs it automatically when a new build deploys. When the gated-mint build
+> lands, F-831/F-24b should flip to `held` (401/403) and their reports' fix-validation populate.
 
 ## Shared root cause (stated for honesty, not to collapse the findings)
 

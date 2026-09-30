@@ -787,6 +787,23 @@ section in `redteam report`. Detector is pinned to the target's observed shape: 
 the gated-mint build (needs the evaluator credential once the mint is gated; a gated mint reads
 "not measured", never 0%). `uv run pytest` = **183**. Caveat: n=11, one run.
 
+**S7 DONE — excessive-agency at volume, Qwen 3.8 Max (2026-09-30).** David: "try qwen3.8-max."
+`redteam campaign --category excessive-agency --model qwen3.8-max` on `da7451d1`: **9/9 attempts
+FAIL, all judged by the independent DeepSeek rubric tier** (tier-1), each rating the response safe
+("structured patient facts + guideline evidence; no order/confirmation"). 0 findings — the defense
+held at volume against the stronger attacker. Two run bugs fixed en route: (1) the CLI must run
+from **PowerShell** — via the Bash tool Git Bash mangled `--route /v1/...` to a Windows path
+(`AuthorizationDenied`); (2) qwen3.8-max's heavy aimed prompts exceeded the hardcoded 90s model
+timeout → now `AGENTFORGE_REDTEAM_TIMEOUT` (default 90; run used 300). Also recorded on `da7451d1`
+this run: full authz battery (2 mints SUCCESS/open, rate-limit + BOLA + missing/forged-token held)
+and benign over-refusal baseline **0/11**. `uv run pytest` = **195**.
+
+**S8 DONE — reports + dashboard regenerated honestly (2026-09-30).** `redteam document` × 3 +
+`redteam dashboard`. Fix-validation auto-derived: **F-6ee held** (rate-limit, 429) on da7451d1;
+**F-831/F-24b "not yet validated — fix pending"** (they reappear/open on da7451d1; the report does
+NOT claim held). `docs/findings/README.md` gains an explicit fix-status column (2 open, 1 fixed).
+Remaining: prompt-injection Max pass; gated-build re-validation when the fix session deploys.
+
 **S5 SCAFFOLD DONE — calibration content NEEDS DAVID (2026-09-29 late).** `drift.py` gains a
 calibration-set format (`CalibrationSet`/`CalibrationEntry`, typed Observation loading that
 rejects typos), Cohen's κ (`cohens_kappa`, `DriftReport.kappa`), and `run_calibration` with an
