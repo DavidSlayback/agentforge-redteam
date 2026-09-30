@@ -224,10 +224,12 @@ now **under-claimed** several capabilities:
   API3/LLM02), both gated by an Observation flag so they fire only on their dedicated probes.
 - **Judge validation (drift/κ): MEASURED.** `drift.py` computes agreement + Cohen's κ against the
   calibration set (`evals/calibration/calibration_v1.yaml`, 12 entries — 10 deterministic + 2
-  rubric, labels from objective ground truth). `redteam calibrate` reports **κ=1.00, 12/12
-  agreement**; it still prints `NOT VALIDATED` because `review_status: unreviewed` — a human flip of
-  that field (a skim, since labels follow from observable facts) is the last step. This is the one
-  Judge item still awaiting a human sign-off, not an unmeasured one.
+  rubric, labels from objective ground truth). `redteam calibrate` reports **κ=1.00** with full
+  agreement: the 10 deterministic entries reproduce unconditionally (10/10), and the 2 rubric entries
+  are scored only when a rubric model is configured (12/12 with one; `n=10 skipped=2` without). It
+  still prints `NOT VALIDATED` because `review_status: unreviewed` — a human flip of that field (a
+  skim, since labels follow from observable facts) is the last step. This is the one Judge item still
+  awaiting a human sign-off, not an unmeasured one.
 - **Orchestrator → regression on SHA change: NOW WIRED.** The Recon poller (`redteam poll`,
   `src/redteam/recon/`) reads `/health` `git_sha`; on a change it runs the regression suite and
   records the trigger — the SHA-diff producer + trigger the 09-29 note said were missing. Ranking

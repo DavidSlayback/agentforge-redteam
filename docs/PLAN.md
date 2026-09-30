@@ -99,7 +99,7 @@ artifact), `SAFETY` (trust boundary), `SCHEDULE` (checkpoint). Status: `not star
 |---|---|---|---|---|---|
 | P0 | p9 | Multi-agent architecture (single-agent/pipeline **fails**); distinct roles, contexts, trust levels, coordinated | CORE | Named distinct agents with separate contexts | **DONE** — Orchestrator/Red Team/Judge/Documentation + deterministic services, distinct contexts |
 | P1 | p9–10 | Red Team Agent: novel inputs, mutate partial successes, multi-turn sequences; model choice defended | CORE | Generates + mutates + multi-turn, live | **PARTIAL** — aimed generate + guarded mutate live; multi-turn deferred (target is stateless, T3.4); mutation aim shallow (T3.8) |
-| P2 | p4–5,12 | Judge Agent: verdict success/fail/partial, consistent across runs+versions, independent of attack engine, no drift, judge itself validated | CORE | Independent context/model; drift detection documented + calibration set | **PARTIAL** — deterministic tier-0 independent+consistent; rubric tier (DeepSeek, non-Qwen) live + run end-to-end vs the target (09-30); drift/κ machinery built (`drift.py`). Calibration **measured**: κ=1.00, 12/12 (`redteam calibrate`); reports NOT VALIDATED pending a human `review_status` flip |
+| P2 | p4–5,12 | Judge Agent: verdict success/fail/partial, consistent across runs+versions, independent of attack engine, no drift, judge itself validated | CORE | Independent context/model; drift detection documented + calibration set | **PARTIAL** — deterministic tier-0 independent+consistent; rubric tier (DeepSeek, non-Qwen) live + run end-to-end vs the target (09-30); drift/κ machinery built (`drift.py`). Calibration **measured**: κ=1.00 (10/10 deterministic unconditional; +2 rubric when a rubric model is configured); reports NOT VALIDATED pending a human `review_status` flip |
 | P3 | p5,11 | Orchestrator: reads state (coverage gaps, open findings, regressions, cost), prioritizes next target, triggers regression on target change, halts when cost accrues without signal | CORE | Prioritization from real signals; budget halt | **PARTIAL** — budget/no-signal halt + decision trace live; prioritizes on 2 of 4 signals (route-coverage + open findings); cost is the `--max-model-calls` cap, not a ranking signal. **Regression-on-SHA-change NOW WIRED** via the Recon poller (`redteam poll`) |
 | P4 | p10 | Documentation Agent: confirmed exploit → professional report, no human writing; human approval gate for high severity | CORE | Report meets S3 bar; critical behind gate | **DONE** — evidence-backed reports, fail-closed gate (T1.5), CLI-triggered (not auto-orchestrated) |
 | P5 | p11 | Regression & validation harness: versioned queryable store; auto full suite on Orchestrator trigger; detect reappearance; flag cross-category regressions; a test passing due to behavior shift is worse than none | CORE | Deterministic replay; reappearance + cross-category detection | **DONE (CI gate pending)** — faithful per-probe replay + reappearance + **cross-category flagging** + **SHA-change auto-trigger** (poller); only a CI regression gate is still CLI-only |
@@ -500,7 +500,7 @@ doc overclaims. Checklist (— = todo, ✓ = done):
 - [x] T3.2 LLM rubric tier (non-Qwen) for no-oracle categories — live with `deepseek-v4-pro` via
   Bailian (`217336b`, `38575d8`); verified on constructed responses. No end-to-end rubric-judged
   campaign against the target is in the store yet (see attack ledger).
-- [x] T3.3 Judge-drift detection — mechanism done + a populated calibration set (12 entries); `redteam calibrate` = κ=1.00, 12/12, reports NOT VALIDATED pending a human `review_status` flip.
+- [x] T3.3 Judge-drift detection — mechanism done + a populated calibration set (12 entries); `redteam calibrate` = κ=1.00 (10/10 deterministic; +2 rubric when a rubric model is configured), reports NOT VALIDATED pending a human `review_status` flip.
 - [x] T3.4 Multi-turn attacks (N/A — target composer is stateless; documented in ARCHITECTURE.md) — target is stateless (recon), so document as N/A vs build.
 - [ ] T3.5 Recon/SHA-diff signal + Orchestrator regression trigger + CI regression gate. **Not
   blocked** (corrected 2026-09-29 evening): the earlier "no version endpoint" note was wrong —
@@ -929,6 +929,8 @@ with a format/composition guide in `evals/calibration/README.md`. The labelled e
 authored here: this session's output safety classifier stopped a response while drafting them
 (see [[claude-safety-blocks-w3]]), so per the standing rule they are authored by David or an
 unfiltered model, then human-reviewed. Current `redteam calibrate`: **NOT MEASURED (empty set)**.
+_(Superseded 2026-09-30: the set is now populated (12 entries) and κ=1.00 — see the "calibration set
+measured" section below.)_
 `uv run pytest` = **192**.
 
 **S2 DONE + live-verified (2026-09-29 late).** `src/redteam/recon/__init__.py` (`poll_once` with
@@ -968,7 +970,8 @@ with drift concentrated in three places — now acted on where unblocked:
    credential → `redteam authz/regression --sha <new>` flips them held; or risk-accept explicitly.
    **Highest graded impact.**
 2. **Judge calibration set empty** (P2 / KEY_METRICS #5) — needs human-labelled cases (classifier-
-   blocked here). Then `redteam calibrate` reports κ.
+   blocked here). Then `redteam calibrate` reports κ. _(Superseded 2026-09-30: set populated,
+   κ=1.00; only a human `review_status` flip remains — see the "calibration set measured" section.)_
 3. Refreshed demo video, social post, AI interview (human-only).
 
 **Drift call-out:** the discovery tier was "built but not required" — it produced the two AI-layer
@@ -995,6 +998,6 @@ code — the mint probes only confirm anonymous is refused).
 **Judge calibration set — now MEASURED (P2 / KEY_METRICS #5).** `evals/calibration/calibration_v1.yaml`
 holds 12 entries (10 deterministic + 2 rubric) built from real target response shapes with labels
 from objective ground truth (oracle facts + clear-cut rubric readings) — benign content, no attack
-payloads, so no classifier issue. `redteam calibrate`: **κ=1.00, 12/12 agreement, 0 skipped**;
+payloads, so no classifier issue. `redteam calibrate`: **κ=1.00** (10/10 deterministic unconditional; the 2 rubric entries score, giving 12/12, only when a rubric model is configured — else `n=10 skipped=2`);
 reports `NOT VALIDATED` only because `review_status: unreviewed` (a human skim flips it — the labels
 follow from observable facts). Turns "validate the judge" from unmeasured to measured.
