@@ -244,6 +244,28 @@ def cmd_benign(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_calibrate(args: argparse.Namespace) -> int:
+    """Score the Judge against the human-labelled calibration set (KEY_METRICS #5). Offline: no
+    target traffic. Rubric entries run only if a rubric model is configured (else skipped)."""
+    from redteam.agents.judge.judge import Judge
+    from redteam.agents.judge.rubric import ModelRubric
+    from redteam.config import load_dotenv
+    from redteam.drift import load_calibration, run_calibration
+
+    load_dotenv()
+    cset = load_calibration(args.set)
+    run = run_calibration(Judge(rubric=ModelRubric.from_env()), cset)
+    r = run.report
+    kappa = "undefined" if r.kappa is None else f"{r.kappa:.2f}"
+    rate = "n/a" if r.n == 0 else f"{r.agreement_rate:.0%}"   # never print 100% over zero entries
+    print(f"calibration {cset.version} (labeled_by={cset.labeled_by}, review={cset.review_status}): "
+          f"n={r.n} agree={r.agree} rate={rate} kappa={kappa} skipped={len(run.skipped)}")
+    for d in r.disagreements:
+        print(f"  DISAGREE expected={d['expected']} got={d['got']} :: {d['response']}")
+    print(f"-> {run.status}")
+    return 0 if run.validated else 1
+
+
 def cmd_campaign(args: argparse.Namespace) -> int:
     from redteam.agents.orchestrator.budget import Budget
     from redteam.agents.orchestrator.orchestrator import Orchestrator
@@ -323,6 +345,10 @@ def build_parser() -> argparse.ArgumentParser:
     bn.add_argument("--max-over-refusal", type=float, default=None,
                     help="exit non-zero if the over-refusal rate exceeds this fraction (e.g. 0.1)")
     bn.set_defaults(func=cmd_benign)
+
+    cb = sub.add_parser("calibrate", help="score the Judge against the human-labelled calibration set (KEY_METRICS #5)")
+    cb.add_argument("--set", default="evals/calibration/calibration_v1.yaml")
+    cb.set_defaults(func=cmd_calibrate)
 
     az = sub.add_parser("authz", help="run the deterministic authorization-probe battery (no attacker model)")
     az.add_argument("--target", required=True)

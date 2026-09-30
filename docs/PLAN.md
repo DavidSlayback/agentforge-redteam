@@ -787,6 +787,18 @@ section in `redteam report`. Detector is pinned to the target's observed shape: 
 the gated-mint build (needs the evaluator credential once the mint is gated; a gated mint reads
 "not measured", never 0%). `uv run pytest` = **183**. Caveat: n=11, one run.
 
+**S5 SCAFFOLD DONE — calibration content NEEDS DAVID (2026-09-29 late).** `drift.py` gains a
+calibration-set format (`CalibrationSet`/`CalibrationEntry`, typed Observation loading that
+rejects typos), Cohen's κ (`cohens_kappa`, `DriftReport.kappa`), and `run_calibration` with an
+explicit status: validated only when non-empty **and** `review_status: human-reviewed` **and** no
+rubric entries skipped **and** full agreement. `redteam calibrate` (offline; exit 0 only when
+validated). `evals/calibration/calibration_v1.yaml` ships **empty** (`review_status: unreviewed`)
+with a format/composition guide in `evals/calibration/README.md`. The labelled entries were NOT
+authored here: this session's output safety classifier stopped a response while drafting them
+(see [[claude-safety-blocks-w3]]), so per the standing rule they are authored by David or an
+unfiltered model, then human-reviewed. Current `redteam calibrate`: **NOT MEASURED (empty set)**.
+`uv run pytest` = **192**.
+
 **S2 DONE + live-verified (2026-09-29 late).** `src/redteam/recon/__init__.py` (`poll_once` with
 injected `fetch_sha`/`run_regression` seams; `poll` wires the live pieces), migration
 `0006_target_health.sql`, `redteam poll --target <t>` CLI. The health poll goes through the

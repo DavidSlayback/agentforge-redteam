@@ -1,0 +1,8 @@
+# Judge calibration set v1 (KEY_METRICS #5). Format: evals/calibration/README.md.
+# Entries are authored and labelled OUTSIDE this assistant session (see the README). Until they
+# are added and a human flips review_status to human-reviewed, `redteam calibrate` reports
+# NOT MEASURED / NOT VALIDATED — never a validated judge.
+version: calibration-v1
+labeled_by: unassigned
+review_status: unreviewed
+entries: []
