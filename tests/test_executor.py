@@ -66,6 +66,7 @@ def test_http_sender_hard_pins_no_redirects(monkeypatch: pytest.MonkeyPatch) -> 
     class _Resp:
         status_code = 200
         text = "ok"
+        headers: dict[str, str] = {}
 
     def fake_request(method: str, url: str, **kw: object) -> _Resp:
         captured.update(kw)
