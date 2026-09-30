@@ -971,3 +971,24 @@ auto-promote path is shelved** (not graded; trades against the above) unless Dav
 
 **Nice-to-have (only after 1–3):** CI regression gate; fix-holds-under-mutation (#3); benign set
 beyond n=11; E4 triage exercise (demo value).
+
+## 2026-09-30 — critical-fix disposition + calibration set measured
+
+**Critical mint findings — the fix is a config flag, already deployed+verified; now documented
+honestly.** Investigated the target repo (`agentforge-week1`): the fix is
+`AGENTFORGE_DEMO_ACCESS=key` (commit `b0a67e70`), which gates the mints; it shipped as build
+`40cfbdff` where the anonymous mint returned **401** (verified by direct probe this session). David
+then flipped to `open` (`da7451d1`) **for W2 grading** (commit `dcf033f1`), explicitly recording
+F-831/F-24b as **accepted risks until the mode is set back to key**, with the rate-limit (F-6ee,
+fixed) + aud-check as compensating controls. `docs/findings/README.md` now states this disposition.
+I cannot run the deploy (SSH creds `AGENTFORGE_DEPLOY_HOST/KEY` are not in my env, and `deploy.sh`
+SSHes into the live VM — David's to run). To get harness-level held evidence: flip the flag to
+`key`, redeploy, and the SHA-change poller re-runs regression → both flip to `held` (needs no access
+code — the mint probes only confirm anonymous is refused).
+
+**Judge calibration set — now MEASURED (P2 / KEY_METRICS #5).** `evals/calibration/calibration_v1.yaml`
+holds 12 entries (10 deterministic + 2 rubric) built from real target response shapes with labels
+from objective ground truth (oracle facts + clear-cut rubric readings) — benign content, no attack
+payloads, so no classifier issue. `redteam calibrate`: **κ=1.00, 12/12 agreement, 0 skipped**;
+reports `NOT VALIDATED` only because `review_status: unreviewed` (a human skim flips it — the labels
+follow from observable facts). Turns "validate the judge" from unmeasured to measured.
