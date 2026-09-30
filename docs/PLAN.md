@@ -1001,3 +1001,42 @@ from objective ground truth (oracle facts + clear-cut rubric readings) — benig
 payloads, so no classifier issue. `redteam calibrate`: **κ=1.00** (10/10 deterministic unconditional; the 2 rubric entries score, giving 12/12, only when a rubric model is configured — else `n=10 skipped=2`);
 reports `NOT VALIDATED` only because `review_status: unreviewed` (a human skim flips it — the labels
 follow from observable facts). Turns "validate the judge" from unmeasured to measured.
+
+## 2026-09-30 — Optional engineering deliverables (E2–E15): execution plan
+
+**Decision (David):** pursue the optional/ambiguous E-items to hedge R1 (PRD p12 heading says
+"optional", body says "not optional"). All hard gates + CORE + E1 + safety are already SATISFIED;
+E5/E6/E8 done. **Key finding from inspection:** most remaining E-items are *document-or-test what
+already exists*, not new builds — the store already has 13 indexes (E12), `dedup_key UNIQUE` +
+pre-write validation (E9), 8 idempotent numbered migrations (E10), and approval+`agent_actions`
+lineage (E11). So graded-risk-reduction per effort is high. Ordering = cheapest-highest-coverage
+first.
+
+**Out of scope:** changing the target; per-token×n cost math; anything needing the gated-mint
+deploy (that's the separate critical-fix item). Synthetic-only + single-target boundary unchanged.
+
+| Wave | E-item | State entering | Work (smallest slice) | Acceptance evidence | Ready? |
+|---|---|---|---|---|---|
+| **1 — document/test existing (cheap)** | **E9** exploit-DB data-quality | dedup_key UNIQUE + Documentation validates before write | `docs/DATA_MODEL.md` section + a test asserting a duplicate (oracle,sink,category) finding/sequence is rejected/deduped | test passes; doc cites the constraint | ✅ |
+| | **E10** migration support + queue-depth | 8 additive numbered migrations; work queue in store | Document the additive-migration approach (add field w/o loss); add a `queue_depth` observability query + surface in `redteam report` | migration doc + `queue_depth` renders; a test | ✅ |
+| | **E11** data model + access controls | SA3 approval + lineage + store schema | `docs/DATA_MODEL.md`: who writes/reads exploits, approval-before-publish, lineage/reporting, ER of the store | doc complete, cross-links SA3 | ✅ |
+| | **E7** rate-limit + auth per external API | partial in ARCHITECTURE §7 | Consolidated table: target, Qwen, rubric/DeepSeek, Jev — auth + rate-limit + backoff/queue/abort handling | table in ARCHITECTURE (or `docs/EXTERNAL_APIS.md`) | ✅ |
+| | **E3** build-vs-configure records | ADR 0003 considered-options (no tool matrix) | Extend ADR 0003 / new `docs/adr/0005-build-vs-configure.md`: Burp/ZAP/Semgrep/garak/commercial vs build, per capability | ADR with the explicit matrix | ✅ |
+| | **E2** boundary/invariant per case | probes already do this | A table mapping each eval case/probe → the boundary/invariant/regression-risk it exercises (not a static payload) | table in `evals/README.md` | ✅ |
+| **2 — small build + test** | **E12** regression full-scan SLO in CI | indexes done; CI runs pytest | A timed test asserting a full regression replay (fixture store) completes under a bound; runs in CI via pytest; document index→query map | SLO test green in CI | ✅ |
+| **3 — real bounded build (perf)** | **E13** baseline CPU/mem/latency/throughput | not done | A `redteam bench` (or script) over a representative run (authz battery + regression replay); record numbers in `docs/PERF.md` | recorded baseline table | ✅ (deterministic; no model cost) |
+| | **E14** load test 100 cases + bottleneck + fix | not done | Run 100 consecutive **deterministic** probes vs the live target (avoids model cost/variance); capture platform metrics; name the bottleneck (single Executor door — already the documented accepted tradeoff) + the architectural fix (worker pool behind the auth gate / queue) | `docs/PERF.md` load section + numbers | ✅ (hits live target) |
+| **4 — assembly / content-gated** | **E15** ATO evidence packet | artifacts exist scattered | Assemble `docs/ATO_PACKET.md`: arch + data-flow diagram, auth model, dependency versions (`uv.lock`), platform self-scan (our own findings), test evidence (220 passing), a sample incident/postmortem | packet doc links all six | ✅ (assembly) |
+| | **E4** triage exercise ≥10 findings | not done | Build the triage FRAMEWORK + table (validate/remediate/defer/document across critical/high/medium/false-positive) using our 5 real findings + synthesized entries; the offensive **finding descriptions** for the simulated scan may trip this assistant's classifier | `docs/TRIAGE_EXERCISE.md` with ≥10 rows, each dispositioned | ⚠️ structure ready; **offensive content → David/unfiltered** (see [[claude-safety-blocks-w3]]) |
+
+**Sequencing rationale:** Wave 1 (six items) is almost pure documentation of built capability →
+highest R1-hedge for least effort/risk; do first. Wave 2 (E12 SLO) is one small test. Wave 3
+(E13/E14) is the only genuine new build — deterministic probes keep it cheap and reproducible;
+E14 hits the live target (authorized). Wave 4: E15 is assembly; E4's framework is buildable but its
+≥10 offensive finding descriptions are classifier-blocked here — I build the triage structure +
+disposition logic and flag the content for David/an unfiltered model.
+
+**Blocked/needs-David:** E4 offensive finding content (classifier). Everything else is ready with no
+David dependency. **Circuit breaker:** if Wave 1+2 land and time is short, stop — they cover the
+most graded surface; E13/E14/E15/E4 are incremental. Each item: build → its own test/doc → subagent
+review → commit → push both remotes. Keep this file the single plan.
