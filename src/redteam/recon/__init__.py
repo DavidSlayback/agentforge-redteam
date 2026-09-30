@@ -170,10 +170,16 @@ def poll_once(
             "target": target_id, "sha": current,
             "held": len(report.held), "reappeared": len(report.reappeared),
             "inconclusive": len(report.inconclusive), "unreplayable": len(report.unreplayable),
+            "newly_regressed": sorted(report.regressed_categories),
+            "newly_fixed": sorted(report.fixed_categories),
+            "cross_category_regression": report.cross_category_regression,
             "ok": report.ok,
         }),
-        "reason": ("regression clean — all frozen findings held"
-                   if report.ok else "regression ATTENTION — a frozen finding did not hold"),
+        "reason": ("regression clean — all frozen findings held" if report.ok else
+                   ("regression ATTENTION — CROSS-CATEGORY regression: fixing "
+                    f"{sorted(report.fixed_categories)} reopened {sorted(report.regressed_categories - report.fixed_categories)}"
+                    if report.cross_category_regression
+                    else "regression ATTENTION — a frozen finding did not hold")),
     })
     # Advance the baseline only now that the regression has actually completed.
     store.insert("target_health", {

@@ -193,6 +193,12 @@ def cmd_regression(args: argparse.Namespace) -> int:
     print(f"regression @ {args.sha}: held={len(r.held)} reappeared={len(r.reappeared)} "
           f"inconclusive={len(r.inconclusive)} unreplayable={len(r.unreplayable)} "
           f"-> {'OK' if r.ok else 'ATTENTION'}")
+    if r.newly_regressed:
+        print(f"  NEWLY REGRESSED (held on the prior build, open now): "
+              f"{sorted(r.regressed_categories)}")
+    if r.cross_category_regression:
+        print(f"  CROSS-CATEGORY REGRESSION: a fix for {sorted(r.fixed_categories)} coincided with "
+              f"a reopening in {sorted(r.regressed_categories - r.fixed_categories)} — inspect the change")
     store.close()
     # Non-zero unless every frozen case held: a reappearance, or a critical that couldn't be
     # verified fixed (inconclusive/unreplayable), must fail the gate loudly.

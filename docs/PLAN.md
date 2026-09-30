@@ -764,6 +764,17 @@ the SHA change and re-run. Reports/dashboard regen + finding-status update (S8) 
 canonical store `var/redteam.db` now carries the da7451d1 validation attempts (backup at
 `var/redteam.pre-s9.db`).
 
+**S3 DONE (2026-09-29 late) — cross-category regression flagging (P5).** `replay` now reads each
+frozen case's previous recorded verdict (`last_result`/`last_sha`) and classifies the *transition*
+on this build: `newly_regressed` (held→reappeared) and `newly_fixed` (reappeared→held).
+`RegressionReport.cross_category_regression` fires when a fix landed for one OWASP category while a
+finding in a **different** category reopened on the same build — the PRD's "fixing one category
+regresses another", the causal case a reviewer must inspect (distinct from a plain reappearance,
+which `ok` already fails on). Surfaced in `redteam regression` output and the poller's
+`regression_triggered` audit (`newly_regressed`/`newly_fixed`/`cross_category_regression`). Tests:
+`test_regression.py` (fix-in-A-reopens-B → flagged; plain reappearance with no fix → not
+cross-category). `uv run pytest` = **166**. Closes final-checklist #3.
+
 **S2 DONE + live-verified (2026-09-29 late).** `src/redteam/recon/__init__.py` (`poll_once` with
 injected `fetch_sha`/`run_regression` seams; `poll` wires the live pieces), migration
 `0006_target_health.sql`, `redteam poll --target <t>` CLI. The health poll goes through the

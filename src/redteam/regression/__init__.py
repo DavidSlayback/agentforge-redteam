@@ -51,6 +51,10 @@ class RegressionReport:
     reappeared: list[dict] = field(default_factory=list)   # {case_id, category} — regressions
     inconclusive: list[str] = field(default_factory=list)
     unreplayable: list[str] = field(default_factory=list)  # frozen before case_json existed
+    # Transitions vs each case's previous recorded replay (P5). A regression that only *stays*
+    # open is already in `reappeared`; these two track what CHANGED on this build.
+    newly_regressed: list[dict] = field(default_factory=list)  # {case_id, category, prior_sha}: held -> reappeared
+    newly_fixed: list[dict] = field(default_factory=list)      # {case_id, category, prior_sha}: reappeared -> held
 
     @property
     def ok(self) -> bool:
@@ -58,6 +62,22 @@ class RegressionReport:
         # INCONCLUSIVE or unreplayable frozen finding means a known (often critical) vuln could
         # not be verified as fixed — that must not read as green (role-review T1.6).
         return not (self.reappeared or self.inconclusive or self.unreplayable)
+
+    @property
+    def regressed_categories(self) -> set[str]:
+        return {d["category"] for d in self.newly_regressed}
+
+    @property
+    def fixed_categories(self) -> set[str]:
+        return {d["category"] for d in self.newly_fixed}
+
+    @property
+    def cross_category_regression(self) -> bool:
+        """A fix landed for one OWASP category while a finding in a DIFFERENT category reopened on
+        the same build — the PRD's "fixing one category regresses another". Distinct from a plain
+        reappearance (which `ok` already fails on): this flags the causal, cross-cutting case a
+        reviewer must look at, because the change that fixed X is the prime suspect for breaking Y."""
+        return bool(self.fixed_categories) and bool(self.regressed_categories - self.fixed_categories)
 
 
 def replay(
@@ -77,7 +97,9 @@ def replay(
     from redteam.dispatch import dispatch  # local import avoids a runner<->regression cycle
 
     report = RegressionReport(target_sha=target_sha)
-    rows = store.conn.execute("SELECT case_id, case_json FROM regression_cases").fetchall()
+    rows = store.conn.execute(
+        "SELECT case_id, case_json, last_result, last_sha FROM regression_cases"
+    ).fetchall()
     for row in rows:
         if row["case_json"] is None:
             # A case frozen before migration 0003 cannot be replayed — surface it as a
@@ -92,10 +114,18 @@ def replay(
         # attack into a plain message and falsely report the fix as holding.
         result = dispatch(replay_case, registry, executor, judge, store, minter, target_sha=target_sha)
         outcome = result.verdict.outcome
+        prior = row["last_result"]   # the previous replay's verdict for this same frozen case
         if outcome is VerdictOutcome.SUCCESS:
             report.reappeared.append({"case_id": row["case_id"], "category": case.category})
+            if prior is not None and prior.endswith("FAIL"):
+                # held on the previous build, open on this one — a genuine regression this deploy
+                report.newly_regressed.append(
+                    {"case_id": row["case_id"], "category": case.category, "prior_sha": row["last_sha"]})
         elif outcome is VerdictOutcome.FAIL:
             report.held.append(row["case_id"])          # only a clean FAIL is "the fix holds"
+            if prior is not None and prior.endswith("SUCCESS"):
+                report.newly_fixed.append(
+                    {"case_id": row["case_id"], "category": case.category, "prior_sha": row["last_sha"]})
         else:
             report.inconclusive.append(row["case_id"])  # PARTIAL / INCONCLUSIVE -> never a pass
         store.conn.execute(
