@@ -136,4 +136,10 @@ def test_status_is_honest_before_and_after_a_fix_replay(tmp_path: Path) -> None:
     row = store.conn.execute("SELECT status, approval, fix_validation FROM vuln_reports").fetchone()
     assert row["status"] == "published" and json.loads(row["approval"])["approver"] == "david"
     assert json.loads(row["fix_validation"])["result"] == "held"
+    # a later build issues tokens again -> the replay reappears; the report must say so,
+    # not hide the build as a baseline sighting and fall back to "Not yet validated"
+    reopened = Executor(reg, lambda u, **k: ResponseRecord(200, MINT_OK, 2.0))
+    replay(store, reg, reopened, Judge(), "build-c")
+    fixval = _render(store, reg, fid).split("**Fix validation:**")[1]
+    assert "`build-c` — reappeared" in fixval and "Not yet validated" not in fixval
     store.close()
