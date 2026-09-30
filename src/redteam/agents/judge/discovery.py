@@ -60,28 +60,36 @@ class DiscoveryJudge:
     api_key: str | None = None
     model: str | None = None
     timeout: float = 90.0
+    # The default discovery reviewer must be independent of the attacker family (non-Qwen), like the
+    # rubric tier. But unlike the verdict Judge, this tier emits *candidates* (leads for human
+    # triage), never verdicts — so an operator MAY deliberately point it at a same-family model
+    # (e.g. qwen3.8-max) via an explicit AGENTFORGE_REDTEAM_DISCOVERY_MODEL. That is honored, not
+    # silently blocked, because a lead is confirmed by a human + a deterministic oracle regardless.
+    allow_same_family: bool = False
 
     @classmethod
     def from_env(cls) -> "DiscoveryJudge":
         # Reuse the rubric model/endpoint by default (already a non-Qwen family), with optional
-        # discovery-specific overrides.
+        # discovery-specific overrides. An explicit DISCOVERY_MODEL is an operator's deliberate
+        # choice, so it overrides the independence default (candidates, not verdicts — see above).
         base = (os.environ.get("AGENTFORGE_REDTEAM_DISCOVERY_BASE_URL")
                 or os.environ.get("AGENTFORGE_REDTEAM_RUBRIC_BASE_URL")
                 or os.environ.get("AGENTFORGE_REDTEAM_BASE_URL"))
         key = (os.environ.get("AGENTFORGE_REDTEAM_DISCOVERY_KEY")
                or os.environ.get("AGENTFORGE_REDTEAM_RUBRIC_KEY")
                or os.environ.get("AGENTFORGE_REDTEAM_API_KEY"))
-        model = (os.environ.get("AGENTFORGE_REDTEAM_DISCOVERY_MODEL")
-                 or os.environ.get("AGENTFORGE_REDTEAM_RUBRIC_MODEL"))
+        explicit = os.environ.get("AGENTFORGE_REDTEAM_DISCOVERY_MODEL")
+        model = explicit or os.environ.get("AGENTFORGE_REDTEAM_RUBRIC_MODEL")
         timeout = float(os.environ.get("AGENTFORGE_REDTEAM_TIMEOUT", cls.timeout))
         return cls(base_url=(base or "").rstrip("/") or None, api_key=key or None,
-                   model=model or None, timeout=timeout)
+                   model=model or None, timeout=timeout, allow_same_family=bool(explicit))
 
     @property
     def available(self) -> bool:
         if not (self.base_url and self.api_key and self.model):
             return False
-        return "qwen" not in self.model.lower()   # must be independent of the attacker family
+        # Default: independent of the attacker family. Overridden only by an explicit DISCOVERY_MODEL.
+        return self.allow_same_family or "qwen" not in self.model.lower()
 
     def review(self, request_summary: str, response_text: str) -> DiscoveryResult:
         if not self.available:

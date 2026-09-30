@@ -23,6 +23,11 @@ def test_available_requires_a_configured_non_qwen_model() -> None:
     assert DiscoveryJudge(base_url=None, api_key="k", model="deepseek-v4-pro").available is False
 
 
+def test_explicit_same_family_model_is_honored_for_discovery() -> None:
+    # candidates are leads, not verdicts, so an operator's explicit qwen choice is allowed
+    assert DiscoveryJudge(base_url="u", api_key="k", model="qwen3.8-max", allow_same_family=True).available is True
+
+
 def test_review_unavailable_is_never_a_candidate() -> None:
     r = DiscoveryJudge().review("req", "resp")
     assert r.suspected is False and r.error is not None
