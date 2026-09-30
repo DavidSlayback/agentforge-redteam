@@ -271,6 +271,22 @@ def cmd_candidates(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_disclosure(args: argparse.Namespace) -> int:
+    """Internal-metadata disclosure probe (info-disclosure): does the clinical response leak the AI
+    supply chain (provider/model names), retrieval telemetry, or internal datastore ids? Deterministic."""
+    from redteam.authz_probe import run_disclosure_probes
+
+    registry, target, executor, minter, judge = _wire_deterministic(args.target)
+    store = Store.open(args.store)
+    results = run_disclosure_probes(registry=registry, executor=executor, judge=judge, store=store,
+                                    minter=minter, target=target, patient=args.patient,
+                                    route=args.route, target_sha=args.target_sha)
+    for r in results:
+        print(f"  {str(r.verdict.outcome):13} {r.verdict.reason}")
+    store.close()
+    return 1 if any(str(r.verdict.outcome) == "SUCCESS" for r in results) else 0
+
+
 def cmd_grounding(args: argparse.Namespace) -> int:
     """Run the off-condition grounding battery (OWASP LLM09): does the target present guideline
     evidence as applicable for conditions the patient does not have? Deterministic; no attacker
@@ -422,6 +438,13 @@ def build_parser() -> argparse.ArgumentParser:
     ca = sub.add_parser("candidates", help="list open discovery candidates (leads for human triage)")
     ca.add_argument("--status", default="new", help="filter by status (new|confirmed|dismissed|promoted); '' for all")
     ca.set_defaults(func=cmd_candidates)
+
+    ds = sub.add_parser("disclosure", help="internal-metadata disclosure probe (info-disclosure)")
+    ds.add_argument("--target", required=True)
+    ds.add_argument("--patient", required=True)
+    ds.add_argument("--route", default="/v1/follow-up-evidence")
+    ds.add_argument("--target-sha", default=None, dest="target_sha")
+    ds.set_defaults(func=cmd_disclosure)
 
     gr = sub.add_parser("grounding", help="off-condition grounding battery (OWASP LLM09 misinformation)")
     gr.add_argument("--target", required=True)

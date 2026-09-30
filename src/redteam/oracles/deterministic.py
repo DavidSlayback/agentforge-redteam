@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from redteam.oracles.authz import (ErrorLeakOracle, GroundingOracle, OutputHandlingOracle,
-                                    UnauthorizedAccessOracle)
+from redteam.oracles.authz import (ErrorLeakOracle, GroundingOracle, MetadataDisclosureOracle,
+                                    OutputHandlingOracle, UnauthorizedAccessOracle)
 from redteam.oracles.base import Observation, Oracle, OracleOutcome, OracleResult
 
 
@@ -101,4 +101,5 @@ class StatusOracle:
 DEFAULT_ORACLES: tuple[Oracle, ...] = (
     MarkerOracle(), CanaryLeakOracle(), StatusOracle(),
     UnauthorizedAccessOracle(), ErrorLeakOracle(), OutputHandlingOracle(), GroundingOracle(),
+    MetadataDisclosureOracle(),
 )

@@ -54,6 +54,10 @@ class Observation:
     off_condition: bool = False
     qualification_required: bool | None = None
     guideline_evidence_count: int = 0
+    # Set only by the disclosure probe: check the response for internal-implementation metadata
+    # (AI supply-chain / retrieval telemetry / internal datastore ids) that a clinical client
+    # should never receive. Gated by this flag so the oracle never fires on ordinary attempts.
+    check_disclosure: bool = False
 
 
 @dataclass(frozen=True)

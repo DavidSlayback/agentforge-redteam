@@ -63,6 +63,7 @@ win over it). Only the commands that call a model need keys — `authz`, `regres
 | `AGENTFORGE_REDTEAM_RUBRIC_MODEL` | `campaign` (optional) | Enables the rubric Judge tier; must be a non-Qwen family (in use: `deepseek-v4-pro`) |
 | `AGENTFORGE_REDTEAM_RUBRIC_BASE_URL`, `AGENTFORGE_REDTEAM_RUBRIC_KEY` | optional | Separate rubric endpoint/key; fall back to the Red Team endpoint/key |
 | `AGENTFORGE_REDTEAM_JEV_KEY` | `campaign --selector jev` (optional) | Jev orchestrator selector; deterministic selector otherwise |
+| `AGENTFORGE_REDTEAM_DISCOVERY_MODEL` | `discover` / `poll --discover` (optional) | Model for the open-ended discovery reviewer. Defaults to the rubric model (non-Qwen); an explicit value is honored even if same-family, since discovery emits candidates (leads), not verdicts. **Recommended: `qwen3.8-max`** — it out-performed DeepSeek as the reviewer in the 2026-09-30 comparison (higher signal, fewer false positives) |
 
 ### Authorization (read before running anything)
 

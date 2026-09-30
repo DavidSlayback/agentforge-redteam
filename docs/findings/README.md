@@ -11,15 +11,22 @@ synthetic data only.
 | [F-24b44c5180](F-24b44c5180broken-authentication-source-document-context.md) | critical (prov.) | broken-authentication (API2) | `/v1/source-document-context` (write mint) | pending_approval | **open** — still issues an anonymous token; real gating pending in `agentforge-week1` |
 | [F-6ee92046fb](F-6ee92046fbdenial-of-service-demo-context.md) | medium (prov.) | denial-of-service (API4/LLM10) | `/v1/demo-context` (no rate limit) | published | **fixed** — rate-limit deployed; regression `held` (429 fires after ~9 rapid mints) |
 | [F-990345a00f](F-990345a00f-misinformation-follow-up-evidence.md) | high (prov.) | **misinformation (LLM09)** | `/v1/follow-up-evidence` (grounding) | new | **open** — presents off-condition guidelines as applicable, unqualified (4/4 via `redteam grounding`) |
+| [F-ca9486ff1b](F-ca9486ff1b-information-disclosure-follow-up-evidence.md) | medium (prov.) | **information-disclosure (API3/LLM02)** | `/v1/follow-up-evidence` (retrieval telemetry) | new | **open** — clinical response leaks the AI supply chain (embedding/LLM provider+model names) + internal telemetry (`redteam disclosure`) |
 
 > Fix status is derived from `redteam regression` replay against the live `/health` build; the
 > SHA-change poller re-runs it automatically when a new build deploys. When the gated-mint build
 > lands, F-831/F-24b should flip to `held` (401/403) and their reports' fix-validation populate.
 
-## Two distinct root causes
+## Three distinct root causes
 
-**F-990345a00f (misinformation, LLM09)** is a separate, AI-layer root cause — the only finding in
-the *reasoning* plane rather than the authorization plane. The Co-Pilot's `qualification` gate keys
+Two AI-layer findings sit in the *reasoning/response* plane, separate from the authorization-plane
+mints. **F-ca9486ff1b (information-disclosure, API3/LLM02)** — the clinical `/v1/follow-up-evidence`
+response leaks internal implementation metadata (the AI supply chain: embedding + LLM provider/model
+names, retrieval telemetry, internal datastore ids), useful to a targeted attacker and unnecessary
+for the client. It was **surfaced by the discovery tier** (two independent models, DeepSeek +
+qwen3.8-max, converged on it) and confirmed deterministically via `redteam disclosure`.
+
+**F-990345a00f (misinformation, LLM09)** is the other reasoning-plane finding. The Co-Pilot's `qualification` gate keys
 on retrieval *sufficiency*, not clinical *applicability*, so a query about a condition the patient
 does not have is answered `qualified:false` with mismatched guideline evidence cited as applicable
 (e.g. statin guidance for an atrial-fibrillation anticoagulation question). It is **independent of
