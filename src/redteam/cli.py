@@ -220,6 +220,44 @@ def cmd_poll(args: argparse.Namespace) -> int:
     return code
 
 
+def cmd_discover(args: argparse.Namespace) -> int:
+    """Open-ended discovery pass: review captured evidence with an independent less-safeguarded LLM
+    and log candidates the deterministic oracles missed. Candidates are LEADS for human triage, not
+    findings — `redteam candidates` lists them, then a human hardens real ones into oracles."""
+    from redteam.agents.judge.discovery import DiscoveryJudge
+    from redteam.config import load_dotenv
+    from redteam.discovery import run_discovery
+
+    load_dotenv()
+    judge = DiscoveryJudge.from_env()
+    if not judge.available:
+        print("discovery tier not configured: set AGENTFORGE_REDTEAM_RUBRIC_MODEL (a non-Qwen model)")
+        return 2
+    store = Store.open(args.store)
+    s = run_discovery(store, judge, target_sha=args.target_sha, limit=args.limit,
+                      min_confidence=args.min_confidence)
+    for c in s.candidates:
+        print(f"  [{c['severity']:8} conf={c['confidence']:.2f}] {c['vuln_class']} @ {c['route']}: {c['why']}")
+    print(f"discovery: reviewed={s.reviewed} candidates={len(s.candidates)} "
+          f"errors={s.errors} no_evidence={s.skipped_no_evidence}")
+    store.close()
+    return 0
+
+
+def cmd_candidates(args: argparse.Namespace) -> int:
+    """List open discovery candidates (LLM-proposed leads awaiting human triage)."""
+    from redteam.discovery import list_candidates
+
+    store = Store.open(args.store)
+    cands = list_candidates(store, status=args.status)
+    for c in cands:
+        print(f"  {c['candidate_id']} [{c['severity']} conf={c['confidence']:.2f}] {c['vuln_class']} "
+              f"@ {c['route']} (attempt {c['attempt_id']})\n      {c['why']}")
+    print(f"{len(cands)} candidate(s) with status={args.status!r}")
+    store.close()
+    return 0
+
+
 def cmd_grounding(args: argparse.Namespace) -> int:
     """Run the off-condition grounding battery (OWASP LLM09): does the target present guideline
     evidence as applicable for conditions the patient does not have? Deterministic; no attacker
@@ -358,6 +396,16 @@ def build_parser() -> argparse.ArgumentParser:
     pl = sub.add_parser("poll", help="poll /health; on a git_sha change, run the regression suite")
     pl.add_argument("--target", required=True)
     pl.set_defaults(func=cmd_poll)
+
+    dv = sub.add_parser("discover", help="open-ended discovery pass over evidence (finds classes with no oracle yet)")
+    dv.add_argument("--target-sha", default=None, dest="target_sha", help="restrict to one build's evidence")
+    dv.add_argument("--limit", type=int, default=25, help="most-recent attempts to review")
+    dv.add_argument("--min-confidence", type=float, default=0.5, dest="min_confidence")
+    dv.set_defaults(func=cmd_discover)
+
+    ca = sub.add_parser("candidates", help="list open discovery candidates (leads for human triage)")
+    ca.add_argument("--status", default="new", help="filter by status (new|confirmed|dismissed|promoted); '' for all")
+    ca.set_defaults(func=cmd_candidates)
 
     gr = sub.add_parser("grounding", help="off-condition grounding battery (OWASP LLM09 misinformation)")
     gr.add_argument("--target", required=True)
