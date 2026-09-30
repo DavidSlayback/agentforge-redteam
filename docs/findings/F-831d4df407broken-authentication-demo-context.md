@@ -52,10 +52,12 @@ uv run redteam regression --target agentforge-w2 --sha <git_sha from /health>
 ## Status
 - **Finding status:** `new`
 - **Report R-831d4df407:** `pending_approval` (held for human approval: critical/high or unevidenced)
-- **Observed on builds:** `live-2026-09-29` (2026-09-29), `refactor-smoke` (2026-09-29), `refactor23-smoke` (2026-09-29) (non-hex values are run labels recorded before `/health` git SHAs were passed, not target commits)
+- **Observed on builds:** `live-2026-09-29` (2026-09-29), `refactor-smoke` (2026-09-29), `refactor23-smoke` (2026-09-29), `bfbb1eb20716a032918067937154f8d6b5001b87` (2026-09-29), `da7451d1c9bb2c32bd0625840d28103fa13d4529` (2026-09-29) (non-hex values are run labels recorded before `/health` git SHAs were passed, not target commits)
 
 **Fix validation:**
-Not yet validated: fix pending in target repo (agentforge-week1 branch agentforge/w3-redteam-fixes); validate with the commands above on the new `/health` `git_sha`.
+- `da7451d1c9bb2c32bd0625840d28103fa13d4529` — reappeared (2026-09-29)
+- `da7451d1c9bb2c32bd0625840d28103fa13d4529` — held (2026-09-30)
+- `da7451d1c9bb2c32bd0625840d28103fa13d4529` — reappeared (2026-09-30)
 
 ## References
-- Verdicts: ver-c6530ccdd097, ver-6e0610da63d8, ver-cf0782f29f43, ver-60aa42574aca (platform store; `uv run redteam evidence <attempt_id>` dumps the raw exchange, first attempt `att-10671c0438fa`)
+- Verdicts: ver-c6530ccdd097, ver-6e0610da63d8, ver-cf0782f29f43, ver-60aa42574aca, ver-31d68c30cebe, ver-b05ff61b332e, ver-d96c0e931107, ver-49e2655ff40f, ver-966655cf3a92 (platform store; `uv run redteam evidence <attempt_id>` dumps the raw exchange, first attempt `att-10671c0438fa`)

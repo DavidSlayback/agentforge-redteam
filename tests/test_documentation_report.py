@@ -142,4 +142,9 @@ def test_status_is_honest_before_and_after_a_fix_replay(tmp_path: Path) -> None:
     replay(store, reg, reopened, Judge(), "build-c")
     fixval = _render(store, reg, fid).split("**Fix validation:**")[1]
     assert "`build-c` — reappeared" in fixval and "Not yet validated" not in fixval
+
+    # a fresh probe re-finds it on build-c after the replay: build-c stays a fix build
+    run_mint_auth_probe(reg, reopened, Judge(), store, reg.by_id("good"), "fixture-patient-001", target_sha="build-c")
+    fixval = _render(store, reg, fid).split("**Fix validation:**")[1]
+    assert "`build-c` — reappeared" in fixval and "Not yet validated" not in fixval
     store.close()

@@ -601,6 +601,12 @@ fix-validation status → dashboard resilience-by-SHA shows before/after.
 - Regression should therefore read F-6ee92046fb as *held* (429) and F-831/F-24b as *reproduced, accepted risk*, with the compensating controls: rate limit, 300 s tokens, `aud` check, synthetic data only.
 - `TokenMinter` needs no credential in open mode. It now treats a 429 as a wait: it sleeps `Retry-After` (capped at 60 s) and retries up to 2 times (`fix/mint-429-retry`). Observed live: 429, then `Retry-After: 1`, then a token.
 
+**Validation on `da7451d1` (2026-09-30 about 04:50 UTC).** `redteam authz` and `redteam regression` were run, and the reports and dashboard were regenerated.
+- F-6ee92046fb is **held** (429 after the limit). F-831d4df407 and F-24b44c5180 **reappeared**, correctly, because anonymous mints are open during grading (accepted risk).
+- Two platform scoring bugs were found and fixed on the way:
+  - MR !2: a 429 on the mint-auth probe was scored FAIL ("held"). It is now INCONCLUSIVE. The `held (2026-09-30)` entries for F-831 and F-24b come from the 04:48 run, which followed the authz battery's 20-mint burst. They are false results from this bug. They stay in the store as history; the next replay at 04:50 reappeared.
+  - MR !3 and this change: a reappearance on a fix build was hidden as a baseline sighting, so reports said "fix pending". A build is now a baseline only if the finding was seen there fresh before any replay ran on it.
+
 ## 2026-09-29 — EARLY SUBMISSION DONE; final-submission checklist
 
 **Early submission submitted** (Tue): deployed target URL (the Co-Pilot,
