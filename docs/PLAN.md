@@ -93,17 +93,17 @@ artifact), `SAFETY` (trust boundary), `SCHEDULE` (checkpoint). Status: `not star
 |---|---|---|---|---|---|
 | P0 | p9 | Multi-agent architecture (single-agent/pipeline **fails**); distinct roles, contexts, trust levels, coordinated | CORE | Named distinct agents with separate contexts | **DONE** — Orchestrator/Red Team/Judge/Documentation + deterministic services, distinct contexts |
 | P1 | p9–10 | Red Team Agent: novel inputs, mutate partial successes, multi-turn sequences; model choice defended | CORE | Generates + mutates + multi-turn, live | **PARTIAL** — aimed generate + guarded mutate live; multi-turn deferred (target is stateless, T3.4); mutation aim shallow (T3.8) |
-| P2 | p4–5,12 | Judge Agent: verdict success/fail/partial, consistent across runs+versions, independent of attack engine, no drift, judge itself validated | CORE | Independent context/model; drift detection documented + calibration set | **PARTIAL** — deterministic tier-0 independent + consistent + honest (T1.1); rubric tier, drift detection, calibration set NOT done (T3.2/T3.3); PARTIAL reserved |
-| P3 | p5,11 | Orchestrator: reads state (coverage gaps, open findings, regressions, cost), prioritizes next target, triggers regression on target change, halts when cost accrues without signal | CORE | Prioritization from real signals; budget halt | **PARTIAL** — budget/no-signal halt + decision trace live; prioritizes on 2 of 4 signals; SHA/cost signals + regression-trigger NOT wired (T3.5/T3.7) |
+| P2 | p4–5,12 | Judge Agent: verdict success/fail/partial, consistent across runs+versions, independent of attack engine, no drift, judge itself validated | CORE | Independent context/model; drift detection documented + calibration set | **PARTIAL** — deterministic tier-0 independent+consistent; rubric tier (DeepSeek, non-Qwen) live + run end-to-end vs the target (09-30); drift/κ machinery built (`drift.py`). **One gap:** calibration set ships empty → "validate the judge" unmeasured (needs human-labelled cases) |
+| P3 | p5,11 | Orchestrator: reads state (coverage gaps, open findings, regressions, cost), prioritizes next target, triggers regression on target change, halts when cost accrues without signal | CORE | Prioritization from real signals; budget halt | **PARTIAL** — budget/no-signal halt + decision trace live; prioritizes on 2 of 4 signals (route-coverage + open findings); cost is the `--max-model-calls` cap, not a ranking signal. **Regression-on-SHA-change NOW WIRED** via the Recon poller (`redteam poll`) |
 | P4 | p10 | Documentation Agent: confirmed exploit → professional report, no human writing; human approval gate for high severity | CORE | Report meets S3 bar; critical behind gate | **DONE** — evidence-backed reports, fail-closed gate (T1.5), CLI-triggered (not auto-orchestrated) |
-| P5 | p11 | Regression & validation harness: versioned queryable store; auto full suite on Orchestrator trigger; detect reappearance; flag cross-category regressions; a test passing due to behavior shift is worse than none | CORE | Deterministic replay; reappearance + cross-category detection | **PARTIAL** — faithful replay + reappearance + fail-loud suite (T1.6); cross-category flagging + auto-trigger + CI gate NOT done (T3.5) |
+| P5 | p11 | Regression & validation harness: versioned queryable store; auto full suite on Orchestrator trigger; detect reappearance; flag cross-category regressions; a test passing due to behavior shift is worse than none | CORE | Deterministic replay; reappearance + cross-category detection | **DONE (CI gate pending)** — faithful per-probe replay + reappearance + **cross-category flagging** + **SHA-change auto-trigger** (poller); only a CI regression gate is still CLI-only |
 | P6 | p11 | Observability layer answers: cases per category; pass/fail across categories+versions; resilience trend; open/in-progress/resolved findings; run cost + scaling rate; per-agent ordered action trace | CORE | All 6 queryable from the store (SQLite, settled) | **DONE** — all 6 render via `redteam report` + dashboard.html |
 
 ### Engineering requirements — E1 graded; E2–E15 optional (see R1)
 
 | ID | Source | Requirement | Class | Status |
 |---|---|---|---|---|
-| E1 | p12 | OWASP mapping on **every** case: LLM Top 10 + classic web risks (broken access control, injection, insecure design, vuln components, auth failures, logging failures, SSRF) | GRADED | not started |
+| E1 | p12 | OWASP mapping on **every** case: LLM Top 10 + classic web risks (broken access control, injection, insecure design, vuln components, auth failures, logging failures, SSRF) | GRADED | **DONE** — every eval case carries `owasp:`; THREAT_MODEL "OWASP coverage (E1)" table maps A01/A03/A04/A06/A07/A09/A10 + LLM/API classes with tested-or-why-not |
 | E2 | p12 | Every case exercises a boundary, invariant, or regression risk; static payload lists insufficient | OPTIONAL | not started |
 | E3 | p12 | Build-vs-configure decision records (Burp/ZAP/Semgrep/garak/commercial) — required Architecture Defense deliverable | OPTIONAL | not started |
 | E4 | p12 | Triage exercise: simulated scan report ≥10 findings across critical/high/medium/false-positive; validate/remediate/defer/document each | OPTIONAL | not started |
@@ -123,9 +123,9 @@ artifact), `SAFETY` (trust boundary), `SCHEDULE` (checkpoint). Status: `not star
 
 | ID | Source | Requirement | Class | Status |
 |---|---|---|---|---|
-| SA1 | p18 §9; AGENTS.md | Authorization registry: a target runs only with recorded proof (owned or written permission + scope); platform cannot be turned against unauthorized systems | SAFETY | not started |
-| SA2 | AGENTS.md; p2 | Synthetic data only; no real PHI processed/logged/stored; redaction tested against a real workflow trace | SAFETY | not started |
-| SA3 | p18 §9 | Access controls: who triggers runs / views reports; approval before Doc Agent files a critical report; auditable per-agent trace of any unattended run | SAFETY | not started |
+| SA1 | p18 §9; AGENTS.md | Authorization registry: a target runs only with recorded proof (owned or written permission + scope); platform cannot be turned against unauthorized systems | SAFETY | **DONE** — `authorization.yaml` (proof recorded) + Executor `assert_authorized(url)` before every send; `follow_redirects=False`; `test_authorization.py` |
+| SA2 | AGENTS.md; p2 | Synthetic data only; no real PHI processed/logged/stored; redaction tested against a real workflow trace | SAFETY | **DONE (partial)** — synthetic-only honored; `runner._redact_request` redacts captured evidence. Gap: no formal redaction test against a real workflow trace (minor) |
+| SA3 | p18 §9 | Access controls: who triggers runs / views reports; approval before Doc Agent files a critical report; auditable per-agent trace of any unattended run | SAFETY | **DONE** — CLI `approve` writes approval into lineage; fail-closed critical/high gate; ordered `agent_actions` trace; poller exits non-zero for cron alerting |
 
 ### Schedule
 
@@ -940,3 +940,34 @@ current build is validated by an explicit `redteam regression`); the observation
 regression run are not one transaction, and a hard crash mid-regression leaves the new SHA already
 baselined (the next real deploy re-triggers). Maps: checklist #2, P5/T3.5 (recon SHA signal +
 deterministic regression trigger — not the Jev ranker), P3 (partial).
+
+## 2026-09-30 — requirements compliance audit (subagent) + doc reconciliation
+
+A read-only subagent audited the repo against the PRD (`.scratch/assignments/w3.txt`). Verdict:
+solid on hard gates + platform (G1/G5/G6/S1/S4/S5, P0/P4/P5/P6, SA1–SA3, E1/E5/E6 MET; 217 tests),
+with drift concentrated in three places — now acted on where unblocked:
+
+**Fixed this pass (doc reconciliation, unblocked):**
+- ARCHITECTURE.md (G4): stale 09-29 status section rewritten to current (poller/SHA-trigger,
+  cross-category flagging, end-to-end rubric campaign now DONE); Discovery tier + Grounding/
+  MetadataDisclosure oracles named in the roster.
+- THREAT_MODEL.md (G2): headline lists all five findings across two planes; current build da7451d1.
+- README + evals/README: five findings, current SHA, nine OWASP categories.
+- The two thin reports (F-990345a00f, F-ca9486ff1b): real agent-generated clinical impact.
+- This matrix: P2/P3/P5, E1, SA1–SA3 rows corrected (were stale/"not started").
+
+**Blocked — needs David (the graded headline gaps):**
+1. **Critical find→fix→validate loop is closed only for F-6ee (medium).** F-831/F-24b (critical
+   mints) are OPEN; the real gating fix is in `agentforge-week1`, not deployed. Deploy + the mint
+   credential → `redteam authz/regression --sha <new>` flips them held; or risk-accept explicitly.
+   **Highest graded impact.**
+2. **Judge calibration set empty** (P2 / KEY_METRICS #5) — needs human-labelled cases (classifier-
+   blocked here). Then `redteam calibrate` reports κ.
+3. Refreshed demo video, social post, AI interview (human-only).
+
+**Drift call-out:** the discovery tier was "built but not required" — it produced the two AI-layer
+findings (real value) but consumed the final day while 1–2 lagged. Per the audit, **the
+auto-promote path is shelved** (not graded; trades against the above) unless David overrides.
+
+**Nice-to-have (only after 1–3):** CI regression gate; fix-holds-under-mutation (#3); benign set
+beyond n=11; E4 triage exercise (demo value).
