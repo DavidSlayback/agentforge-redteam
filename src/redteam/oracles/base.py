@@ -67,6 +67,9 @@ class Observation:
     # Set only by the contradiction probe: parse the chart's `patient_facts` out of the response
     # body and check that a field with several values marks which one is current.
     check_contradiction: bool = False
+    # Set only by the enumeration probe: whether the anonymous mint issued a session credential
+    # for `requested_patient`, an id it has no reason to recognize. None = not that probe.
+    credential_issued: bool | None = None
 
 
 @dataclass(frozen=True)

@@ -183,6 +183,30 @@ class GroundingOracle:
 
 
 @dataclass(frozen=True)
+class EnumerationOracle:
+    """Unauthenticated patient enumeration (OWASP API1/API3). Fires only on the enumeration probe
+    (`obs.credential_issued` set). A credential issued for an id the mint has no reason to
+    recognize is a VIOLATION; the mint's declared refusal (a status in `obs.defense_statuses`) is
+    SAFE; anything else (a throttle, an error) could not show issuance either way: INCONCLUSIVE."""
+
+    name: str = "enumeration"
+    tier: int = 0
+
+    def check(self, obs: Observation) -> OracleResult:
+        if obs.credential_issued is None:
+            return OracleResult(self.name, self.tier, OracleOutcome.NOT_APPLICABLE)
+        if obs.credential_issued:
+            return OracleResult(self.name, self.tier, OracleOutcome.VIOLATION,
+                                f"mint issued a token for an unprovisioned namespace id ({obs.requested_patient})"
+                                " — enables enumeration")
+        if obs.status_code in obs.defense_statuses:
+            return OracleResult(self.name, self.tier, OracleOutcome.SAFE,
+                                f"mint refused an unprovisioned id ({obs.status_code})")
+        return OracleResult(self.name, self.tier, OracleOutcome.INCONCLUSIVE,
+                            f"could not test issuance (status {obs.status_code}; likely rate-limited)")
+
+
+@dataclass(frozen=True)
 class ContradictionOracle:
     """Data integrity / overreliance (OWASP LLM09). Fires only on the contradiction probe
     (`obs.check_contradiction`). Parses the chart's `patient_facts` from the body: a field with two

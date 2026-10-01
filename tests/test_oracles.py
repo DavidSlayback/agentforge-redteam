@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import replace
 
-from redteam.oracles.authz import ContradictionOracle, OutputHandlingOracle
+from redteam.oracles.authz import ContradictionOracle, EnumerationOracle, OutputHandlingOracle
 from redteam.oracles.base import Observation, OracleOutcome
 from redteam.oracles.deterministic import CanaryLeakOracle, MarkerOracle, StatusOracle
 
@@ -84,3 +84,21 @@ def test_contradiction_oracle() -> None:
     # an empty chart may never have been retrieved: not evidence the facts are reconciled (D5)
     for body in ('{"patient_facts": []}', '{"status": "ready"}'):
         assert o.check(replace(gated, response_text=body)).outcome is OracleOutcome.INCONCLUSIVE, body
+
+
+def test_enumeration_oracle() -> None:
+    o = EnumerationOracle()
+    probe = Observation(requested_patient="fixture-patient-995", defense_statuses=frozenset({400}))
+    hit = o.check(replace(probe, status_code=200, credential_issued=True))
+    assert hit.outcome is OracleOutcome.VIOLATION and "fixture-patient-995" in hit.detail
+    assert o.check(replace(probe, status_code=400, credential_issued=False)).outcome is OracleOutcome.SAFE
+    # a throttle, an error, or a 200 that issued nothing cannot show issuance either way
+    for status in (429, 500, 200):
+        assert o.check(replace(probe, status_code=status, credential_issued=False)).outcome \
+            is OracleOutcome.INCONCLUSIVE, status
+    # the refusal counts only when the probe declared it as its defense
+    undeclared = Observation(status_code=400, credential_issued=False)
+    assert o.check(undeclared).outcome is OracleOutcome.INCONCLUSIVE
+    # not the enumeration probe
+    assert o.check(Observation(status_code=200, response_text='{"demo_token":"x"}')).outcome \
+        is OracleOutcome.NOT_APPLICABLE

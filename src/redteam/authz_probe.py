@@ -34,7 +34,7 @@ from redteam.errors import TargetUnreachable
 from redteam.evals.case import AuthContext, OracleConfig, SeedCase, Turn
 from redteam.executor.authorization import AuthorizationRegistry
 from redteam.executor.executor import Executor
-from redteam.oracles.authz import ContradictionOracle
+from redteam.oracles.authz import ContradictionOracle, EnumerationOracle
 from redteam.oracles.base import Observation
 from redteam.owasp import DOS_LATENCY_BUDGET_MS
 from redteam.runner import (
@@ -130,6 +130,15 @@ def _data_present(text: str | None) -> bool:
         if isinstance(value, str) and value.strip():
             return True
     return False
+
+
+def _token_issued(record) -> bool:
+    """True if a mint response issued a session credential (a 200 carrying `demo_token`)."""
+    return record.status_code == 200 and '"demo_token"' in (record.text or "")
+
+
+# The anonymous mint's uniform refusal of an id it does not provision (owner decision D2).
+_MINT_REFUSAL = frozenset({400})
 
 
 def _build_observation(record, case: SeedCase) -> Observation:
@@ -268,7 +277,7 @@ def mint_probe(executor: Executor, judge: Judge, target, patient: str,
     def produce(target, exchanges):
         record = executor.request(f"{target.origin}{target.base_path}{endpoint}", method="GET",
                                   params={"patient_uuid": patient})
-        token_issued = record.status_code == 200 and '"demo_token"' in (record.text or "")
+        token_issued = _token_issued(record)
         exchanges.append(record_exchange(1, endpoint, "GET",
                                          {"patient_uuid": patient, "_auth": "none (anonymous)"}, record))
         obs = Observation(response_text=record.text, status_code=record.status_code,
@@ -504,7 +513,8 @@ def enumeration_probe(executor: Executor, judge: Judge, target, patient: str = "
     well-formed `fixture-patient-NNN`, including ids that do not exist — and the data route then
     returns 200 for real patients and 404 for non-existent ones, so an attacker can map the patient
     namespace by minting+probing. VIOLATION if the mint issues a token for an id it has no reason to
-    recognize (`patient` defaults to a high, unlikely id). Deterministic; no attacker model."""
+    recognize (`patient` defaults to a high, unlikely id). Judged by the Judge with
+    EnumerationOracle alone. Deterministic; no attacker model."""
     case = SeedCase(
         case_id=f"enumeration-mint-{uuid.uuid4().hex[:8]}",
         category="enumeration", owasp=["API1:2023", "API3:2023"],
@@ -516,25 +526,15 @@ def enumeration_probe(executor: Executor, judge: Judge, target, patient: str = "
     )
 
     def produce(target, exchanges):
-        from redteam.oracles.base import OracleOutcome, OracleResult
         record = executor.request(f"{target.origin}{target.base_path}{endpoint}", method="GET",
                                   params={"patient_uuid": patient})
-        issued = record.status_code == 200 and '"demo_token"' in (record.text or "")
         exchanges.append(record_exchange(1, endpoint, "GET",
                                          {"patient_uuid": patient, "_auth": "none (anonymous)"}, record))
-        if issued:
-            res = OracleResult("enumeration", 0, OracleOutcome.VIOLATION,
-                               f"mint issued a token for an unprovisioned namespace id ({patient}) — enables enumeration")
-            return Verdict(VerdictOutcome.SUCCESS, (res,), res.detail), []
-        if record.status_code == 400:   # the mint correctly refused this id as not provisioned
-            res = OracleResult("enumeration", 0, OracleOutcome.SAFE,
-                               f"mint refused an unprovisioned id ({record.status_code})")
-            return Verdict(VerdictOutcome.FAIL, (res,), res.detail), []
-        # 429 (rate-limited by the F-6ee control) or any other status: we could not observe
-        # issuance, so we cannot say the mint is restricted — never a pass (fail-closed).
-        res = OracleResult("enumeration", 0, OracleOutcome.INCONCLUSIVE,
-                           f"could not test issuance (status {record.status_code}; likely rate-limited)")
-        return Verdict(VerdictOutcome.INCONCLUSIVE, (res,), res.detail), []
+        # The mint's uniform 400 refusal of an unprovisioned id is the defense holding (D2); a 429
+        # (the F-6ee throttle) or any other status cannot show issuance either way.
+        obs = replace(build_observation(record, case.oracle), requested_patient=patient,
+                      credential_issued=_token_issued(record), defense_statuses=_MINT_REFUSAL)
+        return judge.with_oracles(EnumerationOracle()).judge(obs), []
 
     return Probe(case, produce)
 
