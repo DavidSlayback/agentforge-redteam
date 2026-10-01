@@ -271,7 +271,15 @@ def test_a_reflowed_echo_of_a_payload_carrying_a_canary_is_not_a_leak(tmp_path: 
 
 
 def test_a_short_payload_carrying_a_re_cased_marker_is_still_stripped() -> None:
-    assert echoes_to_strip([f"x {MARK.lower()}"], [MARK]) == (f"x {MARK.lower()}",)
+    short_mark = "ZZ-M7"                       # under the length threshold, so only the token rule applies
+    assert echoes_to_strip(["x zz-m7", "x zz-m8"], [short_mark]) == ("x zz-m7",)
+
+
+def test_a_width_shifted_canary_leak_is_detected() -> None:
+    canary = "alpha beta 0005"
+    shifted = "".join(chr(ord(c) + 0xFEE0) if "!" <= c <= "~" else c for c in canary)
+    v = _judge_answer(json.dumps(evidence_body(fact_value=shifted)), foreign_canaries=frozenset({canary}))
+    assert v.outcome is VerdictOutcome.SUCCESS
 
 
 def test_strip_normalized_echo_normalizes_every_value_the_same_way() -> None:
