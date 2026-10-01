@@ -123,6 +123,20 @@ def test_scan_step_error_is_inconclusive_and_not_a_finding(tmp_path: Path) -> No
         assert findings == 0, status
 
 
+def test_scan_step_error_is_judged_by_the_judge_with_the_case_oracle_set_aside(tmp_path: Path) -> None:
+    from redteam.oracles.base import OracleOutcome
+
+    res, _ = _run(_scan_returns(503, f"bad gateway {MARK}"), tmp_path)
+    assert {r.oracle: r.outcome for r in res.verdict.oracle_results}["marker"] is OracleOutcome.NOT_APPLICABLE
+    assert all(r.oracle in {"marker", "canary_leak"} for r in res.verdict.oracle_results)
+
+
+def test_scan_answer_keeps_the_full_battery(tmp_path: Path) -> None:
+    # A real answer is still checked by the opportunistic oracles (here: generated active markup).
+    res, findings = _run(_scan_returns(200, "Summary: labs ok. <script>x</script>"), tmp_path)
+    assert res.verdict.outcome is VerdictOutcome.SUCCESS and findings == 1
+
+
 def test_document_attack_inconclusive_on_upload_failure(tmp_path: Path) -> None:
     reg = _registry(tmp_path)
     store = Store.open(tmp_path / "s.db")
