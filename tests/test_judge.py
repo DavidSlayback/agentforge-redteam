@@ -178,6 +178,19 @@ def test_the_defense_status_set_is_what_the_gate_reads() -> None:
         assert Judge(oracles=(held,)).judge(undeclared).outcome is VerdictOutcome.INCONCLUSIVE, status
 
 
+def test_aggregate_observation_is_gated_on_the_burst_not_a_single_response() -> None:
+    # An aggregate observation has no single status or body; the gate reads the burst instead.
+    held, hit = _FixedOracle(OracleOutcome.SAFE), _FixedOracle(OracleOutcome.VIOLATION)
+    burst = Observation(aggregate=True, defense_statuses=frozenset({429}))
+    assert Judge(oracles=(hit,)).judge(replace(burst, burst_statuses=(200, 200))).outcome is VerdictOutcome.SUCCESS
+    assert Judge(oracles=(held,)).judge(replace(burst, burst_statuses=(502, 429))).outcome is VerdictOutcome.FAIL
+    # an empty burst, or one of only errors, never exercised the defense: the oracle is set aside
+    for statuses in ((), (404, 502)):
+        v = Judge(oracles=(hit,)).judge(replace(burst, burst_statuses=statuses))
+        assert v.outcome is VerdictOutcome.INCONCLUSIVE, statuses
+        assert all(r.outcome is OracleOutcome.NOT_APPLICABLE for r in v.oracle_results)
+
+
 def test_expect_rejected_always_counts_a_denial_as_the_defense() -> None:
     for status in (401, 403):
         obs = Observation(status_code=status, expect_rejected=True, response_text='{"error":"denied"}')

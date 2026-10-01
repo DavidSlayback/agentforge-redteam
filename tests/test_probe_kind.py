@@ -36,7 +36,7 @@ def test_every_closure_builder_sets_probe_kind(tmp_path: Path) -> None:
     target, ex = _target(tmp_path)
     assert mint_probe(ex, Judge(), target, "p", endpoint="/v1/demo-context").case.probe_kind == "mint"
     assert mint_probe(ex, Judge(), target, "p", endpoint="/v1/source-document-context").case.probe_kind == "mint"
-    assert rate_limit_probe(ex, target, "p").case.probe_kind == "rate_limit"
+    assert rate_limit_probe(ex, Judge(), target, "p").case.probe_kind == "rate_limit"
     assert dos_probe(ex, Judge(), None, target, "p").case.probe_kind == "dos"
 
 

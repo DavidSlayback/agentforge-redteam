@@ -70,6 +70,12 @@ class Observation:
     # Set only by the enumeration probe: whether the anonymous mint issued a session credential
     # for `requested_patient`, an id it has no reason to recognize. None = not that probe.
     credential_issued: bool | None = None
+    # Aggregate (multi-request) mode. The observation summarizes a burst of requests rather than
+    # one exchange: `status_code`/`response_text` stay unset and `burst_statuses` holds every
+    # request's status in order. The Judge gates an aggregate observation on the burst, not on
+    # a single response. Set only by the rate-limit probe.
+    aggregate: bool = False
+    burst_statuses: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)

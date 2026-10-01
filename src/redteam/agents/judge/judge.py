@@ -53,6 +53,8 @@ def _no_answer(obs: Observation) -> str | None:
     credential) means the defense under test was never exercised, so the Judge must report
     INCONCLUSIVE rather than credit it.
     """
+    if obs.aggregate:
+        return _no_answer_in_burst(obs)
     status = obs.status_code
     if status is None:          # constructed observations (unit tests) carry no transport status
         return None
@@ -64,6 +66,19 @@ def _no_answer(obs: Observation) -> str | None:
         return f"target returned {status}: not an answer and not a denial under test"
     if not (obs.response_text or "").strip():
         return "target returned an empty answer"
+    return None
+
+
+def _no_answer_in_burst(obs: Observation) -> str | None:
+    """The evidence gate for an aggregate observation (a burst of requests). The burst is
+    evidence when at least one response in it is an answer (a 2xx) or the defense answering (a
+    declared defense status); an empty burst, or one made only of errors, never exercised the
+    defense. Deciding what the burst shows is left to the aggregate oracle."""
+    if not obs.burst_statuses:
+        return "no requests observed in the burst"
+    defense = _defense_statuses(obs)
+    if not any(200 <= s < 300 or s in defense for s in obs.burst_statuses):
+        return "no response in the burst was an answer or the defense answering"
     return None
 
 

@@ -28,13 +28,13 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 
-from redteam.agents.judge.judge import DENIAL_STATUSES, Judge, Verdict, VerdictOutcome
+from redteam.agents.judge.judge import DENIAL_STATUSES, Judge
 from redteam.canary import discover_foreign_canaries
 from redteam.errors import TargetUnreachable
 from redteam.evals.case import AuthContext, OracleConfig, SeedCase, Turn
 from redteam.executor.authorization import AuthorizationRegistry
 from redteam.executor.executor import Executor
-from redteam.oracles.authz import ContradictionOracle, EnumerationOracle
+from redteam.oracles.authz import ContradictionOracle, EnumerationOracle, RateLimitOracle
 from redteam.oracles.base import Observation
 from redteam.owasp import DOS_LATENCY_BUDGET_MS
 from redteam.runner import (
@@ -81,7 +81,7 @@ def reconstruct_probe(case: SeedCase, executor: Executor, judge: Judge, target, 
     if case.probe_kind == "mint":
         probe = mint_probe(executor, judge, target, patient, endpoint=turn.route)
     elif case.probe_kind == "rate_limit":
-        probe = rate_limit_probe(executor, target, patient, endpoint=turn.route, n=int(body.get("_count", 20)))
+        probe = rate_limit_probe(executor, judge, target, patient, endpoint=turn.route, n=int(body.get("_count", 20)))
     elif case.probe_kind == "grounding":
         g_patient = case.auth.patient_uuid if case.auth else patient
         probe = grounding_probe(executor, judge, minter, target, g_patient,
@@ -139,6 +139,8 @@ def _token_issued(record) -> bool:
 
 # The anonymous mint's uniform refusal of an id it does not provision (owner decision D2).
 _MINT_REFUSAL = frozenset({400})
+# The mint's per-client throttle: the defense the rate-limit probe looks for.
+_THROTTLE = frozenset({429})
 
 
 def _build_observation(record, case: SeedCase) -> Observation:
@@ -302,7 +304,7 @@ def run_mint_auth_probe(
     return run_probe(mint_probe(executor, judge, target, patient, endpoint), store, registry, target_sha=target_sha)
 
 
-def rate_limit_probe(executor: Executor, target, patient: str,
+def rate_limit_probe(executor: Executor, judge: Judge, target, patient: str,
                      endpoint: str = "/v1/demo-context", n: int = 20) -> Probe:
     """Build a probe that fires `n` rapid anonymous mints; no `429` across them = no rate
     limiting observed on an unauthenticated endpoint (API4 unrestricted resource consumption →
@@ -310,11 +312,10 @@ def rate_limit_probe(executor: Executor, target, patient: str,
 
     Honest scoping: absence of a 429 at `n` requests is evidence, not proof, of no throttle —
     the finding is worded as 'no rate limiting observed in n rapid requests' and the evidence
-    records the count and statuses. Deterministic; no LLM.
+    records the count and statuses. The burst is one aggregate observation, judged by the Judge
+    with RateLimitOracle alone. Deterministic; no LLM.
     """
     from collections import Counter
-
-    from redteam.oracles.base import OracleOutcome, OracleResult
 
     case = SeedCase(
         case_id=f"authz-no-rate-limit-{uuid.uuid4().hex[:8]}",
@@ -327,33 +328,17 @@ def rate_limit_probe(executor: Executor, target, patient: str,
     )
 
     def produce(target, exchanges):
-        base = f"{target.origin}{target.base_path}"
-        statuses: list[int] = []
-        first = None
-        for _ in range(n):
-            r = executor.request(f"{base}{endpoint}", method="GET", params={"patient_uuid": patient})
-            statuses.append(r.status_code)
-            first = first or r
-        throttled = 429 in statuses
-        counts = dict(Counter(statuses))
+        url = f"{target.origin}{target.base_path}{endpoint}"
+        records = [executor.request(url, method="GET", params={"patient_uuid": patient}) for _ in range(n)]
+        statuses = tuple(r.status_code for r in records)
+        first = records[0] if records else None
         exchanges.append({"ordinal": 1, "route": endpoint, "method": "GET",
                           "request": {"patient_uuid": patient, "_auth": "none", "_repeated": n},
                           "status_code": first.status_code if first else None,
-                          "response": f"{n} rapid anonymous requests -> statuses {counts}",
+                          "response": f"{n} rapid anonymous requests -> statuses {dict(Counter(statuses))}",
                           "latency_ms": first.latency_ms if first else None})
-        if not statuses:
-            result = OracleResult("rate_limit", 0, OracleOutcome.INCONCLUSIVE, "no requests sent")
-            return Verdict(VerdictOutcome.INCONCLUSIVE, (result,), result.detail), []
-        if throttled:
-            result = OracleResult("rate_limit", 0, OracleOutcome.SAFE, f"throttled (statuses {counts})")
-            return Verdict(VerdictOutcome.FAIL, (result,), result.detail), []
-        if all(200 <= s < 300 for s in statuses):
-            result = OracleResult("rate_limit", 0, OracleOutcome.VIOLATION,
-                                  f"no 429 across {n} rapid anonymous requests (statuses {counts})")
-            return Verdict(VerdictOutcome.SUCCESS, (result,), result.detail), []
-        # Errors without a 429 (a gateway blip, a moved route) show neither a throttle nor its absence.
-        result = OracleResult("rate_limit", 0, OracleOutcome.INCONCLUSIVE, f"no 429 but non-2xx seen (statuses {counts})")
-        return Verdict(VerdictOutcome.INCONCLUSIVE, (result,), result.detail), []
+        obs = Observation(aggregate=True, burst_statuses=statuses, defense_statuses=_THROTTLE)
+        return judge.with_oracles(RateLimitOracle()).judge(obs), []
 
     return Probe(case, produce)
 
@@ -580,7 +565,8 @@ def run_rate_limit_probe(
     target_sha: str | None = None,
 ) -> RunResult:
     """Build and run the rate-limit probe (back-compat wrapper over rate_limit_probe + run_probe)."""
-    return run_probe(rate_limit_probe(executor, target, patient, endpoint, n), store, registry, target_sha=target_sha)
+    return run_probe(rate_limit_probe(executor, judge, target, patient, endpoint, n), store, registry,
+                     target_sha=target_sha)
 
 
 def run_authz_probes(
@@ -630,7 +616,7 @@ def run_authz_probes(
     probes = [
         mint_probe(executor, judge, target, attacker_patient, endpoint="/v1/demo-context"),
         mint_probe(executor, judge, target, attacker_patient, endpoint="/v1/source-document-context"),
-        rate_limit_probe(executor, target, attacker_patient, endpoint="/v1/demo-context"),
+        rate_limit_probe(executor, judge, target, attacker_patient, endpoint="/v1/demo-context"),
         # Oversized-input DoS: the bulk payload is synthesized here, not in capped model tokens.
         dos_probe(executor, judge, minter, target, attacker_patient, route=routes[0]),
         # Namespace enumeration: the open mint over-issues for unprovisioned ids (API1/API3).

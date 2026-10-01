@@ -110,7 +110,7 @@ def _freeze_two_categories(reg, store):
     ex = Executor(reg, success)
     target = reg.by_id("good")
     run_probe(mint_probe(ex, Judge(), target, "p", endpoint="/v1/demo-context"), store, reg)
-    run_probe(rate_limit_probe(ex, target, "p", endpoint="/v1/source-document-context", n=3), store, reg)
+    run_probe(rate_limit_probe(ex, Judge(), target, "p", endpoint="/v1/source-document-context", n=3), store, reg)
     assert store.count("regression_cases") == 2
 
 

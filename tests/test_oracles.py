@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import replace
 
-from redteam.oracles.authz import ContradictionOracle, EnumerationOracle, OutputHandlingOracle
+from redteam.oracles.authz import ContradictionOracle, EnumerationOracle, OutputHandlingOracle, RateLimitOracle
 from redteam.oracles.base import Observation, OracleOutcome
 from redteam.oracles.deterministic import CanaryLeakOracle, MarkerOracle, StatusOracle
 
@@ -102,3 +102,19 @@ def test_enumeration_oracle() -> None:
     # not the enumeration probe
     assert o.check(Observation(status_code=200, response_text='{"demo_token":"x"}')).outcome \
         is OracleOutcome.NOT_APPLICABLE
+
+
+def test_rate_limit_oracle() -> None:
+    o = RateLimitOracle()
+    burst = Observation(aggregate=True, defense_statuses=frozenset({429}))
+    open_ = o.check(replace(burst, burst_statuses=(200, 200, 200)))
+    assert open_.outcome is OracleOutcome.VIOLATION and "across 3 " in open_.detail and "429" in open_.detail
+    assert o.check(replace(burst, burst_statuses=(200, 429, 429))).outcome is OracleOutcome.SAFE
+    assert o.check(replace(burst, burst_statuses=(502, 429))).outcome is OracleOutcome.SAFE
+    # errors without a throttle, or no requests at all, show nothing either way
+    for statuses in ((200, 200, 502), (404, 404), ()):
+        assert o.check(replace(burst, burst_statuses=statuses)).outcome is OracleOutcome.INCONCLUSIVE, statuses
+    # a throttle status the probe did not declare is not credited
+    assert o.check(Observation(aggregate=True, burst_statuses=(429,))).outcome is OracleOutcome.INCONCLUSIVE
+    # not an aggregate observation: does not apply, even on a lone 429
+    assert o.check(Observation(status_code=429, response_text="slow down")).outcome is OracleOutcome.NOT_APPLICABLE
