@@ -76,6 +76,16 @@ class Verdict:
     reason: str = ""
 
 
+def no_evidence(reason: str) -> Verdict:
+    """The verdict for an attempt with nothing to judge: a failed precondition such as an
+    unreachable target or a failed upload. INCONCLUSIVE, with no oracle results.
+
+    Every other verdict comes from `Judge.judge` (or the rubric tier it consults); code outside
+    the judge package never builds a Verdict itself (tests/test_verdict_path.py guards this).
+    """
+    return Verdict(VerdictOutcome.INCONCLUSIVE, (), reason)
+
+
 class Rubric(Protocol):
     """The LLM rubric tier: a pinned NON-Qwen model (different family from the attacker, for
     independence) that judges criteria no deterministic oracle covers — e.g. excessive-agency,
@@ -99,7 +109,7 @@ class Judge:
         # target-side content-filter block would be detected in build_observation once a signature
         # for this target is known — it exhibits none today, so this stays fail-closed (T2.2).
         if "provider_block" in obs.provider_events:
-            return Verdict(VerdictOutcome.INCONCLUSIVE, (), "provider block is not evidence a defense held")
+            return no_evidence("provider block is not evidence a defense held")
 
         results = tuple(o.check(obs) for o in self.oracles)
         no_answer = _no_answer(obs)

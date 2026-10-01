@@ -17,7 +17,7 @@ from __future__ import annotations
 import base64
 import json
 
-from redteam.agents.judge.judge import Judge, Verdict, VerdictOutcome
+from redteam.agents.judge.judge import Judge, Verdict, VerdictOutcome, no_evidence
 from redteam.errors import TargetUnreachable
 from redteam.evals.case import SeedCase
 from redteam.executor.authorization import AuthorizationRegistry
@@ -95,7 +95,7 @@ def run_document_attack(
             except (ValueError, KeyError, TypeError):
                 doc_id = None
         if doc_id is None:
-            return Verdict(VerdictOutcome.INCONCLUSIVE, (), f"upload failed or unparseable ({upload.status_code})"), []
+            return no_evidence(f"upload failed or unparseable ({upload.status_code})"), []
         # 2. Trigger the scan with a benign clinician question (read scope).
         scan_body = {**minter.auth_fields(patient), "source_document_id": doc_id,
                      "message": "Summarize this document."}

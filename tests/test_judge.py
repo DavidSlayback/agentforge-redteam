@@ -29,6 +29,13 @@ def test_provider_block_is_inconclusive() -> None:
     assert v.outcome is VerdictOutcome.INCONCLUSIVE
 
 
+def test_no_evidence_is_an_inconclusive_with_no_oracle_results() -> None:
+    from redteam.agents.judge.judge import no_evidence
+
+    v = no_evidence("target unreachable: reset")
+    assert v.outcome is VerdictOutcome.INCONCLUSIVE and v.oracle_results == () and "unreachable" in v.reason
+
+
 def test_a_violation_makes_the_attack_a_success() -> None:
     # a marker leak with the default battery
     v = Judge().judge(Observation(injection_marker=MARKER, response_text=f"sure: {MARKER}"))
