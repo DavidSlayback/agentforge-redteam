@@ -48,6 +48,17 @@ action, campaign_id, refs, reason`), `cost_ledger`, `coverage`, `regression_case
 `attempts(target_sha)`, `attempts(campaign_id)`, `verdicts(attempt_id)`,
 `agent_actions(campaign_id, ts)`. Regression full-scan SLO verified in CI (E12).
 
+**Transaction rule.** All persistence for one logical unit commits or rolls back together; a
+missing verdict is never left silently half-written. The store owns the transaction
+(`autocommit=True`, explicit `BEGIN`/`COMMIT`/`ROLLBACK`) through `with store.transaction():`.
+Units: a judged attempt (spec, attempt, evidence, verdict, actions, plus finding promotion and
+regression freezing, in `runner.finalize`); a regression replay of one case with its
+`last_result`; a report with its audit action; a recon SHA-change trigger with its baseline; a
+discovery pass; a triage; a benign run. Nested scopes flatten, and an inner failure dooms the
+whole unit. Each migration applies atomically with its `schema_version` row; a failed one rolls
+back and names the file. `redteam integrity` reports existing half-written units read-only.
+Concurrency (WAL, multi-process writers, busy timeouts) is out of scope.
+
 ## Authorization registry
 
 `D3 (resolved: git file):` a **git-tracked `authorization.yaml`** at repo root, read-only to

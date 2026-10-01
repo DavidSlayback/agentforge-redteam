@@ -4,6 +4,25 @@ Migrations are numbered ``NNNN_name.sql`` files applied in order, each recorded 
 ``schema_version``. Applying is idempotent: re-opening an up-to-date store applies nothing.
 Adding a field later means a new migration file, never an edit to an applied one, so
 existing records migrate without loss (E10).
+
+**Transactions.** The connection runs with ``autocommit=True``: sqlite3 never opens or commits a
+transaction implicitly, so the store issues ``BEGIN``/``COMMIT``/``ROLLBACK`` itself and behaves
+the same on every supported Python version.
+
+* Each migration file and its ``schema_version`` row apply in one transaction. A failure rolls
+  the whole file back and raises ``MigrationError`` naming it; the store reopens at the previous
+  version. A migration file must not contain transaction control; the runner owns it.
+* A logical unit of work (one judged attempt with its verdict, finding and regression case; one
+  replayed case and its recorded result; one report and its audit action; one recon trigger; one
+  discovery pass; one benign run) runs inside ``with store.transaction():`` and commits once at
+  the end, or rolls back entirely if an exception escapes. Nested scopes flatten into the
+  outermost one; if an inner scope raises, the whole unit rolls back with ``TransactionAborted``
+  even if the exception was caught. Write ``insert``/``execute`` calls inside a scope commit with it.
+* Units are written after the network or model calls that produce them where possible, so no
+  write lock is held during I/O. Cost metering is its own unit and refuses to join another one.
+* ``Store.open_readonly`` + ``integrity()`` (``redteam integrity``) report half-written units
+  left by older code: attempts without a verdict and findings without a frozen regression case.
+  That check never writes.
 """
 
 from __future__ import annotations

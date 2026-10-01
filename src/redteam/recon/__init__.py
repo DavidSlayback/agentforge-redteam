@@ -17,7 +17,8 @@ Three invariants matter here, and two of them are integrity rules the platform l
 * **The baseline advances only after the regression completes.** The new SHA is written as the
   last-seen build *after* ``run_regression`` returns, so a regression that raises mid-run leaves
   the baseline unchanged and the next poll re-detects the change and re-triggers — a crashed
-  verification never silently reads as "held".
+  verification never silently reads as "held". The baseline row and the trigger's audit actions
+  commit as one transaction, so a fault while recording them leaves the change pending too.
 * **Reachable-but-unverifiable is not a pass.** A target that answers ``/health`` but no longer
   exposes a parseable ``git_sha`` (shape change, 5xx, empty body) is *not* recorded as a build
   and *not* treated as "unreachable, nothing to do"; it is an attention condition (audited, and

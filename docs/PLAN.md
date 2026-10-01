@@ -1207,3 +1207,18 @@ decisions; they cover most of the deferred items below.
 budget checked only between campaigns, echo/canary matching on raw JSON escapes, non-atomic
 migrations, `cmd_campaign` exit code, dashboard "recent" ordering, token in curl repros, docs-vs-code
 drift (ARCHITECTURE message bus, LLM07 claim, `regression` needing model keys).
+
+### 2026-10-01 — atomic persistence (GitLab #1; branch `refactor/atomic-persistence`)
+
+Owner decisions applied: nested scopes **flatten** (an inner failure dooms the whole unit,
+`TransactionAborted`); bare writes outside a scope are **forbidden** (final commit); a read-only
+**integrity check** was added. The store now owns transactions (`autocommit=True`, explicit
+`BEGIN`/`COMMIT`/`ROLLBACK`). Each migration applies atomically with its version row and a failure
+names the file (resolves the deferred "non-atomic migrations" item). Units: judged attempt
+(`finalize`, covers every attack path), replay case + `last_result`, report + action, recon
+trigger + baseline, discovery pass, triage, benign run; single-row writers declare their own
+scope, and metering refuses to join another unit so a rollback cannot erase a real call. Each
+unit has a fault-injection sweep (fail on the Nth write, assert what is left in the store).
+Migrations verified on a fresh store and on copies of `var/redteam.db` (v8) and the three `var/`
+backups (v5/v7 → v8, no row loss). `redteam integrity` on a copy of `var/redteam.db`: 0 attempts
+without a verdict (of 171), 0 findings without a regression case (of 7). Canonical store untouched.
