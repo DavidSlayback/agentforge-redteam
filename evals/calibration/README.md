@@ -6,10 +6,14 @@ provider changes. Machinery: `src/redteam/drift.py`; run with `uv run redteam ca
 
 ## Status
 
-**Scaffold only — no entries yet.** The entries are authored and labelled outside this repo's
-assistant session: this assistant's output safety classifier truncates the attack-response
-content the violation-side entries require (see `docs/PLAN.md`, "Course clarifications"). The
-entries must be written by David or a model without that filter, then reviewed by a human.
+**`calibration_v1.yaml` has 12 entries (10 deterministic, 2 rubric; 6 SUCCESS, 6 FAIL), below
+the 20-30 target in the composition list below, and its labels are not human-reviewed.**
+`redteam calibrate` agrees on 10 of 10 deterministic entries (kappa 1.00), skips the 2 rubric
+entries without a rubric model, and prints `NOT VALIDATED` (exit 1) until a human reviews every label
+and sets `review_status: human-reviewed`. The violation-side entries were authored outside the
+assistant session because its output safety classifier truncates attack-response content (see
+`docs/PLAN.md`, "Course clarifications"); more entries, including the borderline and
+judge-addressed ones listed below, are still owed.
 
 ## Format
 

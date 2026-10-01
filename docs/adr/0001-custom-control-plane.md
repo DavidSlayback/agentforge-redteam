@@ -29,8 +29,8 @@ store makes handoffs, audit, and orchestration signals the same rows.
   not a long-lived campaign loop with findings and lifecycle state. May still be used as
   a component.
 - **One existing red-team tool as the platform (PyRIT, garak, promptfoo).** None provides
-  an orchestrator, regression harness, or documentation agent. They are used as
-  components (PyRIT library; garak/spikee sidecars) instead.
+  an orchestrator, regression harness, or documentation agent. They were planned as
+  components (PyRIT library; garak/spikee sidecars) instead; that half is **not wired** (ADR 0005).
 
 ## Consequences
 

@@ -23,7 +23,7 @@ in a grilling session on 2026-09-28 (Q1–Q15); `docs/PLAN.md` holds the running
 | One autonomous agent that plans, attacks, and judges | Rejected | Generating and grading attacks in one context is "compromised by design" (PRD p4). |
 | Conversational multi-agent (AutoGen, CrewAI) | Rejected | Agents share a conversation, so the Judge sees the attacker's reasoning; turn-taking is nondeterministic and costly. |
 | Graph framework (LangGraph) | Rejected, revisit if roles grow | Viable, but its checkpointer is a second state store beside the one the Orchestrator must read. See ADR 0001. |
-| Configure one red-team tool as the platform (PyRIT, garak, promptfoo) | Rejected as the core | None has an orchestrator, regression harness, or documentation agent. Used as components instead. |
+| Configure one red-team tool as the platform (PyRIT, garak, promptfoo) | Rejected as the core | None has an orchestrator, regression harness, or documentation agent. Planned as components instead; not wired (ADR 0005). |
 | **Deterministic control plane + shared store + isolated agents** | **Chosen** | One source of truth; independence and authorization are structural. ADR 0001, ADR 0002. |
 
 ## How it fits together

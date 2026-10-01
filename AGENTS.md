@@ -21,8 +21,9 @@ W3-specific and override convenience.
 
 - **Synthetic data only.** Never process, log, or store real PHI. Redaction is tested
   against a real workflow trace, not a hand-built one.
-- Attack techniques are executed at runtime by pinned tools (PyRIT, garak, spikee) and
-  the Red Team Agent against the authorized target. The repo holds *seed cases* for the
+- Attack techniques are executed at runtime by the Red Team Agent and the deterministic probes
+  against the authorized target. PyRIT, garak and spikee are the planned pinned tools but are
+  **not wired** (not in `pyproject.toml`, `uv.lock` or `src/`); do not describe them as in use. The repo holds *seed cases* for the
   eval suite, scoped to that target; it is not a catalog of general-purpose payloads.
 - Do not name a simulation the real thing. A word-overlap check is not a judge; an
   in-memory map is not a real datastore. If you simulate, label it a simulation in code,

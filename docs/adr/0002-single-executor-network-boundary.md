@@ -19,8 +19,8 @@ PRD's requirement that it cannot be turned against systems it should not attack.
 - **Each agent calls the Target directly through a shared client library.** Rejected:
   authorization becomes a convention every caller must honor, and a prompt-injected or
   misbehaving agent could bypass it.
-- **Red Team drives PyRIT's HTTP target itself.** Rejected for the same reason; PyRIT is
-  used inside the Executor instead.
+- **Red Team drives PyRIT's HTTP target itself.** Rejected for the same reason; PyRIT was
+  to be used inside the Executor instead; it is not wired (ADR 0005).
 
 ## Consequences
 
