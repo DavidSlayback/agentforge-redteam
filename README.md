@@ -43,6 +43,7 @@ trail, and observability substrate. Details, diagram, and tradeoffs:
 | Performance baseline + load profile (E13/E14) | [docs/PERF.md](docs/PERF.md) |
 | Triage exercise (E4) | [docs/TRIAGE_EXERCISE.md](docs/TRIAGE_EXERCISE.md) |
 | ATO-style evidence packet (E15) | [docs/ATO_PACKET.md](docs/ATO_PACKET.md) |
+| Discovery-tier triage record | [docs/DISCOVERY_TRIAGE.md](docs/DISCOVERY_TRIAGE.md) |
 
 ## Setup
 

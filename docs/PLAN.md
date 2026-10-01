@@ -1068,3 +1068,13 @@ integrity** — tampering `acl`/`scope`/`role` in the signed `demo_token` → **
 added to the `redteam authz` battery + `routing.is_deterministic_only`
 (campaign refuses them). Severities + doc-agent description/impact/remediation added. `uv run pytest`
 = **231**. Reports + dashboard + findings README regenerated.
+
+## 2026-09-30 — discovery triage: 32 candidates, 0 new classes
+
+Ran the discovery tier twice (DeepSeek + qwen3.8-max) over the live-evidence store and triaged all
+32 candidates via `redteam triage` (durable: status in the store + agent_actions audit): **20
+promoted** (map to the 7 known findings) + **12 dismissed** as verified false positives (scan-supervisor
+same-patient internal id ×4; authorized-data-as-leak ×5; our-own-rate-limit-probe-summary ×2;
+read-briefing-scope-is-the-briefing ×1). **No eighth vulnerability class** surfaced — a meaningful
+bound on what open-ended discovery finds on this target. Full record: `docs/DISCOVERY_TRIAGE.md`.
+`redteam candidates --status new` is now empty.
