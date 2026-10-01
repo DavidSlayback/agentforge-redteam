@@ -1457,3 +1457,15 @@ report). **Docs:** this entry only; top-level READMEs and `evals/` were out of s
 and do not yet mention `--max-mutations` or the new report sections. **Not done / deferred:**
 `NoFindingsInWindow` has no raise site; none of this has been observed against the live target (no
 live run); the new report sections have only been exercised on seeded stores, not the canonical one.
+
+**Review follow-ups (same branch):** dashboard escaping is now tested with hostile sha, category and
+run id; added tests for `first_ts` as the minimum across a run's campaigns, `prev_rate` carry-over
+across a build with no decided verdicts, and the NULL `target_sha` -> `unknown` bucket. The
+expected-safe check stays fail-closed: the `'invariant should hold'` fallback in `document()` and the
+now-unreachable no-evidence gating branch were removed (`render_markdown` on a bare call with no
+evidence reads "not recorded", not an invented invariant). LLM-authored cases with a blank
+`expected_safe` could previously reach a finding, so `RedTeamAgent._parse` now rejects them (retried
+once on generation, a recorded brief error on mutation); `SeedCase` itself (`src/redteam/evals/`,
+owned elsewhere) still allows an empty string, so hand-written seed cases are not covered by that
+guard, only by the report-time refusal. `cost_by_run`/`cost_trend` now return `usd` and
+`usd_per_attempt` as None (unknown) when no ledger row for a run is priced.

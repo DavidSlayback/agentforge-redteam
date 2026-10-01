@@ -129,22 +129,24 @@ def _run_id(campaign_id: str | None) -> str:
 
 def cost_by_run(store: Store) -> list[dict[str, object]]:
     """Cost per run, chronological. Calls are always metered; ``usd``/``tokens`` are only what
-    the ledger recorded (no USD price is wired for the attacker model today, so ``usd`` is 0.0
-    for unpriced calls, not 'free'). Rates are per ATTEMPT actually run; None when a run ran none.
+    the ledger recorded. No USD price is wired for the attacker model today, so ``usd`` and
+    ``usd_per_attempt`` are None (unknown, not free) when no ledger row for the run carries a
+    price. Rates are per ATTEMPT actually run; None when a run ran none.
     """
     runs: dict[str, dict[str, object]] = {}
     for r in store.conn.execute(
         "SELECT campaign_id, MIN(ts) AS first_ts, COALESCE(SUM(calls), 0) AS calls, "
-        "COALESCE(SUM(tokens), 0) AS tokens, COALESCE(SUM(usd), 0.0) AS usd "
+        "COALESCE(SUM(tokens), 0) AS tokens, SUM(usd) AS usd "
         "FROM cost_ledger GROUP BY campaign_id"
     ):
         run = runs.setdefault(_run_id(r["campaign_id"]), {
-            "first_ts": r["first_ts"], "campaign_ids": set(), "calls": 0, "tokens": 0, "usd": 0.0})
+            "first_ts": r["first_ts"], "campaign_ids": set(), "calls": 0, "tokens": 0, "usd": None})
         run["first_ts"] = min(run["first_ts"], r["first_ts"])
         run["campaign_ids"].add(r["campaign_id"])
         run["calls"] += int(r["calls"])
         run["tokens"] += int(r["tokens"])
-        run["usd"] += float(r["usd"])
+        if r["usd"] is not None:
+            run["usd"] = (run["usd"] or 0.0) + float(r["usd"])
     attempts_by_campaign = {
         r["campaign_id"]: int(r["c"]) for r in store.conn.execute(
             "SELECT s.campaign_id AS campaign_id, COUNT(*) AS c FROM attempts a "
@@ -158,7 +160,7 @@ def cost_by_run(store: Store) -> list[dict[str, object]]:
             "run_id": run_id, "first_ts": run["first_ts"], "campaigns": len(cids), "attempts": attempts,
             "calls": run["calls"], "tokens": run["tokens"], "usd": run["usd"],
             "calls_per_attempt": run["calls"] / attempts if attempts else None,
-            "usd_per_attempt": run["usd"] / attempts if attempts else None,
+            "usd_per_attempt": run["usd"] / attempts if attempts and run["usd"] is not None else None,
         })
     return out
 

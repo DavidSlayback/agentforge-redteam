@@ -529,7 +529,9 @@ class DocumentationAgent:
         description, impact = self._description(finding, kind)
         # Expected behavior is the case's own invariant, not a hardcoded LLM-refusal line (wrong for
         # authz/DoS findings where no assistant is in the loop) — derived from expected_safe (T2.3).
-        expected = evidence.get("expected_safe") or "the protected invariant holds"
+        # No invented invariant: document() refuses a finding without one, so this only reads
+        # "not recorded" for a bare render_markdown call that was given no evidence.
+        expected = evidence.get("expected_safe") or "not recorded (no evidence supplied)"
         where = f"{self._base_url(target)}{finding['component']}" if target else finding["component"]
         refs = ", ".join(json.loads(finding.get("verdict_ids") or "[]"))
         return (
@@ -588,7 +590,7 @@ class DocumentationAgent:
                                  "exchanges": evidence.get("exchanges", []),
                                  "steps": self._render_repro(finding, evidence, ctx["target"], kind)}),
             "observed_vs_expected": f"{self._observed(evidence, kind)} vs. "
-                                    f"{evidence.get('expected_safe') or 'invariant should hold'}",
+                                    f"{evidence['expected_safe']}",   # present: refused above otherwise
             "remediation": remediation,
             "fix_validation": self._fix_validation(finding, evidence, ctx["replays"]),
         }
@@ -604,11 +606,10 @@ class DocumentationAgent:
                 return existing["report_id"]
 
             report_id = "R-" + finding_id[2:]
-            # Fail closed (role-review T1.5): only an explicit low/medium finding backed by captured
-            # evidence may auto-publish. High/critical, an unmapped or malformed severity, or a finding
-            # with no evidence is held for a human — the gate never fails open on an unknown.
-            has_evidence = bool(evidence.get("exchanges"))
-            gated = level not in {"low", "medium"} or not has_evidence
+            # Fail closed (role-review T1.5): only an explicit low/medium finding may auto-publish.
+            # High/critical or an unrecognised level is held for a human. (A finding with no severity
+            # level or no captured evidence never reaches here: it is refused as incomplete above.)
+            gated = level not in {"low", "medium"}
             store.insert("vuln_reports", {
                 "schema_version": 1,
                 "report_id": report_id,

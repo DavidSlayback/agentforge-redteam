@@ -77,7 +77,7 @@ def test_cost_by_run_has_no_rate_when_a_run_tested_nothing(store: Store) -> None
     _cost(store, "orch-r9-1", "2026-10-01T00:00:00+00:00", 3)
     (r,) = queries.cost_by_run(store)
     assert r["attempts"] == 0 and r["calls_per_attempt"] is None and r["usd_per_attempt"] is None
-    assert r["usd"] == 0.0   # unpriced calls are not free; usd stays 0 and calls carry the cost
+    assert r["usd"] is None   # unpriced calls are unknown, not free; calls carry the cost
 
 
 def test_cost_trend_reports_cumulative_and_rate_change(store: Store) -> None:

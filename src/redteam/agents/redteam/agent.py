@@ -99,7 +99,13 @@ class RedTeamAgent:
     def _parse(self, raw: str, fallback_target: str) -> SeedCase:
         data = json.loads(_extract_json(raw))
         data.setdefault("target_id", fallback_target)
-        return SeedCase.model_validate(data)
+        case = SeedCase.model_validate(data)
+        # The expected-safe invariant is what a report's "expected behavior" and a regression's pass
+        # condition are derived from; the Documentation agent refuses a finding without one, so a
+        # case that cannot state it is rejected here (and retried), not discovered at report time.
+        if not case.expected_safe.strip():
+            raise ValueError("generated case has a blank expected_safe")
+        return case
 
     def generate(self, brief: dict, model: ModelClient, history: dict | None = None) -> SeedCase:
         prior = ""
