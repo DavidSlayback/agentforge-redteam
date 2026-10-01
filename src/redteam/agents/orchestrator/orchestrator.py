@@ -8,9 +8,7 @@ among candidates but cannot touch the hard limits.
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 
 from redteam.agents.judge.judge import Judge
 from redteam.agents.orchestrator.budget import Budget, Governor
@@ -23,10 +21,6 @@ from redteam.executor.authorization import AuthorizationRegistry
 from redteam.executor.executor import Executor
 from redteam.observability.queries import cost_summary
 from redteam.store.store import Store
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 @dataclass
@@ -49,11 +43,7 @@ class Orchestrator:
     minter: object | None = None
 
     def _record(self, action: str, refs: dict, reason: str) -> None:
-        with self.store.transaction():
-            self.store.insert("agent_actions", {
-                "ts": _now(), "agent": "orchestrator", "action": action,
-                "refs": json.dumps(refs), "reason": reason,
-            })
+        self.store.record_action("orchestrator", action, refs, reason)
 
     def run(
         self,

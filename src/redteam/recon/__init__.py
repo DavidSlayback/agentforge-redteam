@@ -140,12 +140,8 @@ def poll_once(
 
     if obs.git_sha is None:
         # Reachable but the build can't be verified: audit it and refuse to treat it as a pass.
-        with store.transaction():
-            store.insert("agent_actions", {
-                "ts": _now(), "agent": "recon", "action": "health_unverifiable",
-                "refs": json.dumps({"target": target_id, "status": obs.status_code}),
-                "reason": f"/health reachable but no usable git_sha ({obs.note}); build unverifiable",
-            })
+        store.record_action("recon", "health_unverifiable", {"target": target_id, "status": obs.status_code},
+                            f"/health reachable but no usable git_sha ({obs.note}); build unverifiable")
         return PollResult(target_id, reachable=True, previous_sha=previous,
                           current_sha=None, changed=False, triggered=False, note=obs.note)
 
@@ -204,12 +200,8 @@ def poll_once(
         except Exception as exc:  # noqa: BLE001 — discovery is advisory; never let it hide the regression
             # Discovery runs after the trigger unit committed and in its own unit, so its failure
             # can never roll back the regression record.
-            with store.transaction():
-                store.insert("agent_actions", {
-                    "ts": _now(), "agent": "discovery", "action": "discovery_error",
-                    "refs": json.dumps({"target": target_id, "sha": current}),
-                    "reason": f"discovery pass failed (regression result stands): {type(exc).__name__}: {exc}",
-                })
+            store.record_action("discovery", "discovery_error", {"target": target_id, "sha": current},
+                                f"discovery pass failed (regression result stands): {type(exc).__name__}: {exc}")
     return PollResult(target_id, reachable=True, previous_sha=previous, current_sha=current,
                       changed=True, triggered=True, note=obs.note, regression=report, discovery=discovery)
 

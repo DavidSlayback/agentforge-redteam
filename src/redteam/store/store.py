@@ -30,6 +30,7 @@ the same on every supported Python version.
 
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
 from collections.abc import Iterator
@@ -257,6 +258,15 @@ class Store:
         columns = ", ".join(row)
         placeholders = ", ".join("?" for _ in row)
         self.conn.execute(f"INSERT INTO {table} ({columns}) VALUES ({placeholders})", tuple(row.values()))
+
+    def record_action(self, agent: str, action: str, refs: dict | None = None,
+                      reason: str | None = None) -> None:
+        """Append one ``agent_actions`` audit row. Its own unit of work, or part of the unit
+        already open (scopes flatten)."""
+        with self.transaction():
+            self.insert("agent_actions", {"ts": _utcnow(), "agent": agent, "action": action,
+                                          "refs": json.dumps(refs) if refs is not None else None,
+                                          "reason": reason})
 
     def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
         """Run one write statement (an UPDATE, or an INSERT that ``insert`` cannot express)

@@ -302,3 +302,17 @@ def test_raw_connection_writes_outside_a_scope_are_refused(tmp_path: Path) -> No
     assert store.conn.execute("SELECT COUNT(*) AS c FROM agent_actions").fetchone()["c"] == 1   # reads are fine
     assert _committed_actions(db) == ["in-scope"]
     store.close()
+
+def test_record_action_is_its_own_unit_or_joins_the_open_one(tmp_path: Path) -> None:
+    db = tmp_path / "s.db"
+    store = Store.open(db)
+    store.record_action("test", "alone", {"k": 1}, "why")          # commits on its own
+    row = store.conn.execute("SELECT agent, action, refs, reason, ts FROM agent_actions").fetchone()
+    assert (row["agent"], row["action"], row["refs"], row["reason"]) == ("test", "alone", '{"k": 1}', "why")
+    assert row["ts"]
+    with pytest.raises(ValueError):
+        with store.transaction():
+            store.record_action("test", "joined")
+            raise ValueError("unit fails")
+    assert _committed_actions(db) == ["alone"]                     # rolled back with its unit
+    store.close()

@@ -9,7 +9,6 @@ bypasses" — the Orchestrator (S6) later chooses the briefs and the budget.
 
 from __future__ import annotations
 
-import json
 from collections import Counter
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
@@ -50,12 +49,8 @@ def _log_call(store, campaign_id: str, kind: str) -> None:
 
 def _record(store, action: str, brief: dict, reason: str) -> None:
     """One campaign audit action for a brief, as its own unit of work."""
-    with store.transaction():
-        store.insert("agent_actions", {
-            "ts": _now(), "agent": "campaign", "action": action,
-            "refs": json.dumps({"category": brief.get("category"), "route": brief.get("route")}),
-            "reason": reason,
-        })
+    store.record_action("campaign", action, {"category": brief.get("category"), "route": brief.get("route")},
+                        reason)
 
 
 @dataclass
