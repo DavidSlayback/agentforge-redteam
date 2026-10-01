@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import unicodedata
+from collections.abc import Callable
 
 # Joins decoded values into one text. A newline keeps adjacent values from running together.
 SEPARATOR = "\n"
@@ -50,6 +51,16 @@ def _walk(node: object, path: str, out: list[tuple[str, str]]) -> None:
 def joined(values: DecodedValues) -> str:
     """The decoded values as one text, in document order."""
     return SEPARATOR.join(value for _, value in values)
+
+
+def where(values: DecodedValues, matches: Callable[[str], bool]) -> str:
+    """Where in the body a match was found, for an oracle's detail (owner decision 6): the path of
+    the first decoded value that matches on its own, or a note that the match spans values (the
+    oracles match the joined text, so a hit can straddle the separator)."""
+    for path, value in values:
+        if matches(value):
+            return f"in {path}"
+    return "across decoded values"
 
 
 def fold(text: str) -> str:

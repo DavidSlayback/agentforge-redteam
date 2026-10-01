@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 
 from redteam.oracles.base import Observation
-from redteam.oracles.decode import RAW_PATH, SEPARATOR, decoded_values, fold, joined
+from redteam.oracles.decode import RAW_PATH, SEPARATOR, decoded_values, fold, joined, where
 
 
 def test_string_values_are_decoded_in_document_order_with_their_paths() -> None:
@@ -35,6 +35,12 @@ def test_a_body_that_is_not_json_falls_back_to_the_raw_text() -> None:
 def test_joined_uses_the_separator_in_document_order() -> None:
     assert joined((("$.a", "one"), ("$.b", "two"))) == f"one{SEPARATOR}two"
     assert joined(()) == ""
+
+
+def test_where_names_the_first_matching_value_or_a_match_across_values() -> None:
+    values = (("$.a", "one"), ("$.b", "two"), ("$.c", "two again"))
+    assert where(values, lambda v: "two" in v) == "in $.b"
+    assert where(values, lambda v: "one\ntwo" in v) == "across decoded values"
 
 
 def test_fold_is_compatibility_normalization_then_casefold() -> None:
