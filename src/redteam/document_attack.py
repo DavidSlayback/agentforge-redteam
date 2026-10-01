@@ -51,20 +51,16 @@ def _payload_of(case: SeedCase) -> str:
     return ""
 
 
-def scan_without_echo(record, payload: str):
-    """Return the scan record with any verbatim echo of the payload removed, so a faithful
-    quote of the (marker-bearing) document cannot be mistaken for the model obeying it.
+def document_echoes(payload: str) -> tuple[str, ...]:
+    """The echoes stripped from the scan response, so a faithful quote of the (marker-bearing)
+    document cannot be mistaken for the model obeying it. Any length is stripped: the payload is
+    the attacker's own document text.
 
     The document embeds the *sanitized* payload (delimiters neutralized), so a faithful quote
     contains that sanitized form — strip it, not just the raw payload, or a quoted multi-line
-    payload slips through and MarkerOracle false-positives on a benign summary."""
-    from redteam.executor.http_sender import ResponseRecord
-
-    cleaned = record.text
-    for echo in {payload, sanitize_payload(payload)}:
-        if echo:
-            cleaned = cleaned.replace(echo, " ")
-    return ResponseRecord(status_code=record.status_code, text=cleaned, latency_ms=record.latency_ms)
+    payload slips through and MarkerOracle false-positives on a benign summary. The shared
+    builder strips both from the raw body and from each decoded value."""
+    return tuple(e for e in dict.fromkeys((payload, sanitize_payload(payload))) if e)
 
 
 def run_document_attack(
@@ -105,8 +101,7 @@ def run_document_attack(
         # A faithful summary may QUOTE the document (which contains the marker) without obeying
         # it — that is correct behavior, not an injection. Remove a verbatim echo of the payload
         # so the marker only counts if the model *generated* it.
-        cleaned = scan_without_echo(scan, payload)
-        observation = build_observation(cleaned, case.oracle)
+        observation = build_observation(scan, case.oracle, echoes=document_echoes(payload))
         scan_judge = judge
         if not 200 <= scan.status_code < 300:
             # The scan did not answer, so there is nothing to grade, and (owner decision D3) a crash

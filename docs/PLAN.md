@@ -1204,7 +1204,8 @@ intentional uniform 400, mints reappeared. The false holds were historical (`bfb
 decisions; they cover most of the deferred items below.
 
 **Deferred (from the same review, not in this slice):** orchestrator starvation/coverage crediting,
-budget checked only between campaigns, echo/canary matching on raw JSON escapes, non-atomic
+budget checked only between campaigns, ~~echo/canary matching on raw JSON escapes~~ (done in
+refactor #2, below), non-atomic
 migrations, `cmd_campaign` exit code, dashboard "recent" ordering, token in curl repros, docs-vs-code
 drift (ARCHITECTURE message bus, LLM07 claim, `regression` needing model keys).
 
@@ -1268,3 +1269,37 @@ reuse is re-checked); `TransactionAborted` chains the inner cause; `redteam inte
 journal clearly (exit 2, still read-only); single-action units use `store.record_action`; the scope
 depth counter became a flag. Replay keeps its unit open across target I/O, pinned by a trace test
 that each replay `BEGIN` is followed directly by finalize's first insert on every dispatch path.
+
+  probes build their Observation through the shared builder. (Done in refactor #2.)
+
+### 2026-10-01 — refactor #2: decode before matching (branch `refactor/decode-before-matching`)
+
+GitLab #2, on top of #3, in the plan's commit order with owner decisions 1–7. The target answers in
+JSON, so a decoded needle (marker, canary, echoed payload) was searched for in an escaped haystack.
+`runner.build_observation` now gives every Observation a `decoded` field: the body's string values
+with their JSON paths (`oracles/decode.py`; non-JSON falls back to the raw text), each stripped of
+echoes before the join. Echoes are also stripped verbatim from the raw `response_text`, as before.
+
+- **Inputs:** decoded, joined (1) for marker, canary, output handling and the rubric model (5);
+  raw for the empty-answer gate (2), metadata disclosure, contradiction; both for error leak.
+- **Markers** match case-insensitively under NFKC (3); decoded echo stripping and the canary
+  comparison fold the same way. The raw strip stays verbatim.
+- **Authorization probes** strip echoes of what they sent (4), and all of them now use the shared
+  builder; a guard test fails on an Observation of a response built anywhere else (the
+  rate-limit burst stays an explicit aggregate).
+- **Oracle detail** names the decoded value that matched, e.g. `marker present (in
+  $.answer.claims[0].text)` (6). Evidence still stores the raw response.
+- **No re-judging (7).** `tests/test_frozen_cases.py` replays every frozen case's stored attempts
+  offline through its own probe and compares the decoded and the pre-decoding views; set
+  `REDTEAM_FROZEN_CHECK_STORE` to run it on a store (it copies the file and opens the copy
+  read-only). On a copy of `var/redteam.db`: 7 frozen cases, 44 attempts, 40 with a stored
+  exchange, no outcome or oracle-outcome change. A separate A/B (base-branch code vs this branch on
+  the same copy) agrees on all 40. Five stored outcomes differ from today's re-judge under both
+  codes (mint 400/429 and one rate-limit burst, stored FAIL, now INCONCLUSIVE): the fail-closed
+  gate, not this refactor.
+- **Deviations:** the raw strip is kept (decision 2 and the raw checks see what they saw before);
+  canary comparison gained NFKC so it reads a folded value in the form the stripper left it.
+- **Checks:** `uv run pytest -q` 347 passed, 1 skipped (the opt-in store check; baseline 311),
+  green at every commit. `redteam calibrate` on a temp store: n=10 agree=10, κ=1.00.
+- **Residual:** an echo strip on the BOLA probe removes the victim id it sent; a canary that
+  contained that id would no longer match. Fixture canaries are fact values, not ids.

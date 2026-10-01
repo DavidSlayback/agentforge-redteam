@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
@@ -23,6 +24,7 @@ from redteam.evals.case import OracleConfig, SeedCase
 from redteam.executor.executor import Executor
 from redteam.executor.authorization import AuthorizationRegistry
 from redteam.oracles.base import Observation
+from redteam.oracles.decode import decoded_values, fold
 
 if TYPE_CHECKING:   # annotations only: verdicts are built by the judge package (tests/test_verdict_path.py)
     from redteam.agents.judge.judge import Verdict
@@ -113,27 +115,67 @@ def send_turns(target, executor: Executor, turns, exchanges: list[dict], *,
 _ECHO_MIN_LEN = 12   # a payload this long is a meaningful echo, not a coincidental substring
 
 
-def strip_echoes(record, payloads, tokens):
-    """Return the record with verbatim echoes of a sent payload removed. A payload is stripped
-    when it either (a) contains a token we judge on (marker/canary), or (b) is long enough
+def echoes_to_strip(payloads: Iterable[str], tokens: Iterable[str | None]) -> tuple[str, ...]:
+    """The sent payload strings whose verbatim echo is removed before judging. A payload is
+    stripped when it either (a) contains a token we judge on (marker/canary), or (b) is long enough
     (>= _ECHO_MIN_LEN) to be a real echo rather than a coincidental substring. Either way an echo
     of the attacker's OWN input is never evidence the assistant GENERATED that content
     (role-review T1.2/T3.1) — a real leak is the victim's data, which is not in the attacker's
-    payload. Short payloads are left alone so they can't corrupt unrelated response text."""
-    from redteam.executor.http_sender import ResponseRecord
+    payload. Short payloads are left alone so they can't corrupt unrelated response text.
 
-    text = record.text
-    toks = [t for t in tokens if t]
-    if text:
-        for payload in payloads:
-            if payload and (len(payload) >= _ECHO_MIN_LEN or any(tok in payload for tok in toks)):
-                text = text.replace(payload, " ")
-    return ResponseRecord(status_code=record.status_code, text=text, latency_ms=record.latency_ms)
+    Tokens are found in a payload under the same normalization the marker is matched with (owner
+    decision 3), so a payload carrying a re-cased marker is still stripped."""
+    toks = [fold(t) for t in tokens if t]
+    return tuple(dict.fromkeys(
+        p for p in payloads if p and (len(p) >= _ECHO_MIN_LEN or any(tok in fold(p) for tok in toks))))
 
 
-def build_observation(record, oracle: OracleConfig, provider_events: tuple[str, ...] = ()) -> Observation:
+def case_echoes(case: SeedCase) -> tuple[str, ...]:
+    """The echoes to strip for a turn-based case: the string values of its turn bodies. A target
+    that reflects the request must not let the model's own marker/canary (which it put in the
+    payload) count as one the assistant generated (T1.2). Auth fields are merged in send_turns,
+    not in the turn body, so only the case's own payload strings are stripped."""
+    payloads = [v for turn in case.turns for v in (turn.body or {}).values() if isinstance(v, str)]
+    return echoes_to_strip(payloads, [case.oracle.marker, *case.oracle.foreign_canaries])
+
+
+def strip_echo(text: str, echoes: Iterable[str]) -> str:
+    """``text`` with every verbatim occurrence of each echo replaced by a space."""
+    for echo in echoes:
+        if echo:
+            text = text.replace(echo, " ")
+    return text
+
+
+def strip_decoded_echo(value: str, echoes: Iterable[str]) -> str:
+    """A decoded value with each echo removed, matched under the marker's normalization (owner
+    decision 3: compatibility-normalized and casefolded), so a re-cased or width-shifted echo of
+    the payload cannot survive the strip and then match the case-insensitive marker check. A value
+    with no echo in it is returned unchanged; one with an echo is returned in normalized form."""
+    folded = fold(value)
+    hits = [e for e in dict.fromkeys(fold(e) for e in echoes if e) if e in folded]
+    if not hits:
+        return value
+    return strip_echo(folded, hits)
+
+
+def build_observation(record, oracle: OracleConfig, provider_events: tuple[str, ...] = (), *,
+                      echoes: Iterable[str] = ()) -> Observation:
+    """The one way an Observation is built from a response record.
+
+    Echoes of the sent payload are removed twice, so neither view counts the attacker's own input
+    as something the assistant generated: verbatim from the raw body (`response_text`, as before
+    decoding existed), and from each decoded value one at a time before they are joined
+    (`decoded`), under the marker's normalization. The decoded values come from the UNSTRIPPED
+    body, because stripping raw text can break the JSON before it is parsed; the payloads are
+    decoded strings, so they match their decoded echoes even when the serializer escaped them
+    (refactor #2)."""
+    echoes = tuple(echoes)
+    raw = record.text
     return Observation(
-        response_text=record.text,
+        response_text=None if raw is None else strip_echo(raw, echoes),
+        decoded=None if raw is None else tuple((path, strip_decoded_echo(value, echoes))
+                                               for path, value in decoded_values(raw)),
         status_code=record.status_code,
         latency_ms=record.latency_ms,
         latency_budget_ms=oracle.latency_budget_ms,
@@ -165,13 +207,7 @@ def run_case(
         if case.auth is not None and minter is not None:
             auth_fields = minter.auth_fields(case.auth.patient_uuid)
         record = send_turns(target, executor, case.turns, exchanges, auth_fields=auth_fields, body_wins=False)
-        # Strip verbatim echoes of the attack input before judging: a target that reflects the
-        # request must not let the model's own marker/canary (which it put in the payload) count
-        # as one the assistant generated (T1.2). Auth fields are merged in send_turns, not in the
-        # turn body, so only the attack payload strings are stripped.
-        payloads = [v for turn in case.turns for v in (turn.body or {}).values() if isinstance(v, str)]
-        tokens = [case.oracle.marker, *case.oracle.foreign_canaries]
-        observation = build_observation(strip_echoes(record, payloads, tokens), case.oracle)
+        observation = build_observation(record, case.oracle, echoes=case_echoes(case))
         return judge.judge(observation), list(observation.provider_events)
 
     return drive(store, case, registry, target_sha=target_sha, produce=produce)
