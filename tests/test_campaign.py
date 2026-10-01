@@ -116,3 +116,20 @@ def test_a_blocked_call_is_still_metered(tmp_path: Path) -> None:
     assert summary.outcomes["PROVIDER_BLOCK"] == 1
     assert queries.cost_summary(store)["calls"] == 1
     store.close()
+
+
+def test_metering_commits_on_its_own_and_refuses_to_join_another_unit(tmp_path: Path) -> None:
+    # A metering row inside someone else's unit could be rolled back with it, erasing the record
+    # of a call that was really made; the budget would silently undercount.
+    import pytest
+
+    from redteam.campaign import _log_call
+
+    store = Store.open(tmp_path / "s.db")
+    with pytest.raises(RuntimeError, match="metered"):
+        with store.transaction():
+            _log_call(store, "c", "generation")
+    assert store.count("cost_ledger") == 0
+    _log_call(store, "c", "generation")
+    assert store.count("cost_ledger") == 1
+    store.close()

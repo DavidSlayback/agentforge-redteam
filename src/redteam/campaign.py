@@ -39,7 +39,23 @@ def _now() -> str:
 
 
 def _log_call(store, campaign_id: str, kind: str) -> None:
-    store.insert("cost_ledger", {"ts": _now(), "campaign_id": campaign_id, "kind": kind, "calls": 1})
+    # A metering row is its own unit and must commit before the call it meters. Joining an
+    # enclosing unit would let that unit's rollback erase the record of a call that was made, so
+    # the budget would silently undercount: refuse that loudly instead.
+    if store.in_transaction:
+        raise RuntimeError("a model call may not be metered inside another unit of work")
+    with store.transaction():
+        store.insert("cost_ledger", {"ts": _now(), "campaign_id": campaign_id, "kind": kind, "calls": 1})
+
+
+def _record(store, action: str, brief: dict, reason: str) -> None:
+    """One campaign audit action for a brief, as its own unit of work."""
+    with store.transaction():
+        store.insert("agent_actions", {
+            "ts": _now(), "agent": "campaign", "action": action,
+            "refs": json.dumps({"category": brief.get("category"), "route": brief.get("route")}),
+            "reason": reason,
+        })
 
 
 @dataclass
@@ -111,22 +127,16 @@ def run_campaign(
             # BOLA as FAIL ("defense held") — a fake pass. Refuse; they run via the `authz` command.
             if is_deterministic_only(brief["category"]):
                 summary.outcomes["SKIPPED"] += 1
-                store.insert("agent_actions", {
-                    "ts": _now(), "agent": "campaign", "action": "skipped",
-                    "refs": json.dumps({"category": brief["category"], "route": brief.get("route")}),
-                    "reason": "authorization category must run via `redteam authz`, not campaign (would be a fake pass)",
-                })
+                _record(store, "skipped", brief,
+                        "authorization category must run via `redteam authz`, not campaign (would be a fake pass)")
                 continue
             # A canary-gated category with no canary cannot be scored — running it anyway
             # would let StatusOracle score a 200 as SAFE and report a defense that was never
             # tested. Skip it loudly rather than manufacture a pass.
             if brief["category"] in NEEDS_CANARY and not canaries:
                 summary.outcomes["SKIPPED"] += 1
-                store.insert("agent_actions", {
-                    "ts": _now(), "agent": "campaign", "action": "skipped",
-                    "refs": json.dumps({"category": brief["category"], "route": brief.get("route")}),
-                    "reason": "no canary available for a canary-gated category; not tested (would be a fake pass)",
-                })
+                _record(store, "skipped", brief,
+                        "no canary available for a canary-gated category; not tested (would be a fake pass)")
                 continue
             # Read what has already been tried here so the Red Team varies, not repeats.
             history = history_brief(store, brief["target_id"], brief["category"])
@@ -155,16 +165,8 @@ def run_campaign(
             # The attacker model's own content filter is a distinct, typed outcome — not a
             # generic error and never evidence about the target (role-review T3.8).
             summary.outcomes["PROVIDER_BLOCK"] += 1
-            store.insert("agent_actions", {
-                "ts": _now(), "agent": "campaign", "action": "provider_block",
-                "refs": json.dumps({"category": brief.get("category"), "route": brief.get("route")}),
-                "reason": f"attacker-model provider block: {exc}"[:300],
-            })
+            _record(store, "provider_block", brief, f"attacker-model provider block: {exc}"[:300])
         except Exception as exc:  # one bad brief must not end an unattended campaign
             summary.outcomes["ERROR"] += 1
-            store.insert("agent_actions", {
-                "ts": _now(), "agent": "campaign", "action": "brief_error",
-                "refs": json.dumps({"category": brief.get("category"), "route": brief.get("route")}),
-                "reason": f"{type(exc).__name__}: {exc}"[:300],
-            })
+            _record(store, "brief_error", brief, f"{type(exc).__name__}: {exc}"[:300])
     return summary
