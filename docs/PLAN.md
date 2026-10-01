@@ -1673,3 +1673,29 @@ reviewed"); restated as the first pass's 29 per ATO_PACKET with the caveat. (3) 
 **Owner-only gaps (unchanged).** Every USD figure and token average in `docs/COST_ANALYSIS.md` section 2;
 human review of the calibration labels (`review_status`); thresholds for over-refusal, kappa and fix-holds;
 peer integration; Fix status was last read on `926805ce` (the target reported `31f3722a` later).
+
+### 2026-10-01 — live verification, self-scan and cost estimate (owner-directed)
+
+Owner decisions: validate calibration labels himself; no billing export, so cost is **estimated from
+tokens**; the self-scan and live runs are required. Done here against the owned target `agentforge-w2`,
+on scratch stores (canonical `var/redteam.db` untouched; no `.env` read; no attacker-model keys set):
+
+- **Live load test (M8):** `scripts/bench.py --n 100`: 14.78 s, 6.8 cases/s, median 137 ms, p95 148 ms,
+  17% CPU, 2.9 MB; consistent with the earlier run (19.83 s). Recorded in `docs/PERF.md`.
+- **Live regression, merged code, no keys (`_wire_replay`):** against a copy of the store at build
+  `31f3722a`: held=5, reappeared=2 (the two anonymous mints, F-831d4df407 / F-24b44c5180, accepted risk),
+  inconclusive=0, unreplayable=0; the `regression_detected` line printed. This is the first live
+  observation of the keyless regression path and of the first replay on `31f3722a`. It ran on a copy,
+  so the canonical store's `last_sha` is still `926805ce`; re-run on the canonical store to record it.
+- **New report sections on the real store (copy):** `Resilience over time` and `Cost per run` render.
+  Legacy `orch-N` campaign ids (pre-D1) show 0 attempts and non-sha build labels (`live-2026-09-29`,
+  `refactor-smoke`) appear in the build series; both are cosmetic data artifacts of early runs.
+- **Self-scan (`docs/ATO_PACKET.md` section 4):** `pip-audit` clean; `bandit` 14 findings, 0 real (11
+  B608 false positives, 2 low, 1 high SHA1 id hash now `usedforsecurity=False`, ids unchanged).
+- **Cost (`docs/COST_ANALYSIS.md` 2b):** estimate only: dev spend about $1.13 (range $1-4); projection
+  $0.60 / $6 / $60 / $600 per 100 / 1K / 10K / 100K runs at the planning mix. Token counts are assumed;
+  prices from the Model Studio page (read 2026-10-01).
+- **Still not done (blocked on a human-only action):** a live run that uses the attacker model (Qwen key
+  not available to the build sandbox): the `--max-mutations` path, `JudgeTimeout` and the Documentation
+  refusals are tested but not observed live. The 100-case load test covers the platform path, not LLM latency (M2).
+- **Verification:** `uv run --python 3.13 pytest -q` 496 passed, 1 skipped.
