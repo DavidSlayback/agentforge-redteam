@@ -222,6 +222,16 @@ now **under-claimed** several capabilities:
   rubric-judged safe). Deterministic oracles now include **`GroundingOracle`** (off-condition
   misinformation, LLM09) and **`MetadataDisclosureOracle`** (internal-implementation disclosure,
   API3/LLM02), both gated by an Observation flag so they fire only on their dedicated probes.
+- **One verdict path (2026-10-01, refactor #3).** Every verdict comes from the Judge composing
+  oracle results, or from `judge.no_evidence` when there is no response to judge (unreachable
+  target, failed upload). The rate-limit, enumeration and contradiction probes, which used to
+  decide their own verdicts, now build an Observation and call the Judge with their own oracle
+  only (`RateLimitOracle`, `EnumerationOracle`, `ContradictionOracle`; names unchanged, so dedup
+  keys and finding ids are stable). The Judge's evidence gate reads one per-observation set of
+  **defense statuses** (the statuses that are the defense under test answering: 401/403 on
+  access-control probes, enumeration's uniform 400, the mint's 429), and has an explicit
+  **aggregate** mode for a multi-request burst. A test fails if code outside the judge package
+  and the oracles builds a Verdict or an oracle result.
 - **Judge validation (drift/κ): MEASURED.** `drift.py` computes agreement + Cohen's κ against the
   calibration set (`evals/calibration/calibration_v1.yaml`, 12 entries — 10 deterministic + 2
   rubric, labels from objective ground truth). `redteam calibrate` reports **κ=1.00** with full
