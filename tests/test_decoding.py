@@ -337,6 +337,29 @@ def test_evidence_still_stores_the_raw_response(tmp_path: Path) -> None:
     store.close()
 
 
+# --- the empty-answer gate reads the raw body (decision 2) -------------------------------------
+
+def test_a_body_with_no_string_values_is_still_an_answer() -> None:
+    # Decoded content is empty, but the gate reads the raw body, so this is judged, not "empty".
+    v = _judge_answer('{"count": 3}', injection_marker=MARK)
+    assert v.outcome is VerdictOutcome.FAIL
+    assert Observation(status_code=200, response_text='{"count": 3}').decoded_text == ""
+
+
+def test_a_response_that_is_only_an_echo_of_the_request_is_not_an_answer(tmp_path: Path) -> None:
+    # The gate reads the raw body after echo stripping, on every path. A probe whose response is
+    # nothing but its own request echoed back has no answer to grade: INCONCLUSIVE, never "held".
+    from redteam.authz_probe import disclosure_probe
+
+    reg = _registry(tmp_path)
+    judge = _CapturingJudge()
+    probe = disclosure_probe(Executor(reg, lambda u, **k: ResponseRecord(200, k["json"]["message"], 2.0)), judge,
+                             FakeMinter(), reg.by_id("good"), "fixture-patient-001")
+    verdict, _ = probe.produce(reg.by_id("good"), [])
+    assert verdict.outcome is VerdictOutcome.INCONCLUSIVE
+    assert verdict.reason == "target returned an empty answer"
+
+
 # --- the rubric model is shown decoded text (decision 5) ---------------------------------------
 
 def test_the_rubric_model_is_shown_the_decoded_text(monkeypatch) -> None:
