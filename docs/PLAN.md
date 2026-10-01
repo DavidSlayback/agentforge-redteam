@@ -1168,7 +1168,7 @@ remain risk-accepted. **Live build for the submission: `926805ce`.**
 
 Source: whole-repo review (5 parallel reviewers, top findings re-verified). Branch is
 `peaceful-moser` + a merge of `main` (main's mint-429 and report fixes were missing here) + the
-fixes below. 270 tests; calibration set still 10/10.
+fixes below. 278 tests; calibration set still 10/10.
 
 - **Judge evidence gate** (`a6d677b`). A non-2xx (other than 401/403 on an access-control probe) or
   an empty answer is INCONCLUSIVE, never "held"; answer-grading oracles are set aside on such a
@@ -1185,6 +1185,14 @@ fixes below. 270 tests; calibration set still 10/10.
 - **Fail closed** (`246951a`). A failed canary read raises (battery → coverage gap) instead of
   turning shared values into canaries; registry refuses non-boolean `enabled` and enabled entries
   without `proof`; every attacker and rubric call is metered before it is made.
+
+**Independent review round 1** (`3eb589f`; 25-mutation run). Fixed: set-aside answer oracles
+leaked into the verdict, so a 500 echoing the marker was filed as prompt injection (now recorded
+NOT_APPLICABLE); a fast 4xx on a DoS attempt now holds (else a DoS fix could never validate); a 401
+on BOLA (our own live token) is INCONCLUSIVE; empty/non-object chart reads are failed reads;
+`campaign` turns a canary failure into a coverage gap; rate-limit with n=0 is not a finding. Tests
+added for the four mutants that survived. Frozen cases checked read-only: none of the 7 carries a
+model-chosen marker or budget (all came from deterministic probes), so no migration is needed.
 
 **Re-check of recorded fix validations:** every current claim (`d5e79bb3`, `926805ce`) survives the
 new rules — F-6ee held with 429s observed, AI-layer fixes held on clean 200s, enumeration held on its
