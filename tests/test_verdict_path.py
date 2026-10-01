@@ -8,7 +8,9 @@ The frozen-case round trips pin that regression replay rebuilds each probe kind 
 
 from __future__ import annotations
 
+import ast
 import json
+import re
 from pathlib import Path
 
 from redteam.agents.judge.judge import Judge
@@ -18,6 +20,7 @@ from redteam.authz_probe import (
     dos_probe,
     enumeration_probe,
     grounding_probe,
+    rate_limit_probe,
     run_probe,
     run_rate_limit_probe,
     _OFF_CONDITION_QUERIES,
@@ -53,6 +56,11 @@ def _persisted(store: Store, attempt_id: str) -> tuple[str, dict[str, str]]:
     row = store.conn.execute("SELECT outcome, oracle_results FROM verdicts WHERE attempt_id = ?",
                              (attempt_id,)).fetchone()
     return row["outcome"], {r["oracle"]: r["outcome"] for r in json.loads(row["oracle_results"])}
+
+
+def _detail(store: Store, attempt_id: str, oracle: str) -> str:
+    row = store.conn.execute("SELECT oracle_results FROM verdicts WHERE attempt_id = ?", (attempt_id,)).fetchone()
+    return next(r["detail"] for r in json.loads(row["oracle_results"]) if r["oracle"] == oracle)
 
 
 def _dedup_keys(store: Store) -> list[str]:
@@ -204,6 +212,12 @@ def _round_trip(tmp_path: Path, build, open_sender, fixed_sender, oracle: str, k
     store.close()
 
 
+def test_rate_limit_replays_from_its_frozen_case(tmp_path: Path) -> None:
+    _round_trip(tmp_path, lambda ex, t: rate_limit_probe(ex, Judge(), t, PATIENT, n=3),
+                _fixed(200, '{"demo_token":"x"}'), _fixed(429, "slow down"),
+                "rate_limit", "rate_limit:/v1/demo-context:denial-of-service")
+
+
 def test_enumeration_replays_from_its_frozen_case(tmp_path: Path) -> None:
     _round_trip(tmp_path, lambda ex, t: enumeration_probe(ex, Judge(), t),
                 _fixed(200, '{"demo_token":"x"}'), _fixed(400, '{"error":"invalid_synthetic_patient"}'),
@@ -243,30 +257,94 @@ def test_oversized_input_replays_from_its_frozen_case(tmp_path: Path) -> None:
                 "status", "status:/v1/follow-up-evidence:denial-of-service")
 
 
+# ---- a set-aside result keeps the probe oracle's own detail ----------------------------------
+
+def test_non_answer_paths_keep_the_oracle_detail(tmp_path: Path) -> None:
+    # On a response that is not an answer the Judge records the oracle as not applicable, but
+    # the stored detail must still say what the oracle saw (e.g. the throttle on a 429).
+    reg = _registry(tmp_path)
+    store = Store.open(tmp_path / "s.db")
+    target = reg.by_id("good")
+    cases = [
+        (enumeration_probe(Executor(reg, _fixed(429, "slow down")), Judge(), target),
+         "enumeration", "status 429; likely rate-limited"),
+        (contradiction_probe(Executor(reg, _fixed(429, "slow down")), Judge(), _Minter(), target, PATIENT),
+         "contradiction", "status 429"),
+        (rate_limit_probe(Executor(reg, _fixed(404, "{}")), Judge(), target, PATIENT, n=3),
+         "rate_limit", "no 429 but non-2xx seen"),
+        (rate_limit_probe(Executor(reg, _fixed(200, "{}")), Judge(), target, PATIENT, n=0),
+         "rate_limit", "no requests sent"),
+    ]
+    for probe, oracle, expected in cases:
+        res = run_probe(probe, store, reg)
+        assert _persisted(store, res.attempt_id) == ("INCONCLUSIVE", {oracle: "not_applicable"}), oracle
+        assert expected in _detail(store, res.attempt_id, oracle), oracle
+    store.close()
+
+
 # ---- guard: one verdict path ------------------------------------------------------------------
 
 _SRC = Path(__file__).resolve().parents[1] / "src" / "redteam"
 _VERDICT_OWNERS = (_SRC / "agents" / "judge", _SRC / "oracles")
 _GUARDED = {"Verdict", "OracleResult"}
+_VERDICTISH = re.compile(r"verdict|oracle_result", re.IGNORECASE)
+
+
+def _is_type_checking(test: ast.expr) -> bool:
+    return (isinstance(test, ast.Name) and test.id == "TYPE_CHECKING") or \
+        (isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING")
+
+
+def _is_dataclass_replace(fn: ast.expr) -> bool:
+    return (isinstance(fn, ast.Name) and fn.id == "replace") or \
+        (isinstance(fn, ast.Attribute) and fn.attr == "replace"
+         and isinstance(fn.value, ast.Name) and fn.value.id == "dataclasses")
 
 
 def _hand_built(source: str) -> list[int]:
-    """Line numbers where `source` constructs a Verdict or an OracleResult."""
-    import ast
-
+    """Line numbers where `source` could build a Verdict or an OracleResult: a runtime import of
+    either name (under any alias), a call to either name, or a dataclasses.replace on a value
+    that looks like one. Imports under `if TYPE_CHECKING:` are annotations only and allowed."""
+    tree = ast.parse(source)
+    type_only = {id(n) for node in ast.walk(tree) if isinstance(node, ast.If) and _is_type_checking(node.test)
+                 for stmt in node.body for n in ast.walk(stmt)}
     lines = []
-    for node in ast.walk(ast.parse(source)):
-        if isinstance(node, ast.Call):
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and id(node) not in type_only:
+            if any(alias.name in _GUARDED for alias in node.names):
+                lines.append(node.lineno)
+        elif isinstance(node, ast.Call):
             fn = node.func
             name = fn.id if isinstance(fn, ast.Name) else fn.attr if isinstance(fn, ast.Attribute) else None
             if name in _GUARDED:
                 lines.append(node.lineno)
-    return lines
+            elif _is_dataclass_replace(fn) and node.args and _VERDICTISH.search(ast.unparse(node.args[0])):
+                lines.append(node.lineno)
+    return sorted(lines)
+
+
+def test_the_guard_catches_each_way_to_build_a_verdict() -> None:
+    flagged = "\n".join([
+        "v = judge.Verdict(VerdictOutcome.FAIL, ())",                          # 1 direct call
+        "r = OracleResult('x', 0, o)",                                         # 2
+        "from redteam.agents.judge.judge import Verdict as V",                 # 3 aliased import
+        "from redteam.oracles.base import OracleResult as R",                  # 4
+        "v2 = replace(verdict, outcome=VerdictOutcome.FAIL)",                  # 5 replace on a verdict
+        "r2 = dataclasses.replace(res.verdict.oracle_results[0], detail='')",  # 6
+    ])
+    assert _hand_built(flagged) == [1, 2, 3, 4, 5, 6]
+    allowed = "\n".join([
+        "from typing import TYPE_CHECKING",
+        "if TYPE_CHECKING:",
+        "    from redteam.agents.judge.judge import Verdict",                   # annotation only
+        "obs = replace(base, check_contradiction=True)",                       # an Observation
+        "text = text.replace(payload, ' ')",                                    # str.replace
+    ])
+    assert _hand_built(allowed) == []
 
 
 def test_only_the_judge_package_and_the_oracles_build_verdicts() -> None:
     # Every verdict comes from the Judge composing oracle results, or from judge.no_evidence.
-    assert _hand_built("v = judge.Verdict(VerdictOutcome.FAIL, ())\nr = OracleResult('x', 0, o)") == [1, 2]
     offenders = {}
     for path in _SRC.rglob("*.py"):
         if any(owner in path.parents for owner in _VERDICT_OWNERS):
@@ -275,3 +353,5 @@ def test_only_the_judge_package_and_the_oracles_build_verdicts() -> None:
         if hits:
             offenders[str(path.relative_to(_SRC))] = hits
     assert offenders == {}, f"build verdicts through the Judge or judge.no_evidence: {offenders}"
+
+

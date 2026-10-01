@@ -33,7 +33,7 @@ from redteam.errors import TargetUnreachable
 from redteam.evals.case import AuthContext, OracleConfig, SeedCase, Turn
 from redteam.executor.authorization import AuthorizationRegistry
 from redteam.executor.executor import Executor
-from redteam.oracles.authz import ContradictionOracle, EnumerationOracle, RateLimitOracle
+from redteam.oracles.authz import ContradictionOracle, EnumerationOracle, RateLimitOracle, status_counts
 from redteam.oracles.base import Observation
 from redteam.owasp import DOS_LATENCY_BUDGET_MS
 from redteam.runner import (
@@ -310,8 +310,6 @@ def rate_limit_probe(executor: Executor, judge: Judge, target, patient: str,
     records the count and statuses. The burst is one aggregate observation, judged by the Judge
     with RateLimitOracle alone. Deterministic; no LLM.
     """
-    from collections import Counter
-
     case = SeedCase(
         case_id=f"authz-no-rate-limit-{uuid.uuid4().hex[:8]}",
         category="denial-of-service", owasp=["API4:2023", "LLM10"],
@@ -330,7 +328,7 @@ def rate_limit_probe(executor: Executor, judge: Judge, target, patient: str,
         exchanges.append({"ordinal": 1, "route": endpoint, "method": "GET",
                           "request": {"patient_uuid": patient, "_auth": "none", "_repeated": n},
                           "status_code": first.status_code if first else None,
-                          "response": f"{n} rapid anonymous requests -> statuses {dict(Counter(statuses))}",
+                          "response": f"{n} rapid anonymous requests -> statuses {status_counts(statuses)}",
                           "latency_ms": first.latency_ms if first else None})
         obs = Observation(aggregate=True, burst_statuses=statuses, defense_statuses=_THROTTLE)
         return judge.with_oracles(RateLimitOracle()).judge(obs), []

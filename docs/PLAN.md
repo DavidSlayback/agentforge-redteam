@@ -1218,19 +1218,32 @@ shared evidence gate but a 5xx or a leaked trace is not a second finding. Oracle
 unchanged and now in the findings "aimed" set (D1). `defense_statuses` on the Observation replaces
 `denial_is_defense`; enumeration's uniform 400 stays "defense held" through it (D2). The rate-limit
 burst is an explicit aggregate observation (D4). Contradiction on an empty fact list is now
-INCONCLUSIVE, not FAIL (D5, own commit `29ac218`). Verdict reasons are the Judge's wording (D6);
-persisted oracle detail strings are unchanged, so reports read the same. Benign, discovery and
-recon untouched (D7). The document scan step goes through the Judge: a 2xx answer keeps the full
-battery, a non-answer gets the case's own oracles. A guard test fails on any Verdict or
-OracleResult built outside `agents/judge` and `oracles`.
+INCONCLUSIVE, not FAIL (D5, own commit `29ac218`). Verdict reasons are the Judge's wording (D6).
+Benign, discovery and recon untouched (D7). The document scan step goes through the Judge: a 2xx
+answer keeps the full battery and the case's budget; a non-answer is judged with no oracles and no
+DoS budget, so it is INCONCLUSIVE with no oracle results, as on main. A guard test fails on a call
+to, runtime import of, or `dataclasses.replace` on Verdict/OracleResult outside `agents/judge`
+and `oracles` (annotation-only imports sit under `TYPE_CHECKING`).
 
+- **Stored oracle detail:** on a verdict-bearing response the probes store the same detail as
+  main. On a non-answer the Judge stores the oracle as `not_applicable` with
+  `set aside (not an answer): <outcome>: <the oracle's own detail>`; main stored the probe's
+  INCONCLUSIVE detail. This suffix applies on every path, not only these probes. The enumeration
+  INCONCLUSIVE detail now names what was seen: "likely rate-limited" only on a 429 (main said it
+  for every status).
 - **Deviations:** the new oracles live in `oracles/authz.py` beside grounding/disclosure and are
   not in `DEFAULT_ORACLES` (D3 means no path needs them there). A 2xx other than 200 on the scan
   step is now judged as an answer (was INCONCLUSIVE); the target answers 200. The DoS fast-4xx rule
-  stays a latency-budget rule in the Judge, not a defense-status set (DoS probe not migrated).
-- **Checks:** `uv run pytest -q` 307 passed (baseline 278: characterization, oracle, Judge and
-  guard tests added). `redteam calibrate` on a temp store: n=10 agree=10, κ=1.00 (still
-  `NOT VALIDATED` pending the human review flip). No store under `var/` touched.
+  stays a latency-budget rule in the Judge, because campaign DoS cases rely on it through
+  `run_case`; the scan step drops the budget on a non-answer instead. A contradiction body whose
+  `patient_facts` is a non-list scalar (e.g. a number) or whose `field` is unhashable (e.g. a list)
+  is now INCONCLUSIVE ("unparseable response") where main raised a TypeError out of the probe
+  (other non-list shapes were already INCONCLUSIVE on main).
+- **Checks:** `uv run pytest -q` 311 passed (baseline 278: characterization, oracle, Judge,
+  replay round-trip and guard tests added). `redteam calibrate` on a temp store: n=10 agree=10,
+  κ=1.00 (still `NOT VALIDATED` pending the human review flip). No store under `var/` touched.
+  An independent review confirmed parity with main on 52 inputs (IDs, dedup keys, defense
+  statuses); its six follow-up items are applied.
 - **Follow-up (not done, optional in #3):** have the mint, grounding, disclosure and oversized-input
   probes build their Observation through the shared builder.
 
