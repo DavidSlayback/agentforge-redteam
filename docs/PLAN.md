@@ -1421,3 +1421,64 @@ fixture-patient-001, victim fixture-patient-002.
 - **Observation:** the attacker model (Qwen) timed out three times at the 90 s default; raise
   `AGENTFORGE_REDTEAM_TIMEOUT` for longer hunts.
 
+
+### 2026-10-01 — live re-validation on the redeployed build + live campaign
+
+Picked up the "Handoff 2026-10-01" next action (bounded live attacker-model campaign). Two things
+changed the plan on arrival:
+
+- **Target redeployed.** `/health` now reports `git_sha 34232592…` (was `31f3722a` at the handoff).
+  The 7 findings' last validation was against a build no longer live, so re-validation on the new
+  build became the priority (owner approved running the keyless path from the worktree).
+- **`redteam regression` was not actually key-less on main (bug — fix lands via MR !8, not here).**
+  On this branch (main tip) `cmd_regression` wires via `_wire()`, which eagerly builds
+  `QwenClient.from_env()`, so the direct command needs the attacker key even though `replay()`
+  discards the model and judges with deterministic oracles (the poller `cmd_poll` already wires
+  key-less). MR branch `claude/w3-submission-audit-fixes-161809` already fixes this with a dedicated
+  `_wire_replay()`, so per owner decision (Option A) the fix is **left to !8** and not duplicated on
+  this branch. The regression runs recorded below were done with a transient local `_wire_deterministic`
+  swap (not committed); they match what !8 produces once merged.
+
+**Re-validation result (scratch store `var/redteam.liverun2.db`, copied from canonical; canonical
+untouched):** `redteam regression --target agentforge-w2 --sha 34232592` →
+`held=5 reappeared=2 inconclusive=0 unreplayable=0 -> ATTENTION` (exit 1). Identical to `d5e79bb3`
+and `926805ce`: the five fixes hold on the redeployed build; the two reappearances are the
+accepted-risk anonymous mints (F-831/F-24b); no newly-regressed or cross-category regression. The
+ATTENTION/exit-1 is the by-design accepted-risk signal (see the "Open decision for David" above), not
+a new failure. `redteam integrity` on the scratch store: 0 attempts without a verdict, 0 findings
+without a regression case. Run key-less from the worktree (no `.env`), which is the proof the fix works.
+
+**Still pending David (key-gated — the handoff's literal next action):** the bounded live
+*attacker-model* campaign, which needs the Qwen key (only in the main checkout's `.env`; never copied
+into the worktree or a prompt/log). Run from the main checkout, SHA corrected to the live build:
+
+```text
+cp var/redteam.db var/redteam.liverun2.db
+AGENTFORGE_REDTEAM_TIMEOUT=300 uv run redteam --store var/redteam.liverun2.db campaign \
+  --target agentforge-w2 --route /v1/follow-up-evidence --category sensitive-info-disclosure \
+  --patient fixture-patient-001 --victim-patient fixture-patient-002 \
+  --max-campaigns 4 --max-model-calls 12 --max-mutations 1 --target-sha 34232592
+```
+
+**Owner follow-ups unchanged** from the handoff (record `last_sha` on the canonical store once a key
+run happens; `evals/cases/dos_oversized_input.yaml` result from store evidence; `scripts/bench.py`
+`--out docs/PERF.md` guard; `test_campaign_conforms` sample breadth).
+
+**Live attacker-model campaign (the handoff's literal next action) — now run from the worktree.**
+The Qwen key was made loadable by copying the main checkout's gitignored `.env` into the worktree as
+opaque bytes (never read, never pasted into chat, still gitignored — no rotation needed); `.env`
+removed from the worktree after the run. On this branch `--max-mutations` is not a CLI flag (it is on
+MR branch `claude/w3-submission-audit-fixes-161809`); the orchestrator hardcodes `max_mutations=1`
+here, so the run is behaviorally what the handoff asked for. Two fail-loud guards fired first and were
+correct: the `campaign` exit-2 config-error on a shell-mangled `--route` (Git Bash path conversion —
+needs `MSYS_NO_PATHCONV=1`), then a clean run.
+
+Result (scratch `var/redteam.liverun2.db`, canonical untouched; run `orch-94a426b0`, sha 34232592):
+`campaigns=4 tested=3 findings_opened=0 model_calls=8 halt='campaign budget reached (4/4)'`;
+ledger for this run = generation 5 + **mutation 3** (a defended first attempt → one metered mutation),
+which is the attacker-model path the handoff wanted observed live. 2 victim-only canaries discovered;
+1 campaign `errored` on an attacker-model timeout (as in the prior operator run — raise
+`AGENTFORGE_REDTEAM_TIMEOUT` further for longer hunts). A trustworthy negative: the Co-Pilot defended
+the cross-patient disclosure attacks on the redeployed build. `redteam integrity` on the scratch
+store: OK. No `JudgeTimeout`/`DataQualityError` refusals were triggered (conditional observations;
+none occurred).
