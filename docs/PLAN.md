@@ -1285,26 +1285,35 @@ applied and named in each commit:
   scoped to the target id, keyed on the brief's own route. Regression replays, the battery and eval
   runs write attempts, not campaigns, so they no longer move a score; another target's campaigns
   don't either.
-- **D3 untested handling — exclude after two.** An untested outcome (skip / provider block / error)
-  carries a scoring penalty; a brief with two untested outcomes in a run is retired for the rest of
-  the run and the exclusion is recorded. This removes the starvation (characterized first as an
-  xfail across skip/block/error).
+- **D3 untested handling — exclude after two.** The brief outcome vocabulary is `tested`,
+  `skipped`, `provider_blocked`, `errored`, `unreachable` (every attempt failed to reach the
+  target — an outage is not a test), and `budget_halted` (the cap stopped the brief before any
+  attempt — neither tested nor penalised). The four untested classes carry a **run-scoped** penalty
+  (never persisted across runs — owner decision 3 is "for the rest of the RUN"), and a brief with
+  two untested outcomes in a run is retired for the rest of it. This removes the starvation
+  (characterized first as an xfail across skip/block/error).
 - **D2 exploit decay + cap.** The exploit term decays with tries since the category's last finding
   and is capped (0.49) strictly below an untried pair, so an open finding can never pin its category
   or out-rank a never-tried pair.
-- **Governor + metering.** No-signal counts only tested campaigns; a run that can test nothing halts
-  "nothing runnable" (distinct from the config-error "no candidates"). The model-call cap is checked
-  before every metered call via a run-spanning `CallBudget`, raising the typed `BudgetExceeded` and
-  stopping cleanly. Signal and cost are attributed to the run's own campaign ids, not global deltas.
-- **D5 exit code.** `campaign` validates routes up front (a non-rooted path is a configuration
-  error — the shell-mangled `--route` that burned 17 campaigns); exits 2 on a configuration error
-  (malformed route / no candidates), 1 when nothing was tested, 0 otherwise (individual brief errors
-  in a working run still exit 0).
+- **Governor + metering.** No-signal counts only tested campaigns, so a no-signal halt means the run
+  really tested and found nothing. A run that could test nothing exits non-zero regardless of its
+  halt reason (`nothing runnable` when it ran out of runnable briefs, or a budget/campaign halt that
+  still tested nothing). The model-call cap is owned solely by a run-spanning `CallBudget`, checked
+  before every metered call (raising the typed `BudgetExceeded` and stopping cleanly) and at the top
+  of the run loop; the Governor no longer counts calls. A rubric call that would exceed the cap
+  degrades to INCONCLUSIVE so the target exchange already made is never lost. Signal and cost are
+  attributed to the run's own campaign ids, not global deltas.
+- **D5 exit code.** `campaign` validates routes up front against the declared route map (an unknown
+  or shell-mangled `--route` is a configuration error, named in the message — the mangled route
+  burned 17 campaigns); exits 2 on a configuration error (unknown route / no candidates), 1 when
+  nothing was tested (all-skipped, all-blocked, or a full outage), 0 otherwise (individual brief
+  errors in a working run still exit 0).
 
-**Checks:** `uv run pytest -q` 356 passed (baseline 341; orchestrator, campaign, governor, CLI and
-contract tests added). Migration 0009 applied to a **copy** of `var/redteam.db` (v8 → v9, 171
-attempts / 7 findings intact, `outcome`/`schema_version` columns present); canonical store untouched
-(read-only copy). No store under `var/` written, no `.env` touched, nothing pushed.
+**Checks:** `uv run pytest -q` 367 passed (baseline 341; orchestrator, campaign, governor, CLI and
+contract tests added, including the independent-review fixes). Migration 0009 applied to a **copy**
+of `var/redteam.db` (v8 → v9, 171 attempts / 7 findings intact, `outcome`/`schema_version` columns
+present); canonical store untouched (read-only copy). No store under `var/` written, no `.env`
+touched, nothing pushed.
 
 **Not done (operator, blocked on a human-only action):** commit 12's **bounded live campaign** —
 the definition-of-done run showing selections spread across pairs with the run's own cost/signal
