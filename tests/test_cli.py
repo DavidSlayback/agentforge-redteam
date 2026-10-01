@@ -32,6 +32,19 @@ def test_campaign_maps_categories_to_owasp() -> None:
     assert args.max_campaigns == 5
 
 
+def test_campaign_rejects_a_malformed_route_before_any_work(tmp_path: Path, monkeypatch, capsys) -> None:
+    # A shell that rewrites `/v1/x` into a filesystem path is a configuration error: the command
+    # must fail fast (exit 2) before building the store or the attacker model (no key needed).
+    def _boom(*a, **k):
+        raise AssertionError("_wire must not run when a route is malformed")
+
+    monkeypatch.setattr("redteam.cli._wire", _boom)
+    rc = main(["campaign", "--target", "agentforge-w2", "--category", "prompt-injection",
+               "--route", "C:/Program Files/Git/v1/x"])
+    assert rc == 2
+    assert "configuration error" in capsys.readouterr().err
+
+
 # --- integrity (read-only) -------------------------------------------------------------------
 
 def _half_written_store(db: Path) -> None:

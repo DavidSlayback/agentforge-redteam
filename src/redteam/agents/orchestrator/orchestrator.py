@@ -109,7 +109,7 @@ class Orchestrator:
 
         while not gov.should_halt():
             candidates = build_candidates(self.store, target_id, surfaces, categories, patient_uuid,
-                                          route_fields, excluded=excluded)
+                                          route_fields, excluded=excluded, canaries=canaries)
             if not candidates:
                 run.halt_reason = "no candidates"
                 break

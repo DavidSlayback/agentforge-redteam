@@ -54,7 +54,7 @@ def test_governor_halts_on_each_limit() -> None:
 def test_candidates_favor_untested_categories(tmp_path: Path) -> None:
     store = Store.open(tmp_path / "s.db")
     cats = [("prompt-injection", ["LLM01"]), ("denial-of-service", ["LLM10"])]
-    cands = build_candidates(store, "good", ["/v1/x"], cats)
+    cands = build_candidates(store, "good", ["/v1/x"], cats, route_fields={"/v1/x": "message"})
     # both untested -> equal score; the list is well-formed and sorted
     assert cands[0].score >= cands[-1].score
     assert {c.brief["category"] for c in cands} == {"prompt-injection", "denial-of-service"}
@@ -69,7 +69,7 @@ def test_candidates_favor_categories_with_open_findings(tmp_path: Path) -> None:
             "status": "new", "dedup_key": "k1", "updated_at": "2026-09-28",
         })
     cats = [("prompt-injection", ["LLM01"]), ("denial-of-service", ["LLM10"])]
-    cands = build_candidates(store, "good", ["/v1/x"], cats)
+    cands = build_candidates(store, "good", ["/v1/x"], cats, route_fields={"/v1/x": "message"})
     assert cands[0].brief["category"] == "denial-of-service"   # exploit weight ranks it first
     assert cands[0].inputs["open_findings"] == 1
     store.close()
@@ -146,6 +146,7 @@ def test_orchestrator_runs_and_halts_on_no_signal(tmp_path: Path) -> None:
         target_id="good", surfaces=["/v1/x"],
         categories=[("prompt-injection", ["LLM01"])],
         budget=Budget(max_campaigns=99, max_model_calls=999, max_no_signal=3),
+        route_fields={"/v1/x": "message"},
     )
     assert run.campaigns == 3                 # halted after 3 no-signal campaigns
     assert run.findings_opened == 0
@@ -209,6 +210,22 @@ def test_each_scheduled_brief_gets_a_campaign_record_with_its_outcome(tmp_path: 
     assert spec_ids <= set(run.campaign_ids) and spec_ids
     ledger_ids = {r["campaign_id"] for r in store.conn.execute("SELECT DISTINCT campaign_id FROM cost_ledger")}
     assert ledger_ids <= set(run.campaign_ids) and ledger_ids
+    store.close()
+
+
+def test_unrunnable_candidates_are_never_proposed(tmp_path: Path) -> None:
+    # Commit 5: a canary-gated category with no canary, and a route with no declared input field,
+    # are both filtered before ranking.
+    store = Store.open(tmp_path / "s.db")
+    cats = [("prompt-injection", ["LLM01"]), ("sensitive-info-disclosure", ["LLM02"])]
+    rf = {"/v1/x": "message"}
+    # no canaries -> the canary-gated category is not offered; a route without a field is dropped
+    cands = build_candidates(store, "good", ["/v1/x", "/no-field"], cats, route_fields=rf)
+    assert {c.brief["category"] for c in cands} == {"prompt-injection"}
+    assert {c.brief["route"] for c in cands} == {"/v1/x"}
+    # with a canary the gated category becomes schedulable
+    cands = build_candidates(store, "good", ["/v1/x"], cats, route_fields=rf, canaries=["SECRET-VALUE-1234"])
+    assert {c.brief["category"] for c in cands} == {"prompt-injection", "sensitive-info-disclosure"}
     store.close()
 
 

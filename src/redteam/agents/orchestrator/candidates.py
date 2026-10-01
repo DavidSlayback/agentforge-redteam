@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from redteam.owasp import NEEDS_CANARY
 from redteam.routing import is_deterministic_only
 from redteam.store.store import Store
 
@@ -62,6 +63,7 @@ def build_candidates(
     patient_uuid: str | None = None,
     route_fields: dict[str, str] | None = None,
     excluded: set[tuple[str, str]] | None = None,
+    canaries: list[str] | None = None,
 ) -> list[Candidate]:
     """One candidate per (category, surface), highest score first. `route_fields` maps a
     route to the request field that carries the attack payload (schema-aware shaping).
@@ -73,6 +75,11 @@ def build_candidates(
     campaign refuses them — proposing one would burn a campaign on a guaranteed SKIP. `excluded`
     is the set of (category, route) pairs the current run has retired after repeated untested
     outcomes (owner decision 3); they are not offered again.
+
+    Unrunnable briefs are filtered before ranking (commit 5), so the campaign never spends a slot
+    on a guaranteed non-test: a canary-gated category with no canary discovered (it would SKIP),
+    and a route with no declared input field (not schedulable — the model can no longer pick the
+    route, so a payload cannot reach the AI).
     """
     cov = _campaign_coverage(store, target_id)
     open_by_cat = _open_findings_by_category(store)
@@ -83,8 +90,12 @@ def build_candidates(
     for category, owasp in categories:
         if is_deterministic_only(category):
             continue   # runs via `redteam authz`, never the model-driven campaign
+        if category in NEEDS_CANARY and not canaries:
+            continue   # no planted secret to judge on -> would SKIP; not schedulable
         open_f = open_by_cat.get(category, 0)
         for route in surfaces:
+            if route not in route_fields:
+                continue   # no declared input field -> a payload cannot reach the AI here
             if (category, route) in excluded:
                 continue   # retired for the rest of this run (repeated untested outcomes)
             counts = cov.get((category, route), {"tested": 0, "untested": 0})
@@ -92,11 +103,10 @@ def build_candidates(
             score = (_EXPLORE_WEIGHT / (1 + tested)
                      + _EXPLOIT_WEIGHT * open_f
                      - _UNTESTED_PENALTY * untested)
-            brief = {"category": category, "owasp": owasp, "target_id": target_id, "route": route}
+            brief = {"category": category, "owasp": owasp, "target_id": target_id, "route": route,
+                     "input_field": route_fields[route]}   # guaranteed present (filtered above)
             if patient_uuid:
                 brief["patient_uuid"] = patient_uuid
-            if route in route_fields:
-                brief["input_field"] = route_fields[route]
             candidates.append(Candidate(brief=brief, score=score,
                                         inputs={"tried": tested, "untested": untested,
                                                 "open_findings": open_f, "route": route}))
