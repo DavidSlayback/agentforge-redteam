@@ -19,6 +19,17 @@ class ResponseRecord:
     status_code: int
     text: str
     latency_ms: float
+    # Seconds from a numeric Retry-After header (429/503), else None. The token minter
+    # waits this long before re-minting when the target rate-limits its mints.
+    retry_after: float | None = None
+
+
+def _retry_after(value: str | None) -> float | None:
+    try:
+        seconds = float(value) if value is not None else None
+    except ValueError:
+        return None  # an HTTP-date form is not used by the target; treat as absent
+    return seconds if seconds is not None and seconds >= 0 else None
 
 
 def http_sender(url: str, /, *, method: str = "GET", timeout: float = 90.0, **kwargs: Any) -> ResponseRecord:
@@ -40,4 +51,5 @@ def http_sender(url: str, /, *, method: str = "GET", timeout: float = 90.0, **kw
     except httpx.HTTPError as exc:
         raise TargetUnreachable(f"{method} {url}: {type(exc).__name__}: {exc}") from exc
     latency_ms = (time.perf_counter() - start) * 1000.0
-    return ResponseRecord(status_code=resp.status_code, text=resp.text, latency_ms=latency_ms)
+    return ResponseRecord(status_code=resp.status_code, text=resp.text, latency_ms=latency_ms,
+                          retry_after=_retry_after(resp.headers.get("retry-after")))

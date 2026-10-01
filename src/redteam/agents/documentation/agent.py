@@ -162,13 +162,19 @@ class DocumentationAgent:
                 out["exchanges"] = json.loads(erow["exchanges"])
         marks = ",".join("?" * len(verdict_ids))
         seen = store.conn.execute(
-            f"SELECT a.target_sha, a.started_at FROM verdicts v JOIN attempts a ON a.attempt_id = v.attempt_id "
+            f"SELECT a.target_sha, a.started_at, a.spec_id FROM verdicts v JOIN attempts a ON a.attempt_id = v.attempt_id "
             f"WHERE v.verdict_id IN ({marks}) ORDER BY a.started_at", verdict_ids
         ).fetchall()
-        out["seen_on"] = [{"sha": r["target_sha"], "at": r["started_at"]} for r in seen]
         case = store.conn.execute(
-            "SELECT case_id FROM regression_cases WHERE finding_id = ?", (finding["finding_id"],)
+            "SELECT case_id, spec_id FROM regression_cases WHERE finding_id = ?", (finding["finding_id"],)
         ).fetchone()
+        # A regression replay that reappears is deduped onto this finding, so its build shows up
+        # here too. Mark those sightings: a reappearance on a fix build is a fix-validation result
+        # ("reappeared"), not a baseline sighting to hide.
+        replay_prefix = f"{case['spec_id']}-rt" if case and case["spec_id"] else None
+        out["seen_on"] = [{"sha": r["target_sha"], "at": r["started_at"],
+                           "replay": bool(replay_prefix and (r["spec_id"] or "").startswith(replay_prefix))}
+                          for r in seen]
         out["regression_case"] = case["case_id"] if case else None
         return out
 
@@ -372,8 +378,18 @@ class DocumentationAgent:
 
     @staticmethod
     def _later_replays(finding: dict, evidence: dict, replays: list[dict]) -> list[dict]:
-        """Replays on a build other than the ones the finding was observed on."""
-        seen = {s["sha"] for s in evidence.get("seen_on", [])}
+        """Replays on a build other than the ones the finding was originally observed on.
+
+        A baseline build is one where the finding was seen by a fresh (non-replay) attempt
+        before any replay ran on that build. A fresh re-sighting on a build that was already
+        being replayed (e.g. the authz battery re-run against a fix build) does not turn that
+        fix build into a baseline and hide its replays.
+        """
+        first_replay: dict = {}
+        for r in replays:
+            first_replay.setdefault(r["sha"], r["at"] or "")
+        seen = {s["sha"] for s in evidence.get("seen_on", [])
+                if not s.get("replay") and (s["sha"] not in first_replay or (s["at"] or "") < first_replay[s["sha"]])}
         if finding.get("first_seen_sha"):
             seen.add(finding["first_seen_sha"])
         return [r for r in replays if r["sha"] not in seen]

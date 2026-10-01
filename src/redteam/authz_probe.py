@@ -259,6 +259,15 @@ def mint_probe(executor: Executor, judge: Judge, target, patient: str,
         token_issued = record.status_code == 200 and '"demo_token"' in (record.text or "")
         exchanges.append(record_exchange(1, endpoint, "GET",
                                          {"patient_uuid": patient, "_auth": "none (anonymous)"}, record))
+        if record.status_code == 429:
+            # A throttled mint shows the rate limit answering, not an auth check: it says
+            # nothing about whether minting needs a credential. Never score it as held; a
+            # replay right after a burst (e.g. the rate-limit probe) would otherwise report a
+            # fix that was never observed.
+            from redteam.oracles.base import OracleOutcome, OracleResult
+            result = OracleResult("mint_auth", 0, OracleOutcome.INCONCLUSIVE,
+                                  "mint rate-limited (429); whether it requires auth was not observed")
+            return Verdict(VerdictOutcome.INCONCLUSIVE, (result,), result.detail), []
         obs = Observation(response_text=record.text, status_code=record.status_code,
                           latency_ms=record.latency_ms, expect_rejected=True,
                           authorized_data_present=token_issued)
