@@ -55,7 +55,11 @@ uv run redteam regression --target agentforge-w2 --sha <git_sha from /health>
 - **Observed on builds:** `live-2026-09-29` (2026-09-29), `refactor-smoke` (2026-09-29), `refactor23-smoke` (2026-09-29), `bfbb1eb20716a032918067937154f8d6b5001b87` (2026-09-29), `da7451d1c9bb2c32bd0625840d28103fa13d4529` (2026-09-29), `d5e79bb37c48fccb1322c7c8b8bcae2626e076cb` (2026-10-01), `926805ce3ce61233f18857d6f71c739177b138e9` (2026-10-01) (non-hex values are run labels recorded before `/health` git SHAs were passed, not target commits)
 
 **Fix validation:**
-No harness replay on a fixed build is recorded in this store yet. See `docs/findings/README.md` for the current fix disposition (a fix may be deployed, risk-accepted, or pending); validate with the commands above on the fixed build's `/health` `git_sha`.
+- `bfbb1eb20716a032918067937154f8d6b5001b87` — reappeared (2026-09-29)
+- `da7451d1c9bb2c32bd0625840d28103fa13d4529` — reappeared (2026-10-01)
+- `d5e79bb37c48fccb1322c7c8b8bcae2626e076cb` — reappeared (2026-10-01)
+- `926805ce3ce61233f18857d6f71c739177b138e9` — reappeared (2026-10-01)
+- Not validated as fixed (latest build `926805ce3ce61233f18857d6f71c739177b138e9`: reappeared).
 
 ## References
 - Verdicts: ver-f7e389268992, ver-314f35240902, ver-6eb0962caf2d, ver-ab7d4c3bc062, ver-712b3c4e5436, ver-8fca41d2c111, ver-5de0070fbb0c, ver-4cc244d21fe9, ver-7c72e92aab1d, ver-6ab094da3c9a, ver-a002fb7f8689, ver-c3aa53eb3f74, ver-017708fd343d, ver-f3ef2fe97f0b (platform store; `uv run redteam evidence <attempt_id>` dumps the raw exchange, first attempt `att-616b3844d07b`)

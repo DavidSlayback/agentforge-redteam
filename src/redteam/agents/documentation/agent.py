@@ -378,28 +378,36 @@ class DocumentationAgent:
 
     @staticmethod
     def _fix_builds(finding: dict, evidence: dict, replays: list[dict]) -> list[dict]:
-        """The finding's status on every build after the one it was found on.
+        """The finding's status on each build where a fix could have been validated.
 
-        Each build's status is its LATEST observation of any kind: a fresh hunt that re-finds
-        the weakness counts exactly like a replay that reappears, so the order the hunt and the
-        replay happened to run in cannot decide it. Only a clean replay FAIL is ``held``; any
-        other outcome is ``inconclusive``, never a pass. The baseline is the build of the first
-        fresh sighting (and ``first_seen_sha`` when recorded); later sightings on it are just
-        re-confirmations. Returns ``[{sha, at, result}]`` in order of each build's first event.
+        A build is an immutable artifact, so the exploit succeeding on it ONCE (a fresh hunt or a
+        replay, in any order) means that build is not fixed: ``reappeared``. Otherwise a clean
+        replay FAIL is ``held``, and anything else is ``inconclusive``, never a pass. Listed are
+        builds that were replayed or first seen after validation began; the build it was found on
+        and builds merely re-hunted before any replay are sightings, not fix attempts. Returns
+        ``[{sha, at, result}]`` in order of each build's first event; ``at`` is its latest event.
         """
         fresh = [{"sha": s["sha"], "at": s["at"] or "", "outcome": "SUCCESS"}
                  for s in evidence.get("seen_on", []) if not s.get("replay")]
-        baseline = {fresh[0]["sha"]} if fresh else set()
+        replayed = [{**r, "at": r["at"] or ""} for r in replays]
+        if not replayed:
+            return []
+        validation_began = min(r["at"] for r in replayed)
+        origin = {fresh[0]["sha"]} if fresh else set()
         if finding.get("first_seen_sha"):
-            baseline.add(finding["first_seen_sha"])
-        events = sorted(fresh + [{**r, "at": r["at"] or ""} for r in replays], key=lambda e: e["at"])
-        latest: dict = {}
-        for e in events:
-            if e["sha"] not in baseline:
-                latest[e["sha"]] = e        # insertion order = first event; value = latest event
-        word = {"FAIL": "held", "SUCCESS": "reappeared"}
-        return [{"sha": sha, "at": e["at"], "result": word.get(e["outcome"], "inconclusive")}
-                for sha, e in latest.items()]
+            origin.add(finding["first_seen_sha"])
+        candidates = ({r["sha"] for r in replayed} | {s["sha"] for s in fresh if s["at"] >= validation_began}) - origin
+        by_build: dict[str, list[dict]] = {}
+        for e in sorted(fresh + replayed, key=lambda e: e["at"]):
+            if e["sha"] in candidates:
+                by_build.setdefault(e["sha"], []).append(e)
+        out = []
+        for sha, events in by_build.items():
+            outcomes = {e["outcome"] for e in events}
+            result = ("reappeared" if "SUCCESS" in outcomes
+                      else "held" if events[-1]["outcome"] == "FAIL" else "inconclusive")
+            out.append({"sha": sha, "at": events[-1]["at"], "result": result})
+        return out
 
     def _fix_validation(self, finding: dict, evidence: dict, replays: list[dict]) -> str:
         builds = self._fix_builds(finding, evidence, replays)
@@ -437,7 +445,7 @@ class DocumentationAgent:
                 lines.append(f"- `{b['sha']}` — {result} ({b['at'][:10]})")
             last = max(builds, key=lambda b: b["at"])
             if last["result"] != "held":
-                lines.append(f"- Latest build `{last['sha']}` is {last['result']}: not validated as fixed.")
+                lines.append(f"- Not validated as fixed (latest build `{last['sha']}`: {last['result']}).")
         else:
             lines.append("No harness replay on a fixed build is recorded in this store yet. See "
                          "`docs/findings/README.md` for the current fix disposition (a fix may be "

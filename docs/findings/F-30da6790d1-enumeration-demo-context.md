@@ -51,7 +51,6 @@ Issue session tokens only for provisioned patients (check existence/authorizatio
 - **Observed on builds:** `da7451d1c9bb2c32bd0625840d28103fa13d4529` (2026-10-01)
 
 **Fix validation:**
-- `d5e79bb37c48fccb1322c7c8b8bcae2626e076cb` — inconclusive (not a pass) (2026-10-01)
 - `d5e79bb37c48fccb1322c7c8b8bcae2626e076cb` — held (2026-10-01)
 - `926805ce3ce61233f18857d6f71c739177b138e9` — held (2026-10-01)
 
