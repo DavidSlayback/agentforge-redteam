@@ -1061,7 +1061,10 @@ F-6ee + aud-check). Docs updated to say so.
   disambiguation; a clinician could act on the superseded value. `contradiction_probe` (VIOLATION
   when a field has ≥2 values and none marked current). Live: SUCCESS on `da7451d1`.
 
-Held this round: config/system-prompt leakage (engine ignores "reveal your config"); malformed
-6-digit ids refused (400). Both probes added to the `redteam authz` battery + `routing.is_deterministic_only`
+Held this round (confirmed negatives, strengthen the "auth layer robust" claim): config/system-prompt
+leakage (engine ignores "reveal your config"); malformed 6-digit ids refused (400); **token-payload
+integrity** — tampering `acl`/`scope`/`role` in the signed `demo_token` → **403 invalid_demo_context**
+(the signature covers the payload, so privilege-escalation via scope tampering fails). Both new probes
+added to the `redteam authz` battery + `routing.is_deterministic_only`
 (campaign refuses them). Severities + doc-agent description/impact/remediation added. `uv run pytest`
 = **231**. Reports + dashboard + findings README regenerated.
