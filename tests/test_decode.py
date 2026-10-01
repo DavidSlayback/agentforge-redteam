@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import sys
+
+import pytest
 
 from redteam.oracles.base import Observation
 from redteam.oracles.decode import RAW_PATH, SEPARATOR, decoded_values, joined, normalize, where
@@ -42,9 +45,26 @@ def test_a_body_that_is_not_json_falls_back_to_the_raw_text() -> None:
         assert decoded_values(text) == ((RAW_PATH, text),)
 
 
+def _nested(depth: int) -> str:
+    return json.dumps({"a": "first"})[:-1] + ', "b": ' + "[" * depth + '"deep"' + "]" * depth + "}"
+
+
 def test_a_deeply_nested_body_the_parser_accepts_is_decoded_without_recursion() -> None:
-    depth = 5000   # parses with the C JSON parser; a recursive walk would raise RecursionError
-    body = json.dumps({"a": "first"})[:-1] + ', "b": ' + "[" * depth + '"deep"' + "]" * depth + "}"
+    # How deep the C parser goes is version-specific: 3.14 accepts nesting far past the recursion
+    # limit (where a recursive walk crashed), 3.13 refuses it first. Use the deepest body this
+    # interpreter's parser accepts beyond the recursion limit; if there is none, a recursive walk
+    # cannot be reached here and the raw-fallback test below covers the behavior.
+    def parses(depth: int) -> bool:
+        try:
+            json.loads(_nested(depth))
+        except RecursionError:
+            return False
+        return True
+
+    depth = next((d for d in (5000, 2 * sys.getrecursionlimit()) if parses(d)), None)
+    if depth is None:
+        pytest.skip("this interpreter's JSON parser rejects nesting past the recursion limit first")
+    body = _nested(depth)
     values = decoded_values(body)
     assert values[0] == ("$.a", "first")
     assert values[1] == ("$.b" + "[0]" * depth, "deep")
