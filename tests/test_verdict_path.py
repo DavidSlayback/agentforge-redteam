@@ -241,3 +241,37 @@ def test_oversized_input_replays_from_its_frozen_case(tmp_path: Path) -> None:
                                                   latency_budget_ms=5000.0),
                 _fixed(200, "ok", latency_ms=9000.0), _fixed(200, "ok", latency_ms=50.0),
                 "status", "status:/v1/follow-up-evidence:denial-of-service")
+
+
+# ---- guard: one verdict path ------------------------------------------------------------------
+
+_SRC = Path(__file__).resolve().parents[1] / "src" / "redteam"
+_VERDICT_OWNERS = (_SRC / "agents" / "judge", _SRC / "oracles")
+_GUARDED = {"Verdict", "OracleResult"}
+
+
+def _hand_built(source: str) -> list[int]:
+    """Line numbers where `source` constructs a Verdict or an OracleResult."""
+    import ast
+
+    lines = []
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Call):
+            fn = node.func
+            name = fn.id if isinstance(fn, ast.Name) else fn.attr if isinstance(fn, ast.Attribute) else None
+            if name in _GUARDED:
+                lines.append(node.lineno)
+    return lines
+
+
+def test_only_the_judge_package_and_the_oracles_build_verdicts() -> None:
+    # Every verdict comes from the Judge composing oracle results, or from judge.no_evidence.
+    assert _hand_built("v = judge.Verdict(VerdictOutcome.FAIL, ())\nr = OracleResult('x', 0, o)") == [1, 2]
+    offenders = {}
+    for path in _SRC.rglob("*.py"):
+        if any(owner in path.parents for owner in _VERDICT_OWNERS):
+            continue
+        hits = _hand_built(path.read_text(encoding="utf-8"))
+        if hits:
+            offenders[str(path.relative_to(_SRC))] = hits
+    assert offenders == {}, f"build verdicts through the Judge or judge.no_evidence: {offenders}"
