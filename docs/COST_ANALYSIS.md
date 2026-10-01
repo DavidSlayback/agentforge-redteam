@@ -50,7 +50,7 @@ generations and mutations were logged, so retries and the many 90 s timeouts are
 
 ### OWNER TO SUPPLY: actual USD dev spend
 
-Leave blank until filled; do not estimate. All of these are outside the repository.
+The owner has no billing export to supply and asked for a token-based estimate instead (section 2b). Rows below stay `OWNER` only where an estimate cannot stand in (plan fees, assistant spend, target-side spend, hosting). All of these are outside the repository.
 
 | # | Number needed | Where to find it | Already known (from the store) | USD |
 |---|---|---|---|---|
@@ -64,6 +64,41 @@ Leave blank until filled; do not estimate. All of these are outside the reposito
 | 8 | Average tokens per attacker call (input, output) | Row 1 tokens divided by row 1 calls from the provider usage export | needed for every projection below | OWNER |
 
 When rows 1 to 8 are filled, the projection formula in section 5 turns the call tables into dollars.
+
+### 2b. ESTIMATE: dev spend and projections from tokens (not billed amounts)
+
+Every figure here is an **estimate**. The ledger recorded no tokens (`cost_ledger.tokens` and `usd` are
+NULL), so token counts per call are **assumptions**, not measurements. Prices are from Alibaba Cloud
+Model Studio's published pricing, read 2026-10-01 (international/Singapore, input up to 32K tokens):
+`qwen-max` $1.2 in / $6 out per million tokens (50% off for batch), `deepseek-v4-pro` $2.4 in / $4.8
+out. The repo's model names (`qwen3.8-flash`, `qwen3.8-max`) are not on that page, so the attacker is
+priced at `qwen-max`, which makes the attacker line an upper bound if a cheaper flash tier was used.
+
+| Call type | Assumed tokens in / out | Model priced | USD per call |
+|---|---|---|---|
+| Attacker generation or mutation | 2,000 / 600 | `qwen-max` | 0.0060 |
+| Rubric judge | 2,500 / 300 | `deepseek-v4-pro` | 0.0074 |
+| Discovery review | 3,000 / 500 | `deepseek-v4-pro` | 0.0096 |
+
+**Dev spend (estimate):** 43 attacker calls (about $0.26) + 12 rubric verdicts (about $0.09) + 81
+discovery reviews (about $0.78) = **about $1.13**. Retries, timeouts and pre-store runs were not
+metered, so the plausible range is **$1 to $4** (a 3x pad). It excludes the coding assistant, hosting
+and target-side spend (rows 3, 5, 6 and 7), which this estimate does not cover.
+
+**Projection (estimate), using section 3's call counts and discovery at 25% of runs (assumption):**
+
+| Runs | 30% LLM-origin planning mix | 100% LLM-origin worst case |
+|---|---|---|
+| 100 | about $0.60 | about $1.30 |
+| 1,000 | about $6 | about $13 |
+| 10,000 | about $60 | about $130 |
+| 100,000 | about $600 | about $1,300 |
+
+Model spend is small at every scale, so cost is not what forces the architecture changes in section
+4; wall-clock time, the 90 s attacker timeouts and the single Executor are. The levers that matter
+at 100K are batch inference (50% off), running discovery on a sample, and deterministic-first
+routing, which keeps about 80% of runs at zero model calls. To replace the assumptions with fact,
+export tokens by model from the Bailian console (row 8) and rerun the arithmetic in section 5.
 
 ## 3. Per-run call model
 

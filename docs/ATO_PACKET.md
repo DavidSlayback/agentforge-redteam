@@ -58,9 +58,17 @@ existing artifacts; each row links to the authoritative source rather than resta
 - **Regression full-scan SLO:** `tests/test_slo.py` asserts hot queries are index-backed and a stub
   replay stays under 5 s (E12). Run locally; not verified in CI for the same reason. Measured
   overhead is in `docs/PERF.md`.
-- **Platform vulnerability scan: `not done`.** No dependency or code scan (for example `pip-audit`
-  or a SAST run) has been run on the platform itself; the self-checks here are the test suite and
-  the review rounds in `docs/PLAN.md`. An ATO reviewer should treat this item as open.
+- **Platform vulnerability scan: done 2026-10-01, run locally (no CI runner).**
+  - **Dependencies:** `pip-audit 2.10.1` over `uv export --no-hashes` (the locked set): no known
+    vulnerabilities. The platform package itself is skipped (not on PyPI).
+  - **Code (SAST):** `bandit 1.9.4` over `src/` (6,251 lines): 14 findings, 0 real. Eleven medium B608
+    (SQL built by f-string) all interpolate only `?` placeholder lists or table and column names set by
+    platform code, never request or model data (documented at `store.py`), so they are false positives;
+    low B105 (`authz_probe.py:247`) is the deliberate forged-token test value; low B101
+    (`recon/__init__.py:223`) is an `assert` narrowing a type. One high, B324 (SHA1 in `findings.py`),
+    is a non-security finding-id hash; it now passes `usedforsecurity=False` with ids unchanged.
+  - **Not covered:** secrets scanning, container or infrastructure scans, and the dashboard's HTML
+    output beyond the escaping test. Re-run before each release.
 - **Harness integrity:** the platform's own review loop (docs/PLAN.md 2026-09-30 review rounds)
   confirmed no false-finding / fake-pass path; the discovery tier emits candidates, never findings.
 - **Fail-closed posture:** missing evidence → INCONCLUSIVE (never a pass); provider blocks and

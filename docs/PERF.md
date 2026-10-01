@@ -47,6 +47,24 @@ build and date are not recorded in this file; it is not an LLM-attack load test.
 | CPU time / wall | 3.30 s / 19.83 s = 17% busy |
 | peak Python heap (tracemalloc) | 2.3 MB |
 
+**Re-run, 2026-10-01 (live, `agentforge-w2`, scratch store, this branch's code; the target's build was not
+read for this run).** `uv run python scripts/bench.py --target agentforge-w2 --n 100`, written to a
+scratch file because `--out docs/PERF.md` would overwrite this document. Same case type, so the same
+limits apply: this is not an LLM-attack load test.
+
+| Quantity | Value |
+|---|---|
+| cases | 100 |
+| total wall time | 14.78 s |
+| throughput | 6.8 cases/s (serial, single Executor) |
+| latency min / median / p95 / max | 119 / 137 / 148 / 1151 ms |
+| CPU time / wall | 2.48 s / 14.78 s = 17% busy |
+| peak Python heap (tracemalloc) | 2.9 MB |
+
+Both runs agree on the shape: 17% busy, so the loop is waiting on the network, and one slow first
+request (about 1.1 to 1.2 s) sets the max. Throughput differed by about 36% between runs, which
+is network variance, not a platform change. The bottleneck conclusion below is unchanged.
+
 **Gap against the PRD:** the PRD asks for 100 consecutive attack cases with agent orchestration
 latency, LLM call latency and exploit storage throughput. This run covers target-round-trip latency
 and Executor throughput. A run that also covers M2 needs a live attacker model and per-call timing
