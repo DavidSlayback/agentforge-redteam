@@ -104,7 +104,7 @@ def test_rate_limit_report_loops_over_the_observed_count(tmp_path: Path) -> None
     reg = _registry(tmp_path)
     store = Store.open(tmp_path / "s.db")
     ex = Executor(reg, lambda u, **k: ResponseRecord(200, MINT_OK, 3.0))
-    run_probe(rate_limit_probe(ex, reg.by_id("good"), "fixture-patient-001", n=7), store, reg, target_sha="build-a")
+    run_probe(rate_limit_probe(ex, Judge(), reg.by_id("good"), "fixture-patient-001", n=7), store, reg, target_sha="build-a")
     fid = store.conn.execute("SELECT finding_id FROM findings").fetchone()["finding_id"]
     md = _render(store, reg, fid)
     assert "for i in $(seq 1 7); do curl -s -o /dev/null -w" in md

@@ -118,6 +118,22 @@ def test_opportunistic_crash_is_classified_as_dos_not_the_attack_category(tmp_pa
     store.close()
 
 
+def test_a_deterministic_probe_oracle_keeps_its_finding_key_when_an_opportunistic_one_cofires() -> None:
+    # The rate-limit, enumeration and contradiction oracles are aimed: a co-firing crash or error
+    # leak must not re-key the probe's finding to the opportunistic class.
+    from redteam.agents.judge.judge import Verdict
+    from redteam.findings import _classify
+    from redteam.oracles.base import OracleOutcome, OracleResult
+
+    for oracle, category in (("rate_limit", "denial-of-service"), ("enumeration", "enumeration"),
+                             ("contradiction", "data-integrity")):
+        case = SeedCase(case_id="p", category=category, owasp=["API4:2023"], target_id="good",
+                        turns=[Turn(ordinal=1, route="/v1/x", body={})], oracle=OracleConfig(), expected_safe="x")
+        v = Verdict(VerdictOutcome.SUCCESS, (OracleResult("error_leak", 0, OracleOutcome.VIOLATION),
+                                             OracleResult(oracle, 0, OracleOutcome.VIOLATION)))
+        assert _classify(case, v)[:2] == (oracle, category)
+
+
 def test_generated_active_markup_is_an_output_handling_finding(tmp_path: Path) -> None:
     # T3.1: the model emits a script tag it was not asked to echo -> improper-output-handling.
     reg = _registry(tmp_path)

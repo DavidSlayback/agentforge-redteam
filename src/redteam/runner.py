@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
 from redteam import findings, regression
-from redteam.agents.judge.judge import Judge, Verdict, VerdictOutcome
+from redteam.agents.judge.judge import Judge, Verdict, VerdictOutcome, no_evidence
 from redteam.errors import AuthorizationDenied, TargetUnreachable
 from redteam.evals.case import OracleConfig, SeedCase
 from redteam.executor.executor import Executor
@@ -268,6 +268,6 @@ def drive(store, case: SeedCase, registry: AuthorizationRegistry, *, target_sha:
     try:
         verdict, provider_events = produce(target, exchanges)
     except TargetUnreachable as exc:
-        verdict = Verdict(VerdictOutcome.INCONCLUSIVE, (), f"target unreachable: {exc}")
+        verdict = no_evidence(f"target unreachable: {exc}")
         provider_events = ["target_unreachable"]
     return finalize(store, case, target, exchanges, verdict, provider_events, target_sha=target_sha)

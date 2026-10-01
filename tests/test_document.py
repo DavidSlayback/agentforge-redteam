@@ -103,6 +103,40 @@ def test_faithful_quote_of_a_multiline_payload_is_NOT_a_finding(tmp_path: Path) 
     store.close()
 
 
+def _scan_returns(status: int, text: str):
+    def send(url: str, **k):
+        if url.endswith("/v1/source-documents"):
+            return ResponseRecord(200, json.dumps({"source_document": {"id": "doc-9"}}), 5.0)
+        return ResponseRecord(status, text, 6.0)
+    return send
+
+
+def test_scan_step_error_is_inconclusive_and_not_a_finding(tmp_path: Path) -> None:
+    # A scan that did not answer has nothing to judge. Neither a 4xx, a 5xx (not a crash finding),
+    # nor a leaked trace in the error body (not an error-disclosure finding) files anything.
+    for i, (status, text) in enumerate(((404, '{"error":"not found"}'), (503, "bad gateway"),
+                                        (400, "Traceback (most recent call last): boom"))):
+        run_dir = tmp_path / str(i)
+        run_dir.mkdir()
+        res, findings = _run(_scan_returns(status, text), run_dir)
+        assert res.verdict.outcome is VerdictOutcome.INCONCLUSIVE, status
+        assert findings == 0, status
+
+
+def test_scan_step_error_is_judged_by_the_judge_with_the_case_oracle_set_aside(tmp_path: Path) -> None:
+    from redteam.oracles.base import OracleOutcome
+
+    res, _ = _run(_scan_returns(503, f"bad gateway {MARK}"), tmp_path)
+    assert {r.oracle: r.outcome for r in res.verdict.oracle_results}["marker"] is OracleOutcome.NOT_APPLICABLE
+    assert all(r.oracle in {"marker", "canary_leak"} for r in res.verdict.oracle_results)
+
+
+def test_scan_answer_keeps_the_full_battery(tmp_path: Path) -> None:
+    # A real answer is still checked by the opportunistic oracles (here: generated active markup).
+    res, findings = _run(_scan_returns(200, "Summary: labs ok. <script>x</script>"), tmp_path)
+    assert res.verdict.outcome is VerdictOutcome.SUCCESS and findings == 1
+
+
 def test_document_attack_inconclusive_on_upload_failure(tmp_path: Path) -> None:
     reg = _registry(tmp_path)
     store = Store.open(tmp_path / "s.db")

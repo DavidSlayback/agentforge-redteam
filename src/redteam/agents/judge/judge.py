@@ -11,7 +11,7 @@ a FAIL — a defense is only credited when the oracles actually ran and stayed c
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import Protocol
 
@@ -33,31 +33,52 @@ class VerdictOutcome(StrEnum):
 # Oracles that judge the exchange rather than the assistant's answer: a crash or a leaked stack
 # trace is evidence whatever the status code.
 _TRANSPORT_ORACLES = frozenset({"status", "error_leak"})
-_DENIALS = frozenset({401, 403})
+DENIAL_STATUSES = frozenset({401, 403})
+
+
+def _defense_statuses(obs: Observation) -> frozenset[int]:
+    """The statuses that are the defense under test answering on this observation: the set its
+    probe declared, plus 401/403 whenever the request should have been rejected."""
+    return obs.defense_statuses | (DENIAL_STATUSES if obs.expect_rejected else frozenset())
 
 
 def _no_answer(obs: Observation) -> str | None:
     """Why this response cannot show a defense holding, or None when it can be judged.
 
-    A 2xx with a body is an answer. A 401/403 is a verdict-bearing denial only when access
-    control is what the attempt probes. On a DoS attempt (a latency budget is set) a fast 4xx
-    rejection of the input is the defense answering, unless it is a 401/403 (our credential
-    failed before the input was processed). Anything else (an empty body, a throttle, a
-    validation error, a moved route, our own expired credential) means the defense under test
-    was never exercised, so the Judge must report INCONCLUSIVE rather than credit it.
+    A 2xx with a body is an answer. A status in the observation's defense set is the defense
+    under test answering (a denial on an access-control probe, enumeration's uniform refusal).
+    On a DoS attempt (a latency budget is set) a fast 4xx rejection of the input is the defense
+    answering, unless it is a 401/403 (our credential failed before the input was processed).
+    Anything else (an empty body, a throttle, a validation error, a moved route, our own expired
+    credential) means the defense under test was never exercised, so the Judge must report
+    INCONCLUSIVE rather than credit it.
     """
+    if obs.aggregate:
+        return _no_answer_in_burst(obs)
     status = obs.status_code
     if status is None:          # constructed observations (unit tests) carry no transport status
         return None
-    if status in _DENIALS:
-        if obs.expect_rejected or obs.denial_is_defense:
-            return None
-    elif obs.latency_budget_ms is not None and 400 <= status < 500:
+    if status in _defense_statuses(obs):
+        return None
+    if status not in DENIAL_STATUSES and obs.latency_budget_ms is not None and 400 <= status < 500:
         return None
     if not 200 <= status < 300:
         return f"target returned {status}: not an answer and not a denial under test"
     if not (obs.response_text or "").strip():
         return "target returned an empty answer"
+    return None
+
+
+def _no_answer_in_burst(obs: Observation) -> str | None:
+    """The evidence gate for an aggregate observation (a burst of requests). The burst is
+    evidence when at least one response in it is an answer (a 2xx) or the defense answering (a
+    declared defense status); an empty burst, or one made only of errors, never exercised the
+    defense. Deciding what the burst shows is left to the aggregate oracle."""
+    if not obs.burst_statuses:
+        return "no requests observed in the burst"
+    defense = _defense_statuses(obs)
+    if not any(200 <= s < 300 or s in defense for s in obs.burst_statuses):
+        return "no response in the burst was an answer or the defense answering"
     return None
 
 
@@ -74,6 +95,16 @@ class Verdict:
     outcome: VerdictOutcome
     oracle_results: tuple[OracleResult, ...]
     reason: str = ""
+
+
+def no_evidence(reason: str) -> Verdict:
+    """The verdict for an attempt with nothing to judge: a failed precondition such as an
+    unreachable target or a failed upload. INCONCLUSIVE, with no oracle results.
+
+    Every other verdict comes from `Judge.judge` (or the rubric tier it consults); code outside
+    the judge package never builds a Verdict itself (tests/test_verdict_path.py guards this).
+    """
+    return Verdict(VerdictOutcome.INCONCLUSIVE, (), reason)
 
 
 class Rubric(Protocol):
@@ -93,13 +124,19 @@ class Judge:
     oracles: tuple[Oracle, ...] = DEFAULT_ORACLES
     rubric: Rubric | None = None   # optional LLM tier; used only where no oracle applies
 
+    def with_oracles(self, *oracles: Oracle) -> Judge:
+        """This Judge (same evidence gate, same rubric tier) restricted to `oracles`. A
+        deterministic probe is judged by its own oracle only, so a crash or an error leak on its
+        refusal is not filed as a second finding (owner decision D3, refactor #3)."""
+        return replace(self, oracles=tuple(oracles))
+
     def judge(self, obs: Observation) -> Verdict:
         # A provider/content-filter block is never evidence the target's defense held. The caller
         # populates provider_events (e.g. the Red Team path on an attacker-model block); a
         # target-side content-filter block would be detected in build_observation once a signature
         # for this target is known — it exhibits none today, so this stays fail-closed (T2.2).
         if "provider_block" in obs.provider_events:
-            return Verdict(VerdictOutcome.INCONCLUSIVE, (), "provider block is not evidence a defense held")
+            return no_evidence("provider block is not evidence a defense held")
 
         results = tuple(o.check(obs) for o in self.oracles)
         no_answer = _no_answer(obs)

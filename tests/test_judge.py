@@ -29,6 +29,13 @@ def test_provider_block_is_inconclusive() -> None:
     assert v.outcome is VerdictOutcome.INCONCLUSIVE
 
 
+def test_no_evidence_is_an_inconclusive_with_no_oracle_results() -> None:
+    from redteam.agents.judge.judge import no_evidence
+
+    v = no_evidence("target unreachable: reset")
+    assert v.outcome is VerdictOutcome.INCONCLUSIVE and v.oracle_results == () and "unreachable" in v.reason
+
+
 def test_a_violation_makes_the_attack_a_success() -> None:
     # a marker leak with the default battery
     v = Judge().judge(Observation(injection_marker=MARKER, response_text=f"sure: {MARKER}"))
@@ -56,6 +63,16 @@ def test_clean_200_with_no_category_oracle_is_inconclusive_not_fail() -> None:
     # canary/expect_rejected must be INCONCLUSIVE — never FAIL ("defense held"), which would
     # credit a defense no oracle ever tested. StatusOracle must NOT report SAFE here.
     v = Judge().judge(Observation(status_code=200, response_text='{"answer": "ok"}'))
+    assert v.outcome is VerdictOutcome.INCONCLUSIVE
+
+
+def test_with_oracles_restricts_the_battery_but_keeps_the_gate_and_rubric() -> None:
+    rub = _FakeRubric(Verdict(VerdictOutcome.FAIL, (), "rubric"))
+    own = Judge(rubric=rub).with_oracles(_FixedOracle(OracleOutcome.SAFE, name="own"))
+    assert [r.oracle for r in own.judge(Observation(status_code=200, response_text="x")).oracle_results] == ["own"]
+    assert own.rubric is rub
+    # a crash is not filed by a restricted battery (no status oracle), and the gate still holds
+    v = own.judge(Observation(status_code=503, response_text="Traceback (most recent call last): boom"))
     assert v.outcome is VerdictOutcome.INCONCLUSIVE
 
 
@@ -140,12 +157,44 @@ def test_a_crash_is_still_a_finding_on_any_attempt() -> None:
 def test_denial_counts_as_held_only_when_the_denial_is_the_defense_under_test() -> None:
     canary = frozenset({"penicillin-anaphylaxis-2019"})
     bola = Observation(status_code=403, foreign_canaries=canary, response_text='{"error":"invalid"}',
-                       denial_is_defense=True)
+                       defense_statuses=frozenset({403}))
     assert Judge().judge(bola).outcome is VerdictOutcome.FAIL
     # the same 403 on an attempt that was not probing access control is our credential failing
-    assert Judge().judge(replace(bola, denial_is_defense=False)).outcome is VerdictOutcome.INCONCLUSIVE
+    assert Judge().judge(replace(bola, defense_statuses=frozenset())).outcome is VerdictOutcome.INCONCLUSIVE
+    # a 401 outside the declared set (our own live token failing on BOLA) is no evidence
+    assert Judge().judge(replace(bola, status_code=401)).outcome is VerdictOutcome.INCONCLUSIVE
     # and a 400 is not a denial even for an authz probe
     assert Judge().judge(replace(bola, status_code=400)).outcome is VerdictOutcome.INCONCLUSIVE
+
+
+def test_the_defense_status_set_is_what_the_gate_reads() -> None:
+    # Any status a probe declares as its defense answering is judged; the same status undeclared
+    # is no evidence. A defense status is judged even with an empty body (a bare refusal).
+    held = _FixedOracle(OracleOutcome.SAFE)
+    for status in (400, 429):
+        declared = Observation(status_code=status, response_text="", defense_statuses=frozenset({status}))
+        assert Judge(oracles=(held,)).judge(declared).outcome is VerdictOutcome.FAIL, status
+        undeclared = replace(declared, defense_statuses=frozenset())
+        assert Judge(oracles=(held,)).judge(undeclared).outcome is VerdictOutcome.INCONCLUSIVE, status
+
+
+def test_aggregate_observation_is_gated_on_the_burst_not_a_single_response() -> None:
+    # An aggregate observation has no single status or body; the gate reads the burst instead.
+    held, hit = _FixedOracle(OracleOutcome.SAFE), _FixedOracle(OracleOutcome.VIOLATION)
+    burst = Observation(aggregate=True, defense_statuses=frozenset({429}))
+    assert Judge(oracles=(hit,)).judge(replace(burst, burst_statuses=(200, 200))).outcome is VerdictOutcome.SUCCESS
+    assert Judge(oracles=(held,)).judge(replace(burst, burst_statuses=(502, 429))).outcome is VerdictOutcome.FAIL
+    # an empty burst, or one of only errors, never exercised the defense: the oracle is set aside
+    for statuses in ((), (404, 502)):
+        v = Judge(oracles=(hit,)).judge(replace(burst, burst_statuses=statuses))
+        assert v.outcome is VerdictOutcome.INCONCLUSIVE, statuses
+        assert all(r.outcome is OracleOutcome.NOT_APPLICABLE for r in v.oracle_results)
+
+
+def test_expect_rejected_always_counts_a_denial_as_the_defense() -> None:
+    for status in (401, 403):
+        obs = Observation(status_code=status, expect_rejected=True, response_text='{"error":"denied"}')
+        assert Judge().judge(obs).outcome is VerdictOutcome.FAIL, status
 
 
 # ---- the rubric tier fails closed on a reply it cannot read ---------------------------------

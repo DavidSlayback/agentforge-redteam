@@ -1207,3 +1207,29 @@ decisions; they cover most of the deferred items below.
 budget checked only between campaigns, echo/canary matching on raw JSON escapes, non-atomic
 migrations, `cmd_campaign` exit code, dashboard "recent" ordering, token in curl repros, docs-vs-code
 drift (ARCHITECTURE message bus, LLM07 claim, `regression` needing model keys).
+
+### 2026-10-01 — refactor #3: one verdict path (branch `refactor/one-verdict-path`)
+
+GitLab #3, implemented in the plan's commit order with the owner's decisions D1–D7. Every verdict
+now comes from the Judge composing oracle results, or from `judge.no_evidence` (unreachable
+target, failed upload). The rate-limit, enumeration and contradiction probes build an Observation
+and call the Judge restricted to their own oracle (`Judge.with_oracles`, D3), so they pass the
+shared evidence gate but a 5xx or a leaked trace is not a second finding. Oracle names are
+unchanged and now in the findings "aimed" set (D1). `defense_statuses` on the Observation replaces
+`denial_is_defense`; enumeration's uniform 400 stays "defense held" through it (D2). The rate-limit
+burst is an explicit aggregate observation (D4). Contradiction on an empty fact list is now
+INCONCLUSIVE, not FAIL (D5, own commit `29ac218`). Verdict reasons are the Judge's wording (D6);
+persisted oracle detail strings are unchanged, so reports read the same. Benign, discovery and
+recon untouched (D7). The document scan step goes through the Judge: a 2xx answer keeps the full
+battery, a non-answer gets the case's own oracles. A guard test fails on any Verdict or
+OracleResult built outside `agents/judge` and `oracles`.
+
+- **Deviations:** the new oracles live in `oracles/authz.py` beside grounding/disclosure and are
+  not in `DEFAULT_ORACLES` (D3 means no path needs them there). A 2xx other than 200 on the scan
+  step is now judged as an answer (was INCONCLUSIVE); the target answers 200. The DoS fast-4xx rule
+  stays a latency-budget rule in the Judge, not a defense-status set (DoS probe not migrated).
+- **Checks:** `uv run pytest -q` 307 passed (baseline 278: characterization, oracle, Judge and
+  guard tests added). `redteam calibrate` on a temp store: n=10 agree=10, κ=1.00 (still
+  `NOT VALIDATED` pending the human review flip). No store under `var/` touched.
+- **Follow-up (not done, optional in #3):** have the mint, grounding, disclosure and oversized-input
+  probes build their Observation through the shared builder.

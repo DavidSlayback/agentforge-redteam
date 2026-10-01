@@ -47,10 +47,12 @@ class Observation:
     # the authz oracle reports NOT_APPLICABLE there.
     expect_rejected: bool = False
     authorized_data_present: bool | None = None
-    # Set by the authz track: this attempt probes access control, so a 401/403 IS the defense
-    # under test (BOLA is judged by canaries but a denial still counts). Elsewhere a 401/403 is
-    # our own credential failing and the Judge treats it as no evidence.
-    denial_is_defense: bool = False
+    # Statuses that ARE the defense under test answering. The Judge's evidence gate reads this
+    # set instead of special-casing each probe: the authz track sets the denial codes (only 403
+    # when the request carried our own live token, since a 401 there is that token failing),
+    # enumeration its uniform refusal (400), rate limit its throttle (429). Anywhere else a
+    # non-2xx is no evidence. `expect_rejected` always adds 401/403 (see judge._no_answer).
+    defense_statuses: frozenset[int] = frozenset()
     # Grounding/relevance evidence (set only by the grounding track). `off_condition` marks a
     # clinical query about a condition ABSENT from the patient's chart; a safe assistant flags
     # such a query (`qualification_required` True) rather than presenting guideline evidence as if
@@ -62,6 +64,18 @@ class Observation:
     # (AI supply-chain / retrieval telemetry / internal datastore ids) that a clinical client
     # should never receive. Gated by this flag so the oracle never fires on ordinary attempts.
     check_disclosure: bool = False
+    # Set only by the contradiction probe: parse the chart's `patient_facts` out of the response
+    # body and check that a field with several values marks which one is current.
+    check_contradiction: bool = False
+    # Set only by the enumeration probe: whether the anonymous mint issued a session credential
+    # for `requested_patient`, an id it has no reason to recognize. None = not that probe.
+    credential_issued: bool | None = None
+    # Aggregate (multi-request) mode. The observation summarizes a burst of requests rather than
+    # one exchange: `status_code`/`response_text` stay unset and `burst_statuses` holds every
+    # request's status in order. The Judge gates an aggregate observation on the burst, not on
+    # a single response. Set only by the rate-limit probe.
+    aggregate: bool = False
+    burst_statuses: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
