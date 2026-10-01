@@ -121,7 +121,7 @@ coverage per category, pass/fail by category and build, resilience trend, open/r
 findings, run cost, and the ordered per-agent trace. `redteam evidence <attempt_id>` dumps
 the exact request/response behind any verdict. `redteam integrity` opens the store read-only
 and lists any attempt without a verdict or finding without a frozen regression case (exit 1 if
-it finds one).
+it finds one; exit 2 if a crashed write left a journal that a normal open must recover first).
 
 **5. Reports and approval.** `redteam document <finding_id>` renders an evidence-backed
 report. Critical/high reports are held until an operator runs

@@ -134,7 +134,8 @@ def replay(
         # attack into a plain message and falsely report the fix as holding.
         # The replay's attempt and this case's last_result are one unit: a fault leaves neither, so
         # the case's recorded result never refers to an attempt the store does not hold. (BEGIN is
-        # deferred and the execution path reads nothing, so no lock is held during target I/O.)
+        # deferred and the execution path reads nothing, so no lock is held during target I/O —
+        # pinned by test_a_replay_unit_touches_the_store_only_from_finalize_on.)
         with store.transaction():
             result = dispatch(replay_case, registry, executor, judge, store, minter, target_sha=target_sha)
             store.execute(

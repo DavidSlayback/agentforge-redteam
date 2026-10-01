@@ -25,7 +25,9 @@ the same on every supported Python version.
   write lock is held during I/O. Cost metering is its own unit and refuses to join another one.
 * ``Store.open_readonly`` + ``integrity()`` (``redteam integrity``) report half-written units
   left by older code: attempts without a verdict and findings without a frozen regression case.
-  That check never writes.
+  That check never writes; on a hot rollback journal (a crash mid-unit) it raises ``HotJournal``
+  rather than recover it, since only a normal open may roll the journal back.
+* ``record_action`` is the one-line unit for a single ``agent_actions`` audit row.
 """
 
 from __future__ import annotations

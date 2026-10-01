@@ -1222,3 +1222,9 @@ unit has a fault-injection sweep (fail on the Nth write, assert what is left in 
 Migrations verified on a fresh store and on copies of `var/redteam.db` (v8) and the three `var/`
 backups (v5/v7 → v8, no row loss). `redteam integrity` on a copy of `var/redteam.db`: 0 attempts
 without a verdict (of 171), 0 findings without a regression case (of 7). Canonical store untouched.
+**Review round 1 fixes (same branch).** The write rule is now enforced at the connection too (a
+sqlite3 authorizer denies INSERT/UPDATE/DELETE/DDL outside a scope or migration; statement-cache
+reuse is re-checked); `TransactionAborted` chains the inner cause; `redteam integrity` reports a hot
+journal clearly (exit 2, still read-only); single-action units use `store.record_action`; the scope
+depth counter became a flag. Replay keeps its unit open across target I/O, pinned by a trace test
+that each replay `BEGIN` is followed directly by finalize's first insert on every dispatch path.
