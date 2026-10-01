@@ -25,8 +25,11 @@ runs live against the authorized, owner-operated target with synthetic patients 
    $SHA = (Invoke-RestMethod https://dtstest.64.177.10.182.nip.io/agentforge-w2/health).git_sha
    $SHA
    ```
-4. **Dry-run the campaign step once** (step 5 below). It calls the attacker + judge models and
-   takes tens of seconds; you want to know its timing before recording.
+4. **Dry-run the campaign step once** (step 5 below) and the regression step (step 8). The
+   campaign calls the attacker model, which has taken up to about a minute for one generation and
+   timed out at the 90 s default three times in the last live run (`AGENTFORGE_REDTEAM_TIMEOUT`
+   raises it). `redteam regression` currently needs the three attacker-model variables from the
+   README set even though it makes no model call, so run it in the same configured shell.
 5. **Have these files open in tabs** so you can cut to them fast:
    `docs/architecture.html`, `authorization.yaml`,
    `docs/findings/F-831d4df407broken-authentication-demo-context.md`, and a browser tab ready for
@@ -70,7 +73,8 @@ runs live against the authorized, owner-operated target with synthetic patients 
 - **Say:** "No attacker model here — these are deterministic probes. The access-control checks
   hold: a token is bound to its patient, and mismatched or missing tokens get a 403 before any
   model runs. What does not hold is the demo token mint: it hands out a valid token to an
-  anonymous caller. That's the root of all three of our findings."
+  anonymous caller. That mint is the root of four of our seven findings, and the two critical ones
+  are risk-accepted by the owner for the demo."
 
 ### 5 · Multi-agent loop, live — 2:10–3:05
 - **Do:**
@@ -104,16 +108,21 @@ runs live against the authorized, owner-operated target with synthetic patients 
   ```
   uv run redteam regression --target agentforge-w2 --sha $SHA
   ```
-- **Say:** "Confirmed findings become frozen regression cases. The fix is on a branch in the
-  target repo. After it deploys, this same command re-runs against the new build — and a finding
-  only counts as fixed if the exact probe now returns a 401 or 429, not because the model got
-  quieter. That's the whole point: prove the fix, don't assume it."
+- **Say:** "Confirmed findings become frozen regression cases. Five of our seven are fixed on the
+  deployed build and the replay proves it: a finding only counts as held if the exact probe now
+  gets a clean refusal, not because the model got quieter. The two anonymous mints reappear on every
+  build on purpose, because the owner accepted that risk for the demo; the harness stays honest and
+  will not go green while an exploitable critical is live. That's the whole point: prove the fix,
+  don't assume it."
 
 ---
 
 ## Honest framing to say out loud
-- All three findings share one root cause: a demo-convenience token mint that shipped enabled.
-  Everything aimed at the LLM layer itself — prompt injection, cross-patient leakage — held.
+- Seven findings in two planes. Four trace to one root cause, a demo-convenience token mint that
+  shipped enabled (two critical, risk-accepted; two fixed). Three are AI-layer issues found by
+  deterministic probes and the discovery tier, all fixed. Prompt injection, direct and
+  document-borne, held in every recorded attempt, and the model-driven attack path has produced no
+  finding on its own.
 - Synthetic data only; no real PHI is ever processed.
 
 ## If something goes wrong on camera
