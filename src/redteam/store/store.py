@@ -15,10 +15,37 @@ from pathlib import Path
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
 _VERSION_RE = re.compile(r"^(\d+)_")
+# A statement's leading keyword, after any comments/whitespace. The runner owns the transaction,
+# so a migration file may not open, end, or nest one itself.
+_LEADING_COMMENTS = re.compile(r"^(?:\s+|--[^\n]*(?:\n|$)|/\*.*?\*/)*", re.DOTALL)
+_TXN_CONTROL = re.compile(r"(BEGIN|COMMIT|END|ROLLBACK|SAVEPOINT|RELEASE)\b", re.IGNORECASE)
+
+
+class MigrationError(RuntimeError):
+    """A migration file failed and was rolled back; the store is still at the previous version."""
 
 
 def _utcnow() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _statements(sql: str) -> list[str]:
+    """Split a script into complete statements (sqlite3 decides; trigger bodies stay whole)."""
+    out, buf = [], ""
+    for part in sql.split(";"):
+        buf += part + ";"
+        if sqlite3.complete_statement(buf):
+            out.append(buf)
+            buf = ""
+    return out
+
+
+def _check_no_transaction_control(path: Path, sql: str) -> None:
+    for stmt in _statements(sql):
+        body = _LEADING_COMMENTS.sub("", stmt, count=1)
+        if _TXN_CONTROL.match(body):
+            raise MigrationError(f"migration {path.name} contains transaction control "
+                                 f"({body.split()[0]}); the migration runner owns the transaction")
 
 
 class Store:
@@ -29,11 +56,17 @@ class Store:
 
     @classmethod
     def open(cls, path: str | Path, *, migrations_dir: Path = MIGRATIONS_DIR) -> "Store":
-        conn = sqlite3.connect(str(path))
+        # autocommit=True: sqlite3 never opens or commits a transaction on its own, so the store
+        # issues BEGIN/COMMIT/ROLLBACK itself and behaves the same on every Python version.
+        conn = sqlite3.connect(str(path), autocommit=True)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
         store = cls(conn)
-        store.migrate(migrations_dir)
+        try:
+            store.migrate(migrations_dir)
+        except BaseException:
+            conn.close()
+            raise
         return store
 
     def schema_version(self) -> int:
@@ -46,6 +79,9 @@ class Store:
         return int(row["v"])
 
     def migrate(self, migrations_dir: Path = MIGRATIONS_DIR) -> int:
+        """Apply each pending migration atomically: its statements and its version row commit
+        together, or the whole file rolls back (SQLite DDL is transactional) and
+        ``MigrationError`` names the file. The store then reopens at the previous version."""
         current = self.schema_version()
         for path in sorted(Path(migrations_dir).glob("*.sql")):
             match = _VERSION_RE.match(path.name)
@@ -54,12 +90,22 @@ class Store:
             version = int(match.group(1))
             if version <= current:
                 continue
-            self.conn.executescript(path.read_text(encoding="utf-8"))
-            self.conn.execute(
-                "INSERT INTO schema_version(version, name, applied_at) VALUES (?, ?, ?)",
-                (version, path.stem, _utcnow()),
-            )
-            self.conn.commit()
+            sql = path.read_text(encoding="utf-8")
+            _check_no_transaction_control(path, sql)
+            self.conn.execute("BEGIN")
+            try:
+                self.conn.executescript(sql)   # autocommit=True: no implicit COMMIT first
+                self.conn.execute(
+                    "INSERT INTO schema_version(version, name, applied_at) VALUES (?, ?, ?)",
+                    (version, path.stem, _utcnow()),
+                )
+                self.conn.execute("COMMIT")
+            except BaseException as exc:
+                if self.conn.in_transaction:
+                    self.conn.execute("ROLLBACK")
+                if isinstance(exc, sqlite3.Error):
+                    raise MigrationError(f"migration {path.name} failed and was rolled back: {exc}") from exc
+                raise
         return self.schema_version()
 
     def insert(self, table: str, row: dict[str, object]) -> None:

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from redteam.store.store import MIGRATIONS_DIR, Store
+from redteam.store.store import MIGRATIONS_DIR, MigrationError, Store
 
 EXPECTED_TABLES = {
     "schema_version", "campaigns", "attack_specs", "attempts", "verdicts",
@@ -82,13 +82,12 @@ def _columns(store: Store, table: str) -> set[str]:
     return {r[1] for r in store.conn.execute(f"PRAGMA table_info({table})")}
 
 
-@pytest.mark.xfail(strict=True, reason="migrations are not atomic yet (issue #1)")
 def test_failed_migration_rolls_back_and_the_store_reopens(tmp_path: Path) -> None:
     db = tmp_path / "s.db"
     mig = _migrations_with(tmp_path, "0009_two_statements.sql",
                            "ALTER TABLE findings ADD COLUMN probe TEXT;\n"
                            "ALTER TABLE no_such_table ADD COLUMN probe TEXT;\n")
-    with pytest.raises(Exception, match="0009_two_statements.sql"):
+    with pytest.raises(MigrationError, match="0009_two_statements.sql"):
         Store.open(db, migrations_dir=mig)
 
     # The store reopens at the previous version, with the first statement rolled back too.
@@ -102,4 +101,43 @@ def test_failed_migration_rolls_back_and_the_store_reopens(tmp_path: Path) -> No
                                                  encoding="utf-8")
     store = Store.open(db, migrations_dir=mig)
     assert store.schema_version() == 9 and "probe" in _columns(store, "findings")
+    store.close()
+
+
+def test_a_migration_may_not_control_the_transaction(tmp_path: Path) -> None:
+    db = tmp_path / "s.db"
+    mig = _migrations_with(tmp_path, "0009_own_txn.sql",
+                           "-- tries to commit its own work\nBEGIN;\n"
+                           "ALTER TABLE findings ADD COLUMN probe TEXT;\nCOMMIT;\n")
+    with pytest.raises(MigrationError, match="0009_own_txn.sql.*transaction control"):
+        Store.open(db, migrations_dir=mig)
+    store = Store.open(db)
+    assert store.schema_version() == 8 and "probe" not in _columns(store, "findings")
+    store.close()
+
+
+def test_a_trigger_body_is_not_mistaken_for_transaction_control(tmp_path: Path) -> None:
+    mig = _migrations_with(tmp_path, "0009_trigger.sql",
+                           "CREATE TRIGGER trg_noop AFTER INSERT ON findings BEGIN\n"
+                           "  UPDATE findings SET title = title WHERE 0;\nEND;\n")
+    store = Store.open(tmp_path / "s.db", migrations_dir=mig)
+    assert store.schema_version() == 9
+    store.close()
+
+
+def test_an_older_store_with_rows_migrates_forward_without_loss(tmp_path: Path) -> None:
+    db = tmp_path / "s.db"
+    old = tmp_path / "old"
+    old.mkdir()
+    for p in sorted(MIGRATIONS_DIR.glob("*.sql"))[:4]:   # 0001-0004: before 0005's five ALTERs
+        shutil.copy(p, old / p.name)
+    store = Store.open(db, migrations_dir=old)
+    assert store.schema_version() == 4
+    store.insert("attack_specs", {"spec_id": "s1", "category": "prompt-injection", "created_at": "2026-10-01"})
+    store.close()
+
+    store = Store.open(db)
+    assert store.schema_version() == 8
+    row = store.conn.execute("SELECT category, schema_version FROM attack_specs").fetchone()
+    assert (row["category"], row["schema_version"]) == ("prompt-injection", 1)
     store.close()
