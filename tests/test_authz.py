@@ -23,7 +23,7 @@ VICTIM_CANARY = "penicillin-anaphylaxis-2019"   # a victim-only value, len >= 12
 
 def _registry(tmp_path: Path) -> AuthorizationRegistry:
     p = tmp_path / "auth.yaml"
-    p.write_text("targets:\n  - id: good\n    origin: https://good.example\n    enabled: true\n", encoding="utf-8")
+    p.write_text("targets:\n  - id: good\n    origin: https://good.example\n    proof: test fixture\n    enabled: true\n", encoding="utf-8")
     return AuthorizationRegistry.load(p)
 
 
@@ -298,4 +298,27 @@ def test_rate_limit_without_a_429_or_a_clean_run_is_inconclusive(tmp_path: Path)
                                    Judge(), store, _target(reg), ATTACKER, n=5)
         assert res.verdict.outcome is VerdictOutcome.INCONCLUSIVE, statuses
     assert store.count("findings") == 0
+    store.close()
+
+
+def test_battery_records_an_unreadable_chart_as_a_coverage_gap(tmp_path: Path) -> None:
+    from redteam.authz_probe import run_authz_probes
+
+    reg = _registry(tmp_path)
+    store = Store.open(tmp_path / "s.db")
+
+    def sender(url, **kw):
+        patient = (kw.get("json") or {}).get("patient_uuid")
+        if patient == VICTIM:
+            return ResponseRecord(200, json.dumps({"patient_facts": [{"value": VICTIM_CANARY}]}), 1.0)
+        if patient == ATTACKER and "message" in (kw.get("json") or {}):
+            return ResponseRecord(429, '{"error":"rate_limited"}', 1.0)
+        return ResponseRecord(403, '{"error":"forbidden"}', 1.0)
+
+    results = run_authz_probes(registry=reg, executor=Executor(reg, sender), judge=Judge(), store=store,
+                               minter=FakeMinter(), target=_target(reg), attacker_patient=ATTACKER,
+                               victim_patient=VICTIM)
+    gap = store.conn.execute("SELECT reason FROM agent_actions WHERE action = 'coverage_gap'").fetchone()
+    assert gap is not None and "could not read the acting patient" in gap["reason"]
+    assert results and store.count("attempts") == len(results)   # the rest of the battery still ran
     store.close()

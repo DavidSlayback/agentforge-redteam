@@ -61,13 +61,21 @@ class AuthorizationRegistry:
         targets: dict[str, Target] = {}
         for entry in data.get("targets", []):
             origin = normalize_origin(entry["origin"])
+            enabled = entry.get("enabled", False)
+            # Fail closed on a hand-edited registry: `bool("false")` is True, so anything but a
+            # YAML boolean is refused rather than coerced, and an enabled target must carry the
+            # recorded proof of authorization AGENTS.md requires.
+            if not isinstance(enabled, bool):
+                raise ValueError(f"target {entry['id']!r}: enabled must be a YAML boolean, got {enabled!r}")
+            if enabled and not str(entry.get("proof") or "").strip():
+                raise ValueError(f"target {entry['id']!r}: an enabled target needs a recorded proof of authorization")
             targets[origin] = Target(
                 id=entry["id"],
                 origin=origin,
                 owner=entry.get("owner", ""),
                 proof=entry.get("proof", ""),
                 scope=tuple(entry.get("scope", [])),
-                enabled=bool(entry.get("enabled", False)),
+                enabled=enabled,
                 base_path=entry.get("base_path", "").rstrip("/"),
             )
         return cls(targets)

@@ -32,6 +32,7 @@ from redteam.agents.judge.judge import Judge, Verdict, VerdictOutcome
 from redteam.canary import discover_foreign_canaries
 from redteam.evals.case import AuthContext, OracleConfig, SeedCase, Turn
 from redteam.executor.authorization import AuthorizationRegistry
+from redteam.errors import TargetUnreachable
 from redteam.executor.executor import Executor
 from redteam.oracles.base import Observation
 from redteam.owasp import DOS_LATENCY_BUDGET_MS
@@ -609,15 +610,19 @@ def run_authz_probes(
     """
     routes = routes or ["/v1/follow-up-evidence"]
     canaries: list[str] = []
+    discovery_error = None
     if victim_patient:
-        canaries = discover_foreign_canaries(executor, minter, target, victim_patient, attacker_patient)
+        try:
+            canaries = discover_foreign_canaries(executor, minter, target, victim_patient, attacker_patient)
+        except TargetUnreachable as exc:   # the rest of the battery does not need canaries
+            discovery_error = str(exc)
 
     # The cross-patient (BOLA) probe is the point of this battery; if it cannot be built — no
-    # victim named, or no distinctive victim-only value to detect a leak with — record a visible
-    # coverage gap rather than silently omitting it and exiting green.
+    # victim named, a chart that could not be read, or no distinctive victim-only value to detect
+    # a leak with — record a visible coverage gap rather than silently omitting it and exiting green.
     if not (victim_patient and canaries):
-        reason = ("no --victim-patient given" if not victim_patient
-                  else "no distinctive victim-only canary discovered (cannot detect a leak)")
+        reason = ("no --victim-patient given" if not victim_patient else discovery_error
+                  or "no distinctive victim-only canary discovered (cannot detect a leak)")
         store.insert("agent_actions", {
             "ts": _now(), "agent": "authz", "action": "coverage_gap",
             "refs": json.dumps({"probe": "bola-cross-patient", "routes": routes,

@@ -6,10 +6,13 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+import pytest
+
 from redteam.agents.judge.judge import Judge
 from redteam.agents.redteam.agent import RedTeamAgent
 from redteam.campaign import run_campaign
 from redteam.canary import discover_foreign_canaries
+from redteam.errors import TargetUnreachable
 from redteam.executor.authorization import AuthorizationRegistry
 from redteam.executor.executor import Executor
 from redteam.executor.http_sender import ResponseRecord
@@ -18,7 +21,7 @@ from redteam.store.store import Store
 
 def _registry(tmp_path: Path) -> AuthorizationRegistry:
     p = tmp_path / "auth.yaml"
-    p.write_text("targets:\n  - id: good\n    origin: https://good.example\n    enabled: true\n", encoding="utf-8")
+    p.write_text("targets:\n  - id: good\n    origin: https://good.example\n    proof: test fixture\n    enabled: true\n", encoding="utf-8")
     return AuthorizationRegistry.load(p)
 
 
@@ -107,3 +110,17 @@ def test_mutate_overwrites_model_invented_canaries() -> None:
                 '"expected_safe":"scoped"}')
     child = RedTeamAgent().mutate(parent, ConstModel(invented))
     assert child.oracle.foreign_canaries == ["victim-only aortic note"]
+
+
+def test_a_failed_read_is_an_error_not_an_empty_chart(tmp_path: Path) -> None:
+    # If the acting read failed and counted as "no facts", every shared value would become a
+    # canary and a correct target serving the attacker's own chart would read as a leak.
+    reg = _registry(tmp_path)
+
+    def sender(url: str, **kw: object) -> ResponseRecord:
+        if kw["json"]["patient_uuid"] == "victim":
+            return ResponseRecord(200, _facts("Lisinopril 10 mg daily", "victim-only aortic note"), 3.0)
+        return ResponseRecord(429, '{"error":"rate_limited"}', 3.0)
+
+    with pytest.raises(TargetUnreachable, match="acting"):
+        discover_foreign_canaries(Executor(reg, sender), FakeMinter(), reg.by_id("good"), "victim", "acting")

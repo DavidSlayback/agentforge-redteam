@@ -47,7 +47,7 @@ def test_assert_authorized_returns_target_or_raises(tmp_path: Path) -> None:
         "targets:\n"
         "  - id: ok\n"
         "    origin: https://good.example\n"
-        "    enabled: true\n"
+        "    proof: test fixture\n    enabled: true\n"
         "  - id: off\n"
         "    origin: https://disabled.example\n"
         "    enabled: false\n",
@@ -59,3 +59,25 @@ def test_assert_authorized_returns_target_or_raises(tmp_path: Path) -> None:
         reg.assert_authorized("https://disabled.example/x")
     with pytest.raises(AuthorizationDenied):
         reg.assert_authorized("https://unknown.example")
+
+
+@pytest.mark.parametrize("entry", [
+    'enabled: "false"',                       # a quoted string is truthy; it must not enable a target
+    "enabled: yes-please",
+    "enabled: 1",
+])
+def test_enabled_must_be_a_yaml_boolean(tmp_path: Path, entry: str) -> None:
+    p = tmp_path / "auth.yaml"
+    p.write_text(f"targets:\n  - id: t\n    origin: https://t.example\n    proof: owned\n    {entry}\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="enabled"):
+        AuthorizationRegistry.load(p)
+
+
+def test_an_enabled_target_needs_recorded_proof(tmp_path: Path) -> None:
+    p = tmp_path / "auth.yaml"
+    p.write_text("targets:\n  - id: t\n    origin: https://t.example\n    enabled: true\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="proof"):
+        AuthorizationRegistry.load(p)
+    # a disabled entry may be listed without proof (it authorizes nothing)
+    p.write_text("targets:\n  - id: t\n    origin: https://t.example\n    enabled: false\n", encoding="utf-8")
+    assert not AuthorizationRegistry.load(p).authorized("https://t.example/x")

@@ -25,7 +25,7 @@ from redteam.executor.executor import Executor
 
 def _target(tmp_path: Path):
     p = tmp_path / "auth.yaml"
-    p.write_text("targets:\n  - id: good\n    origin: https://good.example\n    enabled: true\n", encoding="utf-8")
+    p.write_text("targets:\n  - id: good\n    origin: https://good.example\n    proof: test fixture\n    enabled: true\n", encoding="utf-8")
     reg = AuthorizationRegistry.load(p)
     return reg.by_id("good"), Executor(reg, lambda u, **k: None)
 

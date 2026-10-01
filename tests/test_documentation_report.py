@@ -27,7 +27,7 @@ MINT_OK = json.dumps({"demo_token": "eyJzY29wZSI6InJlYWQtYnJpZWZpbmcifQ.sig", "p
 def _registry(tmp_path: Path) -> AuthorizationRegistry:
     p = tmp_path / "auth.yaml"
     p.write_text("targets:\n  - id: good\n    origin: https://good.example\n    base_path: /app\n"
-                 "    enabled: true\n", encoding="utf-8")
+                 "    proof: test fixture\n    enabled: true\n", encoding="utf-8")
     return AuthorizationRegistry.load(p)
 
 

@@ -22,7 +22,7 @@ def registry(tmp_path: Path) -> AuthorizationRegistry:
         "targets:\n"
         "  - id: ok\n"
         "    origin: https://good.example\n"
-        "    enabled: true\n"
+        "    proof: test fixture\n    enabled: true\n"
         "  - id: off\n"
         "    origin: https://disabled.example\n"
         "    enabled: false\n",
