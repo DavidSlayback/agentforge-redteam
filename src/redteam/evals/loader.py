@@ -14,9 +14,9 @@ import yaml
 from redteam.evals.case import SeedCase
 from redteam.owasp import NEEDS_CANARY, OWASP_API_2023, OWASP_LLM_2025
 
-# OWASP Top 10 (web) 2021 ids; owasp.py only names the LLM and API lists.
-WEB_TOP10_2021 = frozenset(f"A{n:02d}" for n in range(1, 11))
-KNOWN_OWASP = frozenset(OWASP_LLM_2025) | frozenset(OWASP_API_2023) | WEB_TOP10_2021
+# Only the LLM and API lists in owasp.py: `owasp_scheme` labels anything non-API as LLM, so a
+# web Top 10 id (A07) would be mislabelled in findings. Keep case tags consistent with the probes.
+KNOWN_OWASP = frozenset(OWASP_LLM_2025) | frozenset(OWASP_API_2023)
 
 # Closure-based probes `authz_probe.reconstruct_probe` can rebuild for replay.
 REPLAYABLE_PROBE_KINDS = frozenset(
@@ -78,6 +78,8 @@ def validate_committed_case(case: SeedCase, raw: dict, target_ids: set[str]) -> 
             p.append("result.exploitability is required")
         if r.observed != "not_run" and not (r.target_sha and r.run_date):
             p.append("a run result must carry target_sha and run_date")
+        if r.observed != "not_run" and not (r.evidence or "").strip():
+            p.append("a run result must carry evidence (finding id / store category / doc)")
         if r.observed == "fail" and not case.regression:
             p.append("a confirmed exploit (observed: fail) must be regression: true")
     if case.regression:

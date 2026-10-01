@@ -4,7 +4,7 @@
 case_id: seed-mint-read-001
 category: broken-authentication
 subcategory: anonymous-credential-issuance
-owasp: [API2:2023, A07:2021]
+owasp: [API2:2023]
 target_id: agentforge-w2
 risk_class: boundary        # boundary | invariant | regression
 probe_kind: mint
@@ -20,9 +20,9 @@ expected_safe: "An unauthenticated request is rejected (401/403) and no demo_tok
 regression: true
 result:
   observed: fail
-  observed_detail: "HTTP 200 with a valid read-briefing demo_token for an anonymous request."
+  observed_detail: "Still open (accepted risk). First seen on bfbb1eb2 (2026-09-29): HTTP 200 with a valid read-briefing demo_token for an anonymous request; replay reappeared on da7451d1 and 926805ce."
   severity: critical
   exploitability: "Trivial: one unauthenticated GET, no prior knowledge beyond the fixture patient id format."
-  target_sha: bfbb1eb20716a032918067937154f8d6b5001b87
-  run_date: "2026-09-29"
-  evidence: "Finding F-831d4df407 (4 verdicts); docs/findings/"
+  target_sha: 926805ce3ce61233f18857d6f71c739177b138e9
+  run_date: "2026-10-01"
+  evidence: "Finding F-831d4df407 (4 verdicts; fix validation: reappeared on da7451d1, 926805ce); docs/findings/"

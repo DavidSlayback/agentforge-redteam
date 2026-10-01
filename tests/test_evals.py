@@ -139,6 +139,10 @@ _NEGATIVES = {
                                                   r.update(regression=False)),
     "regression with no probe/oracle to replay": lambda r: (r.pop("probe_kind"), r.update(oracle={})),
     "regression with unknown probe_kind": _set(("probe_kind",), "made-up"),
+    "regression turn with empty route": lambda r: r["turns"][0].update(route=""),
+    "run result with no evidence": _drop("result", "evidence"),
+    "run result with blank evidence": _set(("result", "evidence"), " "),
+    "web Top 10 tag the probes never carry": _set(("owasp",), ["API2:2023", "A07:2021"]),
 }
 
 

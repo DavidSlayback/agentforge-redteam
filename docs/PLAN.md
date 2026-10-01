@@ -1444,3 +1444,12 @@ the LLM/API lists in `owasp.py`.
 seed case; `seed-dos-oversized-001` needs a live probe run (operator-run) to get a result; case
 results for the first eight remain on `bfbb1eb2` (re-runs on later builds are in the ledger, not
 re-recorded per case).
+
+**Review fixes (same entry):** one result convention for all cases: `result` = latest validation
+outcome on the newest build with evidence, first-failure build/date in `observed_detail`. The
+rate-limit case is now `pass` on `926805ce` (first failed on `bfbb1eb2`); both mint cases stay `fail`
+and are re-pinned to `926805ce` (2026-10-01), since the findings record both mints as reappeared
+there (accepted risk). `A07:2021` was dropped from the mint cases (the live probes and findings carry
+only `API2:2023`, and `owasp_scheme` would mislabel a web id as LLM), and the loader no longer accepts
+web Top 10 ids. Added: non-empty `result.evidence` required for run results, and negatives for
+the empty-route check, missing/blank evidence, and the web-id tag. Both interpreters: 444 passed, 1 skipped.

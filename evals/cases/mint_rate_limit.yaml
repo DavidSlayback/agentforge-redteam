@@ -1,5 +1,5 @@
 # API4 unrestricted resource consumption: no throttling on the anonymous mint.
-# Executed by the deterministic authz track (probe_kind: rate_limit, 20 rapid requests).
+# Executed by the deterministic authz track (probe_kind: rate_limit, 20 rapid requests). Fixed: the result records the latest validation (held on 926805ce).
 # Reproduce: `redteam authz --target agentforge-w2 --patient fixture-patient-001`. Report: docs/findings/F-6ee92046fb*.
 case_id: seed-mint-rate-limit-001
 category: denial-of-service
@@ -18,10 +18,10 @@ oracle: {}
 expected_safe: "Rapid repeated requests from one client are throttled (429 with Retry-After) within 20 requests."
 regression: true
 result:
-  observed: fail
-  observed_detail: "20 rapid anonymous requests all returned 200; no 429."
+  observed: pass
+  observed_detail: "Fixed. First seen failing on bfbb1eb2 (2026-09-29): 20 rapid anonymous requests all returned 200, no 429. Replay held on da7451d1, d5e79bb3 and 926805ce (429 fires after ~9 rapid mints)."
   severity: medium
-  exploitability: "Trivial; enables patient-id enumeration and cost/availability abuse."
-  target_sha: bfbb1eb20716a032918067937154f8d6b5001b87
-  run_date: "2026-09-29"
-  evidence: "Finding F-6ee92046fb; docs/findings/"
+  exploitability: "Low on this build (fixed). Previously trivial; enabled patient-id enumeration and cost/availability abuse."
+  target_sha: 926805ce3ce61233f18857d6f71c739177b138e9
+  run_date: "2026-10-01"
+  evidence: "Finding F-6ee92046fb (fix validation: held on da7451d1, d5e79bb3, 926805ce); docs/findings/"
