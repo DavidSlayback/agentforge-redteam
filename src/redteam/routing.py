@@ -13,6 +13,9 @@ from __future__ import annotations
 AUTHZ_CATEGORIES = frozenset({"broken-object-authorization", "broken-authentication"})
 # Indirect injection is an upload+scan document flow rather than a direct HTTP turn.
 DOCUMENT_CATEGORIES = frozenset({"indirect-injection"})
+# Deterministic battery probes (run via `redteam authz`) whose verdict is a closure, not a
+# model-generated turn — the campaign must refuse these too, or it would mis-score them.
+DETERMINISTIC_PROBE_CATEGORIES = frozenset({"enumeration", "data-integrity"})
 
 
 def execution_kind(category: str) -> str:
@@ -29,4 +32,4 @@ def is_deterministic_only(category: str) -> bool:
     them: routing one through the model-driven path would exercise only StatusOracle and score a
     real authorization break as FAIL ('defense held') — a fake pass.
     """
-    return category in AUTHZ_CATEGORIES
+    return category in AUTHZ_CATEGORIES or category in DETERMINISTIC_PROBE_CATEGORIES

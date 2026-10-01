@@ -7,21 +7,23 @@ synthetic data only.
 
 | ID | Severity | Category | Component | Report | Fix status (build `da7451d1`) |
 |---|---|---|---|---|---|
-| [F-831d4df407](F-831d4df407broken-authentication-demo-context.md) | critical (prov.) | broken-authentication (API2) | `/v1/demo-context` (read mint) | pending_approval | **fixed, risk-accepted for W2** — `AGENTFORGE_DEMO_ACCESS=key` gate (target commit `b0a67e70`) verified on build `40cfbdff` (anon mint → **401**); flipped to `open` on `da7451d1` for W2 grading (commit `dcf033f1`) with rate-limit + aud-check kept. Flip to `key` to re-close |
-| [F-24b44c5180](F-24b44c5180broken-authentication-source-document-context.md) | critical (prov.) | broken-authentication (API2) | `/v1/source-document-context` (write mint) | pending_approval | **fixed, risk-accepted for W2** — same `key`-mode gate + build `40cfbdff`; `open` on `da7451d1` for W2 grading, compensating controls kept |
+| [F-831d4df407](F-831d4df407broken-authentication-demo-context.md) | critical (prov.) | broken-authentication (API2) | `/v1/demo-context` (read mint) | pending_approval | **risk-accepted (permanent)** — the `AGENTFORGE_DEMO_ACCESS=key` gate exists and was verified holding on build `40cfbdff` (anon mint → **401**), but **David has decided NOT to gate it** (the public UI fetches the mint; gating degrades physician experience). Deployed `open` on `da7451d1`; compensating controls: per-client rate limit (F-6ee, fixed) + aud-check. Documented accepted risk, not a pending fix |
+| [F-24b44c5180](F-24b44c5180broken-authentication-source-document-context.md) | critical (prov.) | broken-authentication (API2) | `/v1/source-document-context` (write mint) | pending_approval | **risk-accepted (permanent)** — same gate exists + verified on `40cfbdff`; left `open` by design (physician experience); same compensating controls |
+| [F-30da6790d1](F-30da6790d1-enumeration-demo-context.md) | medium (prov.) | **enumeration (API1/API3)** | `/v1/demo-context` (open mint) | pending_approval | **open** — the open mint issues a token for any well-formed `fixture-patient-NNN` incl. unprovisioned ids; the data route's 200-vs-404 then reveals which patients exist (`redteam authz`). Rate-limit slows but does not prevent it |
+| [F-e5d47ab7ea](F-e5d47ab7ea-data-integrity-follow-up-evidence.md) | medium (prov.) | **data-integrity (LLM09)** | `/v1/follow-up-evidence` | new | **open** — returns two active lisinopril doses (5mg + 10mg), neither marked `current` — contradictory active data a clinician could misread |
 | [F-6ee92046fb](F-6ee92046fbdenial-of-service-demo-context.md) | medium (prov.) | denial-of-service (API4/LLM10) | `/v1/demo-context` (no rate limit) | published | **fixed** — rate-limit deployed; regression `held` (429 fires after ~9 rapid mints) |
 | [F-990345a00f](F-990345a00f-misinformation-follow-up-evidence.md) | high (prov.) | **misinformation (LLM09)** | `/v1/follow-up-evidence` (grounding) | new | **open** — presents off-condition guidelines as applicable, unqualified (4/4 via `redteam grounding`) |
 | [F-ca9486ff1b](F-ca9486ff1b-information-disclosure-follow-up-evidence.md) | medium (prov.) | **information-disclosure (API3/LLM02)** | `/v1/follow-up-evidence` (retrieval telemetry) | new | **open** — clinical response leaks the AI supply chain (embedding/LLM provider+model names) + internal telemetry (`redteam disclosure`) |
 
 > Fix status is derived from `redteam regression` replay against the live `/health` build. On the
-> current build `da7451d1` (demo-access `open` for W2 grading) the two mints correctly read
-> REAPPEARED — the harness is honest about the *deployed* state. The fix is a deployment flag
-> (`AGENTFORGE_DEMO_ACCESS=key`), verified holding on build `40cfbdff` (anon mint → 401 — a manual
-> direct probe; no stored harness regression exists on `40cfbdff`, which is why the harness path
-> below is the way to capture graded "held" evidence). Flip the
-> flag to `key` and redeploy, and the SHA-change poller re-runs regression → both flip to `held`
-> (401). Until then they are **risk-accepted** per target commit `dcf033f1`, with the rate-limit
-> (F-6ee, fixed) and aud-check as compensating controls.
+> current build `da7451d1` the two mints read REAPPEARED — the harness is honest about the deployed
+> state. **The anonymous mint is a permanently accepted risk (owner decision 2026-09-30):** the
+> `AGENTFORGE_DEMO_ACCESS=key` gate exists and was verified holding on `40cfbdff` (manual probe,
+> anon mint → 401), but gating it degrades physician experience (the public UI fetches the mint from
+> the browser), so it stays `open` by design — documented accepted risk, not a pending fix.
+> Compensating controls: the per-client rate limit (F-6ee, fixed) + the aud-check that refuses W1
+> tokens. Enumeration (F-30da6790d1) is a facet of the same open mint; the rate limit slows but does
+> not prevent it.
 
 ## Three distinct root causes
 

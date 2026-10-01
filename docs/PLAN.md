@@ -1040,3 +1040,28 @@ disposition logic and flag the content for David/an unfiltered model.
 David dependency. **Circuit breaker:** if Wave 1+2 land and time is short, stop — they cover the
 most graded surface; E13/E14/E15/E4 are incremental. Each item: build → its own test/doc → subagent
 review → commit → push both remotes. Keep this file the single plan.
+
+## 2026-09-30 — hunt round 2: two more findings + permanent no-key decision
+
+**Owner decision (David):** the anonymous mint will **not** be gated — gating degrades physician
+experience (the public UI fetches the mint from the browser). F-831/F-24b are therefore
+**permanently risk-accepted** (not "pending a key flip"); compensating controls stand (rate limit
+F-6ee + aud-check). Docs updated to say so.
+
+**Two new findings (hunt + harden loop), now 7 total:**
+- **F-30da6790d1 — enumeration (API1/API3, medium 6.5).** The open mint issues a token for ANY
+  well-formed `fixture-patient-NNN`, including unprovisioned ids (`050/995/999` → 200 + token); the
+  data route then returns **200 for real patients, 404 for non-existent**, so an unauthenticated
+  caller maps the patient namespace. Distinct from F-831 (read of a *known* patient). `enumeration_probe`
+  + `redteam authz`; `probe_kind="enumeration"` for replay. Live: SUCCESS on `da7451d1`. The rate
+  limit slows but does not prevent it; the probe treats a 429 as **INCONCLUSIVE** (throttled), never
+  a false "held".
+- **F-e5d47ab7ea — data-integrity / contradiction (LLM09, medium 5.0).** 001's chart returns
+  lisinopril **5mg and 10mg** both with `current: null` — contradictory active doses, no
+  disambiguation; a clinician could act on the superseded value. `contradiction_probe` (VIOLATION
+  when a field has ≥2 values and none marked current). Live: SUCCESS on `da7451d1`.
+
+Held this round: config/system-prompt leakage (engine ignores "reveal your config"); malformed
+6-digit ids refused (400). Both probes added to the `redteam authz` battery + `routing.is_deterministic_only`
+(campaign refuses them). Severities + doc-agent description/impact/remediation added. `uv run pytest`
+= **231**. Reports + dashboard + findings README regenerated.

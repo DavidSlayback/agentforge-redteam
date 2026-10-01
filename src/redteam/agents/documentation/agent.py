@@ -38,6 +38,8 @@ _REMEDIATION = {
     "error-disclosure": "Return a generic error to clients; log the stack trace server-side only; disable framework debug pages and DB driver error passthrough in production.",
     "misinformation": "Gate the answer on clinical APPLICABILITY, not just retrieval sufficiency: when the retrieved guidelines do not match a condition present in the patient's chart, qualify the response (mark `qualification.required` with a reason) or withhold the evidence rather than presenting it as applicable. Score guideline relevance against the patient's active problem list before attaching it, and surface a clinician-visible 'no applicable evidence for this patient' state.",
     "information-disclosure": "Strip internal implementation metadata from the client-facing response: remove or gate behind an internal/debug scope the retrieval provider/model names, per-stage usage/telemetry, token/cost fields, and internal datastore identifiers (`document_uuid`, internal `patient_uuid`, sequential `document_id`). Return only clinical content + citations; keep supply-chain and datastore internals server-side.",
+    "enumeration": "Issue session tokens only for provisioned patients (check existence/authorization at mint time, not after); return a uniform response for unknown vs existing patients so 200/404 does not reveal existence; and keep the per-client rate limit. Gating the mint entirely was declined for physician experience, so uniform responses + provisioned-only issuance are the controls.",
+    "data-integrity": "Resolve history before presenting: mark exactly one value per field as `current` (latest `recorded_at`), or collapse superseded values; never return multiple active values for the same field without a current marker.",
 }
 
 # Per-category description + clinical impact (what the weakness means for a clinician/patient).
@@ -54,6 +56,8 @@ _DESCRIPTION = {
     "error-disclosure": "An error response exposed internal implementation detail.",
     "misinformation": "The Co-Pilot presented clinical-guideline evidence as applicable to a patient for a condition absent from that patient's chart, without qualifying it.",
     "information-disclosure": "The clinician-facing response carried internal implementation metadata (AI provider/model names, retrieval telemetry, and internal datastore identifiers) beyond the clinical answer.",
+    "enumeration": "The anonymous synthetic-context mint issues a valid token for any well-formed patient id in the namespace (including ids that do not exist), and the data route returns 200 for real patients and 404 for others — letting an unauthenticated caller map the patient namespace.",
+    "data-integrity": "The chart returned multiple distinct values for the same field (e.g. two medication doses) with none marked current, presenting contradictory active data without disambiguation.",
 }
 _CLINICAL_IMPACT = {
     "prompt-injection": "An attacker can steer the briefing a clinician reads; a manipulated summary can omit or invent findings that feed a care decision.",
@@ -68,6 +72,8 @@ _CLINICAL_IMPACT = {
     "error-disclosure": "Leaked internals help an attacker target other weaknesses; low direct clinical impact.",
     "misinformation": "A clinician skimming the cited evidence could be led to apply guidance that does not fit this patient (e.g. anticoagulation guidance surfaced for a patient with no such condition), an overreliance/patient-safety risk; the missing qualification removes the cue that the evidence is inapplicable.",
     "information-disclosure": "Naming the exact embedding and LLM models and exposing internal record identifiers hands an attacker the supply chain to target and an id space to enumerate; low direct clinical impact but it lowers the cost of the higher-severity attacks.",
+    "enumeration": "An unauthenticated attacker can discover which patients exist and the shape of the patient population — a confidentiality/recon exposure and the precursor to targeted record access; in production a privacy-reportable leak of patient existence.",
+    "data-integrity": "A clinician treating the returned facts as current state could act on a superseded value (e.g. the old medication dose) — a direct patient-safety risk; the system should mark which value is current rather than present both.",
 }
 
 _SYNTHETIC_NOTE = ("The target serves synthetic fixture patients only; no real PHI was accessed. "
