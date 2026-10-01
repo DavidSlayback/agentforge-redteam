@@ -65,7 +65,11 @@ happens in the code, not the intended message flow.
 
 Human-facing outputs: a **static dashboard** (`redteam dashboard`, one self-contained HTML file;
 no server and no login), a markdown report (`redteam report`), and a **CLI approval** path
-(`redteam approve`) that writes an approval record into the report row.
+(`redteam approve`) that writes an approval record into the report row. Both views answer the PRD's
+six observability questions from the store's tables, but on this commit their "recent agent
+actions" panels list the oldest actions first (`ORDER BY id LIMIT n`), and there is no per-run cost
+view or per-agent cost, and no time-ordered series (the by-build mix is keyed by build id and
+sorted by it, so it is a comparison across builds, not a chronological trend).
 
 ## Interaction diagram
 
@@ -90,7 +94,7 @@ flowchart LR
   Exec -- "response (call)" --> Judge
   Judge -- "verdict" --> Store
   Orch -. "Campaign row · actions" .-> Store
-  Store -- "SUCCESS → finding" --> Doc
+  Store -- "finding (operator runs redteam document)" --> Doc
   Doc --> Gate
   Recon -- "SHA change" --> Reg
   Store -- "frozen cases" --> Reg
