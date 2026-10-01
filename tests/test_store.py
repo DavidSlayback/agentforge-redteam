@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from redteam.store.store import MIGRATIONS_DIR, MigrationError, Store
+from redteam.store.store import MIGRATIONS_DIR, MigrationError, Store, TransactionAborted
 
 EXPECTED_TABLES = {
     "schema_version", "campaigns", "attack_specs", "attempts", "verdicts",
@@ -140,4 +140,85 @@ def test_an_older_store_with_rows_migrates_forward_without_loss(tmp_path: Path) 
     assert store.schema_version() == 8
     row = store.conn.execute("SELECT category, schema_version FROM attack_specs").fetchone()
     assert (row["category"], row["schema_version"]) == ("prompt-injection", 1)
+    store.close()
+
+
+# --- transaction scopes (issue #1) ---------------------------------------------------------
+# Committed state is read through a second, independent connection, the way any other process
+# (the dashboard, a later CLI run) would see it.
+
+def _action(store: Store, name: str) -> None:
+    store.insert("agent_actions", {"ts": "2026-10-01", "agent": "test", "action": name})
+
+
+def _committed_actions(db: Path) -> list[str]:
+    other = Store.open(db)
+    try:
+        return [r["action"] for r in other.conn.execute("SELECT action FROM agent_actions ORDER BY id")]
+    finally:
+        other.close()
+
+
+def test_a_bare_insert_commits_on_its_own(tmp_path: Path) -> None:
+    db = tmp_path / "s.db"
+    store = Store.open(db)
+    _action(store, "a")
+    assert not store.in_transaction
+    assert _committed_actions(db) == ["a"]
+    store.close()
+
+
+def test_writes_in_a_scope_commit_together_at_the_end(tmp_path: Path) -> None:
+    db = tmp_path / "s.db"
+    store = Store.open(db)
+    with store.transaction():
+        _action(store, "a")
+        _action(store, "b")
+        assert store.in_transaction
+        assert _committed_actions(db) == []        # nothing visible until the scope ends
+    assert _committed_actions(db) == ["a", "b"]
+    store.close()
+
+
+def test_an_exception_rolls_the_whole_scope_back(tmp_path: Path) -> None:
+    db = tmp_path / "s.db"
+    store = Store.open(db)
+    with pytest.raises(ValueError):
+        with store.transaction():
+            _action(store, "a")
+            store.execute("UPDATE agent_actions SET reason = 'x'")
+            raise ValueError("boom")
+    assert not store.in_transaction
+    assert _committed_actions(db) == []
+    with store.transaction():                     # the store is usable again afterwards
+        _action(store, "c")
+    assert _committed_actions(db) == ["c"]
+    store.close()
+
+
+def test_nested_scopes_flatten_into_the_outer_unit(tmp_path: Path) -> None:
+    db = tmp_path / "s.db"
+    store = Store.open(db)
+    with store.transaction():
+        _action(store, "outer")
+        with store.transaction():
+            _action(store, "inner")
+        assert _committed_actions(db) == []        # the inner scope did not commit on its own
+    assert _committed_actions(db) == ["outer", "inner"]
+    store.close()
+
+
+def test_a_failed_inner_scope_dooms_the_outer_unit_even_if_caught(tmp_path: Path) -> None:
+    db = tmp_path / "s.db"
+    store = Store.open(db)
+    with pytest.raises(TransactionAborted):
+        with store.transaction():
+            _action(store, "outer")
+            try:
+                with store.transaction():
+                    _action(store, "inner")
+                    raise ValueError("inner failure")
+            except ValueError:
+                pass                              # swallowing it must not commit half a unit
+    assert _committed_actions(db) == []
     store.close()

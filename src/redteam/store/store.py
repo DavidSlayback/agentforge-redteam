@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -23,6 +25,11 @@ _TXN_CONTROL = re.compile(r"(BEGIN|COMMIT|END|ROLLBACK|SAVEPOINT|RELEASE)\b", re
 
 class MigrationError(RuntimeError):
     """A migration file failed and was rolled back; the store is still at the previous version."""
+
+
+class TransactionAborted(RuntimeError):
+    """An inner transaction scope failed, so the enclosing unit of work was rolled back even
+    though the exception was caught before the outer scope ended."""
 
 
 def _utcnow() -> str:
@@ -53,6 +60,8 @@ class Store:
 
     def __init__(self, conn: sqlite3.Connection) -> None:
         self.conn = conn
+        self._depth = 0          # open transaction scopes; >0 means writes wait for the outer COMMIT
+        self._aborted = False    # an inner scope raised: the outer unit must not commit
 
     @classmethod
     def open(cls, path: str | Path, *, migrations_dir: Path = MIGRATIONS_DIR) -> "Store":
@@ -108,13 +117,59 @@ class Store:
                 raise
         return self.schema_version()
 
+    @property
+    def in_transaction(self) -> bool:
+        """True while a transaction scope is open on this store."""
+        return self._depth > 0
+
+    @contextmanager
+    def transaction(self) -> Iterator["Store"]:
+        """One unit of work: every write inside commits together at the end of the outermost
+        scope, or rolls back together if an exception escapes.
+
+        Nested scopes flatten: an inner scope joins the outer one and commits nothing itself.
+        If an inner scope raises, the whole unit is doomed even when a caller catches the
+        exception, and the outer scope rolls back and raises ``TransactionAborted`` instead
+        of committing half a unit.
+        """
+        if self._depth:
+            self._depth += 1
+            try:
+                yield self
+            except BaseException:
+                self._aborted = True
+                raise
+            finally:
+                self._depth -= 1
+            return
+        if self.conn.in_transaction:
+            raise RuntimeError("a transaction is already open on this connection outside a store scope")
+        self.conn.execute("BEGIN")
+        self._depth, self._aborted = 1, False
+        try:
+            yield self
+            if self._aborted:
+                raise TransactionAborted("an inner transaction scope failed; the unit was rolled back")
+            self.conn.execute("COMMIT")
+        except BaseException:
+            if self.conn.in_transaction:
+                self.conn.execute("ROLLBACK")
+            raise
+        finally:
+            self._depth, self._aborted = 0, False
+
     def insert(self, table: str, row: dict[str, object]) -> None:
-        """Insert one row. `table` and column names come from platform code, never user
-        input, so the interpolation here is not an injection surface."""
+        """Insert one row. Inside a transaction scope it commits with the scope; outside one it
+        commits on its own (autocommit). `table` and column names come from platform code,
+        never user input, so the interpolation here is not an injection surface."""
         columns = ", ".join(row)
         placeholders = ", ".join("?" for _ in row)
         self.conn.execute(f"INSERT INTO {table} ({columns}) VALUES ({placeholders})", tuple(row.values()))
-        self.conn.commit()
+
+    def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
+        """Run one write statement (an UPDATE, or an INSERT that ``insert`` cannot express).
+        Same commit rule as ``insert``. Reads use ``conn.execute`` directly."""
+        return self.conn.execute(sql, params)
 
     def count(self, table: str) -> int:
         return int(self.conn.execute(f"SELECT COUNT(*) AS c FROM {table}").fetchone()["c"])
