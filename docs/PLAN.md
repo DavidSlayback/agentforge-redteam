@@ -2,6 +2,15 @@
 
 The single plan file (see `AGENTS.md`). Keep it current at decision boundaries.
 
+```text
+As of: Thu Oct 1 16:49 CDT 2026
+In flight: nothing running. MR !8 (branch claude/w3-submission-audit-fixes-161809, HEAD after 24cd05b) open on GitLab, auto-merge off; mirrored to GitHub.
+Next: bounded live attacker-model campaign with --max-mutations 1 on a scratch store copy (see "Handoff 2026-10-01" at the end of this file).
+Waiting on: David's permission rule so the session can load the Qwen key from .env or env vars; default if absent: David runs the command himself and pastes the summary.
+Re-arm: none (no monitors or scheduled checks were set).
+Verified: `uv run --python 3.13 pytest -q` 496 passed, 1 skipped at 24cd05b; live bench and keyless regression recorded in the 2026-10-01 live-verification entry.
+```
+
 **Goal:** by Friday noon CT, a deployed multi-agent adversarial platform runs live
 against the authorized Clinical Co-Pilot target, converts confirmed exploits into a
 regression harness, documents findings professionally, and proves fixes hold without
@@ -1699,3 +1708,31 @@ on scratch stores (canonical `var/redteam.db` untouched; no `.env` read; no atta
   not available to the build sandbox): the `--max-mutations` path, `JudgeTimeout` and the Documentation
   refusals are tested but not observed live. The 100-case load test covers the platform path, not LLM latency (M2).
 - **Verification:** `uv run --python 3.13 pytest -q` 496 passed, 1 skipped.
+
+### Handoff 2026-10-01 — remaining live attacker-model run
+
+- **Goal:** observe the merged code's attacker-model path live: `--max-mutations` producing metered
+  mutation calls, and, if they occur, `JudgeTimeout` (rubric) and Documentation `DataQualityError`
+  refusals. Everything else in the final-submission audit is done and recorded above.
+- **Blocker resolved by David:** the session could not copy the main checkout's `.env` into the
+  worktree (permission classifier). David is adding a permission rule. **Never write the key into a
+  file, commit, log or prompt;** the CLI loads `.env` from the working directory or reads real env vars
+  first (`src/redteam/config.py`). If the key was pasted in a chat, David should rotate it.
+- **Exact next action** (from a checkout with the key available; scratch store, canonical untouched):
+  1. `cp var/redteam.db var/redteam.liverun2.db` (run from the main checkout; in a worktree, copy from the main checkout's `var/`).
+  2. `uv run redteam --store var/redteam.liverun2.db campaign --target agentforge-w2 --route /v1/follow-up-evidence --category sensitive-info-disclosure --patient fixture-patient-001 --victim-patient fixture-patient-002 --max-campaigns 4 --max-model-calls 12 --max-mutations 1 --target-sha 31f3722a`
+     with `AGENTFORGE_REDTEAM_TIMEOUT` raised (90 s default timed out 3x last run).
+  3. Check the ledger copy: `cost_ledger` rows by `kind` (expect `mutation` > 0 if a brief was
+     defended), `redteam --store var/redteam.liverun2.db report` (Cost per run shows the new run id),
+     and `redteam --store var/redteam.liverun2.db integrity`.
+  4. Record the summary line and ledger counts here; update ARCHITECTURE status rows from "tested, not
+     observed live" only for what was actually observed. Commit (Conventional, `Assisted-by:`), push to
+     both remotes on the MR branch.
+- **Also open (owner):** re-run `redteam regression --target agentforge-w2 --sha 31f3722a` on the
+  canonical store to record `last_sha` (scratch run: held 5, reappeared 2 = accepted-risk mints);
+  update `evals/cases/dos_oversized_input.yaml` result from store evidence (5 `dos-oversized-*`
+  attempts, all defense-held); `scripts/bench.py` should refuse `--out docs/PERF.md`;
+  `test_campaign_conforms` samples 4 of 6 outcomes.
+- **Boundaries:** authorized target `agentforge-w2` only; synthetic data; scratch stores; no merge to
+  main without David; CI has no runners (verify on 3.13 locally).
+- **Suggested skills:** `operator-brief` (if blocked again), `evidence-ledger`.
