@@ -62,3 +62,11 @@ def test_regression_rubric_dependent_case_is_inconclusive_not_a_crash_without_ke
     rc = main(["--store", str(db), "regression", "--target", "good", "--sha", "abc"])
     out = capsys.readouterr().out
     assert rc == 1 and "inconclusive=1" in out and "held=0" in out
+
+
+def test_regression_cli_reports_the_typed_error_code_on_reappearance(tmp_path: Path, monkeypatch, capsys) -> None:
+    db = _env(monkeypatch, tmp_path, "here is ZZ-MARK")
+    _freeze_case(db, OracleConfig(marker="ZZ-MARK"))
+    rc = main(["--store", str(db), "regression", "--target", "good", "--sha", "abc"])
+    assert rc == 1
+    assert "regression_detected" in capsys.readouterr().err

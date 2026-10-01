@@ -227,6 +227,12 @@ def cmd_regression(args: argparse.Namespace) -> int:
     registry, _target, executor, minter, judge = _wire_replay(args.target)
     store = Store.open(args.store)
     r = replay(store, registry, executor, judge, args.sha, minter=minter)
+    from redteam.errors import RegressionDetected
+    regression_error: RegressionDetected | None = None
+    try:
+        r.raise_if_regressed()
+    except RegressionDetected as exc:
+        regression_error = exc
     print(f"regression @ {args.sha}: held={len(r.held)} reappeared={len(r.reappeared)} "
           f"inconclusive={len(r.inconclusive)} unreplayable={len(r.unreplayable)} "
           f"-> {'OK' if r.ok else 'ATTENTION'}")
@@ -237,6 +243,8 @@ def cmd_regression(args: argparse.Namespace) -> int:
         print(f"  CROSS-CATEGORY REGRESSION: a fix for {sorted(r.fixed_categories)} coincided with "
               f"a reopening in {sorted(r.regressed_categories - r.fixed_categories)} — inspect the change")
     store.close()
+    if regression_error is not None:
+        print(f"{regression_error.code}: {regression_error}", file=sys.stderr)
     # Non-zero unless every frozen case held: a reappearance, or a critical that couldn't be
     # verified fixed (inconclusive/unreplayable), must fail the gate loudly.
     return 0 if r.ok else 1

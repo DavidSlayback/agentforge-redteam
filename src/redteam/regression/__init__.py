@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from redteam.agents.judge.judge import Judge, VerdictOutcome
 from redteam.evals.case import SeedCase
 from redteam.executor.authorization import AuthorizationRegistry
+from redteam.errors import RegressionDetected
 from redteam.executor.executor import Executor
 from redteam.store.store import Store
 
@@ -72,6 +73,15 @@ class RegressionReport:
     # open is already in `reappeared`; these two track what CHANGED on this build.
     newly_regressed: list[dict] = field(default_factory=list)  # {case_id, category, prior_sha}: held -> reappeared
     newly_fixed: list[dict] = field(default_factory=list)      # {case_id, category, prior_sha}: reappeared -> held
+
+    def raise_if_regressed(self) -> None:
+        """Surface a reappearance as the typed ``RegressionDetected`` (carrying the cases). An
+        inconclusive or unreplayable case is not a reappearance; ``ok`` already fails the gate."""
+        if self.reappeared:
+            ids = ", ".join(d["case_id"] for d in self.reappeared)
+            raise RegressionDetected(
+                f"{len(self.reappeared)} frozen exploit(s) reappeared on {self.target_sha}: {ids}",
+                reappeared=self.reappeared)
 
     @property
     def ok(self) -> bool:
