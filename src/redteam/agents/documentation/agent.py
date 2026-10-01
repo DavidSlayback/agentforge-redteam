@@ -377,30 +377,35 @@ class DocumentationAgent:
                 _CLINICAL_IMPACT.get(cat, "Assess against patient safety before triage."))
 
     @staticmethod
-    def _later_replays(finding: dict, evidence: dict, replays: list[dict]) -> list[dict]:
-        """Replays on a build other than the ones the finding was originally observed on.
+    def _fix_builds(finding: dict, evidence: dict, replays: list[dict]) -> list[dict]:
+        """The finding's status on every build after the one it was found on.
 
-        A baseline build is one where the finding was seen by a fresh (non-replay) attempt
-        before any replay ran on that build. A fresh re-sighting on a build that was already
-        being replayed (e.g. the authz battery re-run against a fix build) does not turn that
-        fix build into a baseline and hide its replays.
+        Each build's status is its LATEST observation of any kind: a fresh hunt that re-finds
+        the weakness counts exactly like a replay that reappears, so the order the hunt and the
+        replay happened to run in cannot decide it. Only a clean replay FAIL is ``held``; any
+        other outcome is ``inconclusive``, never a pass. The baseline is the build of the first
+        fresh sighting (and ``first_seen_sha`` when recorded); later sightings on it are just
+        re-confirmations. Returns ``[{sha, at, result}]`` in order of each build's first event.
         """
-        first_replay: dict = {}
-        for r in replays:
-            first_replay.setdefault(r["sha"], r["at"] or "")
-        seen = {s["sha"] for s in evidence.get("seen_on", [])
-                if not s.get("replay") and (s["sha"] not in first_replay or (s["at"] or "") < first_replay[s["sha"]])}
+        fresh = [{"sha": s["sha"], "at": s["at"] or "", "outcome": "SUCCESS"}
+                 for s in evidence.get("seen_on", []) if not s.get("replay")]
+        baseline = {fresh[0]["sha"]} if fresh else set()
         if finding.get("first_seen_sha"):
-            seen.add(finding["first_seen_sha"])
-        return [r for r in replays if r["sha"] not in seen]
+            baseline.add(finding["first_seen_sha"])
+        events = sorted(fresh + [{**r, "at": r["at"] or ""} for r in replays], key=lambda e: e["at"])
+        latest: dict = {}
+        for e in events:
+            if e["sha"] not in baseline:
+                latest[e["sha"]] = e        # insertion order = first event; value = latest event
+        word = {"FAIL": "held", "SUCCESS": "reappeared"}
+        return [{"sha": sha, "at": e["at"], "result": word.get(e["outcome"], "inconclusive")}
+                for sha, e in latest.items()]
 
     def _fix_validation(self, finding: dict, evidence: dict, replays: list[dict]) -> str:
-        later = self._later_replays(finding, evidence, replays)
-        if not later:
+        builds = self._fix_builds(finding, evidence, replays)
+        if not builds:
             return json.dumps({"sha": None, "result": None})
-        last = later[-1]
-        result = {"FAIL": "held", "SUCCESS": "reappeared"}.get(last["outcome"], "inconclusive")
-        return json.dumps({"sha": last["sha"], "result": result, "at": last["at"]})
+        return json.dumps(max(builds, key=lambda b: b["at"]))
 
     def _render_status(self, finding: dict, evidence: dict, report: dict | None, replays: list[dict]) -> str:
         lines = [f"- **Finding status:** `{finding.get('status') or 'new'}`"]
@@ -424,15 +429,15 @@ class DocumentationAgent:
                 f"`{s['sha'] or 'unrecorded'}` ({(s['at'] or '')[:10]})" for s in seen)
                 + (" (non-hex values are run labels recorded before `/health` git SHAs were passed, "
                    "not target commits)" if labels else ""))
-        later = self._later_replays(finding, evidence, replays)
+        builds = self._fix_builds(finding, evidence, replays)
         lines.append("\n**Fix validation:**")
-        if later:
-            word = {"FAIL": "held", "SUCCESS": "reappeared"}
-            for r in later:
-                lines.append(f"- `{r['sha']}` — {word.get(r['outcome'], 'inconclusive (not a pass)')} "
-                             f"({(r['at'] or '')[:10]})")
-            if not any(r["outcome"] == "FAIL" for r in later):
-                lines.append("- No replay has held yet: not fixed.")
+        if builds:
+            for b in builds:
+                result = "inconclusive (not a pass)" if b["result"] == "inconclusive" else b["result"]
+                lines.append(f"- `{b['sha']}` — {result} ({b['at'][:10]})")
+            last = max(builds, key=lambda b: b["at"])
+            if last["result"] != "held":
+                lines.append(f"- Latest build `{last['sha']}` is {last['result']}: not validated as fixed.")
         else:
             lines.append("No harness replay on a fixed build is recorded in this store yet. See "
                          "`docs/findings/README.md` for the current fix disposition (a fix may be "

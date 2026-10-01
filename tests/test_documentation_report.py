@@ -141,10 +141,65 @@ def test_status_is_honest_before_and_after_a_fix_replay(tmp_path: Path) -> None:
     reopened = Executor(reg, lambda u, **k: ResponseRecord(200, MINT_OK, 2.0))
     replay(store, reg, reopened, Judge(), "build-c")
     fixval = _render(store, reg, fid).split("**Fix validation:**")[1]
-    assert "`build-c` — reappeared" in fixval and "Not yet validated" not in fixval
+    assert "`build-c` — reappeared" in fixval and "No harness replay" not in fixval
+    assert "Latest build `build-c` is reappeared: not validated as fixed." in fixval
 
     # a fresh probe re-finds it on build-c after the replay: build-c stays a fix build
     run_mint_auth_probe(reg, reopened, Judge(), store, reg.by_id("good"), "fixture-patient-001", target_sha="build-c")
     fixval = _render(store, reg, fid).split("**Fix validation:**")[1]
-    assert "`build-c` — reappeared" in fixval and "Not yet validated" not in fixval
+    assert "`build-c` — reappeared" in fixval and "No harness replay" not in fixval
+    store.close()
+
+
+# ---- fix status = the latest observation on each build, whatever produced it ---------------
+
+VULN = lambda u, **k: ResponseRecord(200, MINT_OK, 2.0)            # noqa: E731
+FIXED = lambda u, **k: ResponseRecord(403, '{"error":"forbidden"}', 2.0)  # noqa: E731
+
+
+def _fix_status(store, reg, fid) -> tuple[dict, str]:
+    DocumentationAgent().document(store, fid, registry=reg)
+    row = store.conn.execute("SELECT fix_validation FROM vuln_reports WHERE finding_id = ?", (fid,)).fetchone()
+    return json.loads(row["fix_validation"]), _render(store, reg, fid).split("**Fix validation:**")[1]
+
+
+def test_a_fresh_hit_after_a_held_replay_means_the_build_is_not_fixed(tmp_path: Path) -> None:
+    reg, store, fid = _mint_finding(tmp_path)
+    replay(store, reg, Executor(reg, FIXED), Judge(), "build-b")
+    run_mint_auth_probe(reg, Executor(reg, VULN), Judge(), store, reg.by_id("good"), "fixture-patient-001",
+                        target_sha="build-b")
+    fixval, md = _fix_status(store, reg, fid)
+    assert fixval["sha"] == "build-b" and fixval["result"] == "reappeared"
+    assert "`build-b` — reappeared" in md and "`build-b` — held" not in md
+    store.close()
+
+
+def test_a_reappearing_replay_counts_even_after_a_fresh_hit_on_that_build(tmp_path: Path) -> None:
+    # The order the hunt and the replay happened to run in must not decide the status.
+    reg, store, fid = _mint_finding(tmp_path)
+    run_mint_auth_probe(reg, Executor(reg, VULN), Judge(), store, reg.by_id("good"), "fixture-patient-001",
+                        target_sha="build-b")
+    replay(store, reg, Executor(reg, VULN), Judge(), "build-b")
+    fixval, md = _fix_status(store, reg, fid)
+    assert fixval["sha"] == "build-b" and fixval["result"] == "reappeared"
+    assert "No harness replay" not in md
+    store.close()
+
+
+def test_an_inconclusive_replay_is_never_held(tmp_path: Path) -> None:
+    reg, store, fid = _mint_finding(tmp_path)
+    replay(store, reg, Executor(reg, lambda u, **k: ResponseRecord(429, "{}", 2.0)), Judge(), "build-b")
+    fixval, md = _fix_status(store, reg, fid)
+    assert fixval == {"sha": "build-b", "result": "inconclusive", "at": fixval["at"]}
+    assert "not validated as fixed" in md
+    store.close()
+
+
+def test_the_latest_build_decides_the_headline(tmp_path: Path) -> None:
+    reg, store, fid = _mint_finding(tmp_path)
+    replay(store, reg, Executor(reg, VULN), Judge(), "build-b")
+    replay(store, reg, Executor(reg, FIXED), Judge(), "build-c")
+    fixval, md = _fix_status(store, reg, fid)
+    assert fixval["sha"] == "build-c" and fixval["result"] == "held"
+    assert "`build-b` — reappeared" in md and "`build-c` — held" in md and "not validated" not in md
     store.close()
