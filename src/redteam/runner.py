@@ -127,6 +127,15 @@ def echoes_to_strip(payloads: Iterable[str], tokens: Iterable[str | None]) -> tu
         p for p in payloads if p and (len(p) >= _ECHO_MIN_LEN or any(tok in p for tok in toks))))
 
 
+def case_echoes(case: SeedCase) -> tuple[str, ...]:
+    """The echoes to strip for a turn-based case: the string values of its turn bodies. A target
+    that reflects the request must not let the model's own marker/canary (which it put in the
+    payload) count as one the assistant generated (T1.2). Auth fields are merged in send_turns,
+    not in the turn body, so only the case's own payload strings are stripped."""
+    payloads = [v for turn in case.turns for v in (turn.body or {}).values() if isinstance(v, str)]
+    return echoes_to_strip(payloads, [case.oracle.marker, *case.oracle.foreign_canaries])
+
+
 def strip_echo(text: str, echoes: Iterable[str]) -> str:
     """``text`` with every verbatim occurrence of each echo replaced by a space."""
     for echo in echoes:
@@ -182,13 +191,7 @@ def run_case(
         if case.auth is not None and minter is not None:
             auth_fields = minter.auth_fields(case.auth.patient_uuid)
         record = send_turns(target, executor, case.turns, exchanges, auth_fields=auth_fields, body_wins=False)
-        # Strip verbatim echoes of the attack input before judging: a target that reflects the
-        # request must not let the model's own marker/canary (which it put in the payload) count
-        # as one the assistant generated (T1.2). Auth fields are merged in send_turns, not in the
-        # turn body, so only the attack payload strings are stripped.
-        payloads = [v for turn in case.turns for v in (turn.body or {}).values() if isinstance(v, str)]
-        tokens = [case.oracle.marker, *case.oracle.foreign_canaries]
-        observation = build_observation(record, case.oracle, echoes=echoes_to_strip(payloads, tokens))
+        observation = build_observation(record, case.oracle, echoes=case_echoes(case))
         return judge.judge(observation), list(observation.provider_events)
 
     return drive(store, case, registry, target_sha=target_sha, produce=produce)

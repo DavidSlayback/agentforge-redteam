@@ -207,6 +207,68 @@ def test_the_builder_keeps_a_missing_body_missing() -> None:
     assert obs.response_text is None and obs.decoded is None
 
 
+# --- every probe strips echoes of its own request (owner decision 4) ---------------------------
+
+class _CapturingJudge:
+    """A Judge that records the observation it was shown (and judges it as the real one would)."""
+
+    def __init__(self) -> None:
+        self.seen: list[Observation] = []
+
+    def with_oracles(self, *oracles) -> _CapturingJudge:
+        return self
+
+    def judge(self, obs: Observation):
+        self.seen.append(obs)
+        return Judge().judge(obs)
+
+
+def _echo_what_was_sent(url: str, **k) -> ResponseRecord:
+    sent = (k.get("json") or {}).get("message") or (k.get("params") or {}).get("patient_uuid")
+    return ResponseRecord(200, json.dumps({"status": "ready", "echo": f'you sent "{sent}"'}), 2.0)
+
+
+def test_every_authorization_probe_strips_an_echo_of_what_it_sent(tmp_path: Path) -> None:
+    from redteam.authz_probe import (_OFF_CONDITION_QUERIES, build_authz_probes, contradiction_probe,
+                                     disclosure_probe, dos_probe, enumeration_probe, grounding_probe,
+                                     mint_probe, turn_probe)
+
+    reg = _registry(tmp_path)
+    target, ex, minter, patient = reg.by_id("good"), Executor(reg, _echo_what_was_sent), FakeMinter(), "fixture-patient-001"
+    cond, query = _OFF_CONDITION_QUERIES[0]
+    missing_token = next(c for c in build_authz_probes("good", patient) if "missing-token" in c.case_id)
+    builders = {
+        "mint": lambda j: mint_probe(ex, j, target, patient),
+        "grounding": lambda j: grounding_probe(ex, j, minter, target, patient, query=query, condition=cond),
+        "disclosure": lambda j: disclosure_probe(ex, j, minter, target, patient),
+        "dos": lambda j: dos_probe(ex, j, minter, target, patient, size=64),
+        "enumeration": lambda j: enumeration_probe(ex, j, target),
+        "contradiction": lambda j: contradiction_probe(ex, j, minter, target, patient),
+        "turn": lambda j: turn_probe(missing_token, ex, j, minter),
+    }
+    for kind, build in builders.items():
+        judge = _CapturingJudge()
+        build(judge).produce(target, [])
+        (obs,) = judge.seen
+        assert obs.decoded == (("$.status", "ready"), ("$.echo", 'you sent " "')), kind
+
+
+def test_a_denial_that_echoes_markup_from_the_request_is_not_an_output_handling_finding(tmp_path: Path) -> None:
+    from redteam.authz_probe import run_authz_case
+
+    message = 'a "quoted" <svg value'
+    case = SeedCase(case_id="dec-authz", category="broken-authentication", owasp=["API2:2023"], target_id="good",
+                    turns=[Turn(ordinal=1, route="/v1/follow-up-evidence", body={"message": message})],
+                    oracle=OracleConfig(expect_rejected=True), expected_safe="rejects")
+    reg = _registry(tmp_path)
+    store = Store.open(tmp_path / "s.db")
+    denial = json.dumps({"error": "invalid_demo_context", "input": message})
+    res = run_authz_case(case, reg, Executor(reg, lambda u, **k: ResponseRecord(403, denial, 2.0)), Judge(), store)
+    assert res.verdict.outcome is VerdictOutcome.FAIL                  # the denial held; the echo is not a hit
+    assert store.count("findings") == 0
+    store.close()
+
+
 # --- guard: one observation path ---------------------------------------------------------------
 
 _SRC = Path(__file__).resolve().parents[1] / "src" / "redteam"
