@@ -157,12 +157,31 @@ def test_a_crash_is_still_a_finding_on_any_attempt() -> None:
 def test_denial_counts_as_held_only_when_the_denial_is_the_defense_under_test() -> None:
     canary = frozenset({"penicillin-anaphylaxis-2019"})
     bola = Observation(status_code=403, foreign_canaries=canary, response_text='{"error":"invalid"}',
-                       denial_is_defense=True)
+                       defense_statuses=frozenset({403}))
     assert Judge().judge(bola).outcome is VerdictOutcome.FAIL
     # the same 403 on an attempt that was not probing access control is our credential failing
-    assert Judge().judge(replace(bola, denial_is_defense=False)).outcome is VerdictOutcome.INCONCLUSIVE
+    assert Judge().judge(replace(bola, defense_statuses=frozenset())).outcome is VerdictOutcome.INCONCLUSIVE
+    # a 401 outside the declared set (our own live token failing on BOLA) is no evidence
+    assert Judge().judge(replace(bola, status_code=401)).outcome is VerdictOutcome.INCONCLUSIVE
     # and a 400 is not a denial even for an authz probe
     assert Judge().judge(replace(bola, status_code=400)).outcome is VerdictOutcome.INCONCLUSIVE
+
+
+def test_the_defense_status_set_is_what_the_gate_reads() -> None:
+    # Any status a probe declares as its defense answering is judged; the same status undeclared
+    # is no evidence. A defense status is judged even with an empty body (a bare refusal).
+    held = _FixedOracle(OracleOutcome.SAFE)
+    for status in (400, 429):
+        declared = Observation(status_code=status, response_text="", defense_statuses=frozenset({status}))
+        assert Judge(oracles=(held,)).judge(declared).outcome is VerdictOutcome.FAIL, status
+        undeclared = replace(declared, defense_statuses=frozenset())
+        assert Judge(oracles=(held,)).judge(undeclared).outcome is VerdictOutcome.INCONCLUSIVE, status
+
+
+def test_expect_rejected_always_counts_a_denial_as_the_defense() -> None:
+    for status in (401, 403):
+        obs = Observation(status_code=status, expect_rejected=True, response_text='{"error":"denied"}')
+        assert Judge().judge(obs).outcome is VerdictOutcome.FAIL, status
 
 
 # ---- the rubric tier fails closed on a reply it cannot read ---------------------------------

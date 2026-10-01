@@ -33,26 +33,32 @@ class VerdictOutcome(StrEnum):
 # Oracles that judge the exchange rather than the assistant's answer: a crash or a leaked stack
 # trace is evidence whatever the status code.
 _TRANSPORT_ORACLES = frozenset({"status", "error_leak"})
-_DENIALS = frozenset({401, 403})
+DENIAL_STATUSES = frozenset({401, 403})
+
+
+def _defense_statuses(obs: Observation) -> frozenset[int]:
+    """The statuses that are the defense under test answering on this observation: the set its
+    probe declared, plus 401/403 whenever the request should have been rejected."""
+    return obs.defense_statuses | (DENIAL_STATUSES if obs.expect_rejected else frozenset())
 
 
 def _no_answer(obs: Observation) -> str | None:
     """Why this response cannot show a defense holding, or None when it can be judged.
 
-    A 2xx with a body is an answer. A 401/403 is a verdict-bearing denial only when access
-    control is what the attempt probes. On a DoS attempt (a latency budget is set) a fast 4xx
-    rejection of the input is the defense answering, unless it is a 401/403 (our credential
-    failed before the input was processed). Anything else (an empty body, a throttle, a
-    validation error, a moved route, our own expired credential) means the defense under test
-    was never exercised, so the Judge must report INCONCLUSIVE rather than credit it.
+    A 2xx with a body is an answer. A status in the observation's defense set is the defense
+    under test answering (a denial on an access-control probe, enumeration's uniform refusal).
+    On a DoS attempt (a latency budget is set) a fast 4xx rejection of the input is the defense
+    answering, unless it is a 401/403 (our credential failed before the input was processed).
+    Anything else (an empty body, a throttle, a validation error, a moved route, our own expired
+    credential) means the defense under test was never exercised, so the Judge must report
+    INCONCLUSIVE rather than credit it.
     """
     status = obs.status_code
     if status is None:          # constructed observations (unit tests) carry no transport status
         return None
-    if status in _DENIALS:
-        if obs.expect_rejected or obs.denial_is_defense:
-            return None
-    elif obs.latency_budget_ms is not None and 400 <= status < 500:
+    if status in _defense_statuses(obs):
+        return None
+    if status not in DENIAL_STATUSES and obs.latency_budget_ms is not None and 400 <= status < 500:
         return None
     if not 200 <= status < 300:
         return f"target returned {status}: not an answer and not a denial under test"

@@ -28,7 +28,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 
-from redteam.agents.judge.judge import Judge, Verdict, VerdictOutcome
+from redteam.agents.judge.judge import DENIAL_STATUSES, Judge, Verdict, VerdictOutcome
 from redteam.canary import discover_foreign_canaries
 from redteam.errors import TargetUnreachable
 from redteam.evals.case import AuthContext, OracleConfig, SeedCase, Turn
@@ -138,9 +138,9 @@ def _build_observation(record, case: SeedCase) -> Observation:
     base = build_observation(record, case.oracle)
     # A denial is the access-control defense answering, except a 401 on a probe that carries our
     # own live token (BOLA): that is the token failing, and scope was never tested.
-    own_token_failed = case.auth is not None and record.status_code == 401
+    defense = frozenset({403}) if case.auth is not None else DENIAL_STATUSES
     return replace(base, expect_rejected=case.oracle.expect_rejected,
-                   authorized_data_present=_data_present(record.text), denial_is_defense=not own_token_failed)
+                   authorized_data_present=_data_present(record.text), defense_statuses=defense)
 
 
 def turn_probe(case: SeedCase, executor: Executor, judge: Judge, minter=None) -> Probe:

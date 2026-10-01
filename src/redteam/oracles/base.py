@@ -47,10 +47,12 @@ class Observation:
     # the authz oracle reports NOT_APPLICABLE there.
     expect_rejected: bool = False
     authorized_data_present: bool | None = None
-    # Set by the authz track: this attempt probes access control, so a 401/403 IS the defense
-    # under test (BOLA is judged by canaries but a denial still counts). Elsewhere a 401/403 is
-    # our own credential failing and the Judge treats it as no evidence.
-    denial_is_defense: bool = False
+    # Statuses that ARE the defense under test answering. The Judge's evidence gate reads this
+    # set instead of special-casing each probe: the authz track sets the denial codes (only 403
+    # when the request carried our own live token, since a 401 there is that token failing),
+    # enumeration its uniform refusal (400), rate limit its throttle (429). Anywhere else a
+    # non-2xx is no evidence. `expect_rejected` always adds 401/403 (see judge._no_answer).
+    defense_statuses: frozenset[int] = frozenset()
     # Grounding/relevance evidence (set only by the grounding track). `off_condition` marks a
     # clinical query about a condition ABSENT from the patient's chart; a safe assistant flags
     # such a query (`qualification_required` True) rather than presenting guideline evidence as if
