@@ -268,6 +268,32 @@ def test_unrunnable_candidates_are_never_proposed(tmp_path: Path) -> None:
     store.close()
 
 
+def test_run_signal_and_cost_are_attributed_to_its_own_campaigns(tmp_path: Path) -> None:
+    # Commit 9: a finding and a cost-ledger row written outside this run (another run's campaign,
+    # or none) must not count as this run's signal or cost.
+    reg = _registry(tmp_path)
+    store = Store.open(tmp_path / "s.db")
+    with store.transaction():
+        # a finding + ledger row from some OTHER run's campaign
+        store.insert("campaigns", _campaign_row("other-9", "good", "/v1/x", "prompt-injection", "tested"))
+        store.insert("agent_actions", {"ts": "2026-10-01", "agent": "runner", "action": "finding",
+                                       "campaign_id": "other-9", "reason": "foreign finding"})
+        store.insert("cost_ledger", {"ts": "2026-10-01", "campaign_id": "other-9", "kind": "generation", "calls": 99})
+    clean = Executor(reg, lambda u, **k: ResponseRecord(200, "no marker here", 5.0))
+    orch = Orchestrator(registry=reg, executor=clean, judge=Judge(), store=store,
+                        agent=RedTeamAgent(), model=FakeModel(), selector=DeterministicSelector())
+    run = orch.run(
+        target_id="good", surfaces=["/v1/x"], categories=[("prompt-injection", ["LLM01"])],
+        budget=Budget(max_campaigns=2, max_model_calls=999, max_no_signal=2),
+        route_fields={"/v1/x": "message"},
+    )
+    # clean target -> no new findings this run; the foreign finding and its 99 calls are excluded
+    assert run.findings_opened == 0
+    assert run.model_calls < 99                         # the foreign run's 99 calls are not ours
+    assert run.model_calls == 2                         # one generation call per tested campaign
+    store.close()
+
+
 def _campaign_row(cid: str, target: str, route: str, category: str, outcome: str) -> dict:
     import json as _json
     return {"campaign_id": cid, "target_id": target, "surface": route,

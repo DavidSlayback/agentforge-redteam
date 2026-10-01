@@ -27,7 +27,6 @@ from redteam.agents.redteam.model import ModelClient
 from redteam.campaign import run_campaign
 from redteam.executor.authorization import AuthorizationRegistry
 from redteam.executor.executor import Executor
-from redteam.observability.queries import cost_summary
 from redteam.store.store import Store
 
 
@@ -40,6 +39,7 @@ class OrchestratorRun:
     campaigns: int = 0
     tested: int = 0
     findings_opened: int = 0
+    model_calls: int = 0
     halt_reason: str = ""
     decisions: list[dict] = field(default_factory=list)
     run_id: str = ""
@@ -59,6 +59,27 @@ class Orchestrator:
 
     def _record(self, action: str, refs: dict, reason: str, campaign_id: str | None = None) -> None:
         self.store.record_action("orchestrator", action, refs, reason, campaign_id=campaign_id)
+
+    def _campaign_findings(self, campaign_id: str) -> int:
+        """New findings this campaign produced, by its campaign id (the 'finding' audit action
+        the runner stamps on promotion) rather than a global findings-count delta that two
+        overlapping runs would mis-attribute."""
+        r = self.store.conn.execute(
+            "SELECT COUNT(*) AS c FROM agent_actions WHERE action = 'finding' AND campaign_id = ?",
+            (campaign_id,)).fetchone()
+        return int(r["c"])
+
+    def _campaign_calls(self, campaign_id: str) -> int:
+        r = self.store.conn.execute(
+            "SELECT COALESCE(SUM(calls), 0) AS c FROM cost_ledger WHERE campaign_id = ?",
+            (campaign_id,)).fetchone()
+        return int(r["c"])
+
+    def _run_findings(self, campaign_ids: list[str]) -> int:
+        return sum(self._campaign_findings(cid) for cid in campaign_ids)
+
+    def _run_calls(self, campaign_ids: list[str]) -> int:
+        return sum(self._campaign_calls(cid) for cid in campaign_ids)
 
     def _begin_campaign(self, campaign_id: str, brief: dict, budget: Budget, meta: dict,
                         target_sha: str | None) -> None:
@@ -103,7 +124,6 @@ class Orchestrator:
         gov = Governor(budget)
         run = OrchestratorRun(run_id=uuid.uuid4().hex[:8])
         call_budget = CallBudget(budget.max_model_calls)   # spans the run; caps every metered call
-        findings_start = self.store.count("findings")
         seq = 0
         excluded: set[tuple[str, str]] = set()   # briefs retired this run after repeated untested
         untested_streak: Counter = Counter()
@@ -131,8 +151,6 @@ class Orchestrator:
             self._begin_campaign(campaign_id, chosen.brief, budget,
                                  {"inputs": chosen.inputs, "selector": meta}, target_sha)
 
-            before_findings = self.store.count("findings")
-            before_calls = cost_summary(self.store)["calls"]
             summary = run_campaign(
                 [chosen.brief], registry=self.registry, executor=self.executor, judge=self.judge,
                 store=self.store, agent=self.agent, model=self.model, minter=self.minter,
@@ -151,10 +169,11 @@ class Orchestrator:
                     self._record("exclude_brief", {"brief": chosen.brief},
                                  f"retired for this run after {untested_streak[pair]} untested outcomes "
                                  f"(last: {outcome})", campaign_id=campaign_id)
-            produced = self.store.count("findings") > before_findings
-            # Cost is real model calls from the ledger (generation + mutation + rubric).
-            calls_delta = cost_summary(self.store)["calls"] - before_calls
-            gov.record(outcome=outcome, produced_finding=produced, model_calls=calls_delta)
+            # Signal and cost are attributed to THIS campaign's id, not a global table delta, so
+            # a finding or ledger row from an overlapping run is never miscounted here (commit 9).
+            produced = self._campaign_findings(campaign_id) > 0
+            gov.record(outcome=outcome, produced_finding=produced,
+                       model_calls=self._campaign_calls(campaign_id))
             run.decisions.append({"brief": chosen.brief, "outcome": outcome,
                                   "outcomes": dict(summary.outcomes), "new_finding": produced})
             if summary.budget_halted:
@@ -162,11 +181,13 @@ class Orchestrator:
                 break
 
         run.campaigns = gov.campaigns
-        run.findings_opened = self.store.count("findings") - findings_start
+        run.findings_opened = self._run_findings(run.campaign_ids)
+        run.model_calls = self._run_calls(run.campaign_ids)
         run.halt_reason = run.halt_reason or gov.halt_reason() or "unknown"
         self._record(
             "halt",
-            {"campaigns": run.campaigns, "tested": run.tested, "findings_opened": run.findings_opened},
+            {"campaigns": run.campaigns, "tested": run.tested, "findings_opened": run.findings_opened,
+             "model_calls": run.model_calls},
             run.halt_reason,
         )
         return run
