@@ -110,16 +110,16 @@ artifact), `SAFETY` (trust boundary), `SCHEDULE` (checkpoint). Status: `not star
 | ID | Source | Requirement | Class | Status |
 |---|---|---|---|---|
 | E1 | p12 | OWASP mapping on **every** case: LLM Top 10 + classic web risks (broken access control, injection, insecure design, vuln components, auth failures, logging failures, SSRF) | GRADED | **DONE** — every eval case carries `owasp:`; THREAT_MODEL "OWASP coverage (E1)" table maps A01/A03/A04/A06/A07/A09/A10 + LLM/API classes with tested-or-why-not |
-| E2 | p12 | Every case exercises a boundary, invariant, or regression risk; static payload lists insufficient | OPTIONAL | not started |
-| E3 | p12 | Build-vs-configure decision records (Burp/ZAP/Semgrep/garak/commercial) — required Architecture Defense deliverable | OPTIONAL | not started |
+| E2 | p12 | Every case exercises a boundary, invariant, or regression risk; static payload lists insufficient | OPTIONAL | **DONE** — boundary/invariant mapping table in `evals/README.md` (E2 section) |
+| E3 | p12 | Build-vs-configure decision records (Burp/ZAP/Semgrep/garak/commercial) — required Architecture Defense deliverable | OPTIONAL | **DONE** — `docs/adr/0005-build-vs-configure.md` (per-tool matrix) |
 | E4 | p12 | Triage exercise: simulated scan report ≥10 findings across critical/high/medium/false-positive; validate/remediate/defer/document each | OPTIONAL | not started |
 | E5 | p12–13 | Versioned JSON-Schema contracts in `/contracts` for every inter-agent message; contract tests both sides; breaking change → version bump | OPTIONAL | stub (`contracts/` README) |
 | E6 | p13 | Explicit typed error schemas (target unreachable, budget exceeded, judge timeout, no findings in window, regression detected) in `/contracts` | OPTIONAL | not started |
-| E7 | p13 | Rate limits + auth documented for every external API (LLM providers, target, observability); handling = backoff/queue/abort in `ARCHITECTURE.md` | OPTIONAL | not started |
+| E7 | p13 | Rate limits + auth documented for every external API (LLM providers, target, observability); handling = backoff/queue/abort in `ARCHITECTURE.md` | OPTIONAL | **DONE** — `docs/EXTERNAL_APIS.md` (per-API auth/rate-limit/handling table; honest about budget-cap vs backoff) |
 | E8 | p12–13 | AI-use disclosure in `ARCHITECTURE.md`: each AI role, following deterministic verification/human gate, residual risk; judge-drift detect+correct | OPTIONAL | not started |
-| E9 | p13 | Exploit DB data-quality: unique id, required fields, no dup attack sequences; validated in Doc Agent before write | OPTIONAL | not started |
-| E10 | p13 | Exploit DB migration support (add field without data loss); document approach; queue-depth monitoring if a queue is used | OPTIONAL | not started |
-| E11 | p13 | Data model + access controls: who writes/reads exploits, human approval before publish; lineage/reporting | OPTIONAL | not started |
+| E9 | p13 | Exploit DB data-quality: unique id, required fields, no dup attack sequences; validated in Doc Agent before write | OPTIONAL | **DONE** — `dedup_key UNIQUE` + promote-dedup + fail-closed validation; `docs/DATA_MODEL.md` E9; `tests/test_data_quality.py` |
+| E10 | p13 | Exploit DB migration support (add field without data loss); document approach; queue-depth monitoring if a queue is used | OPTIONAL | **DONE** — 8 idempotent additive migrations; `queries.queue_depth` + report section; `docs/DATA_MODEL.md` E10 |
+| E11 | p13 | Data model + access controls: who writes/reads exploits, human approval before publish; lineage/reporting | OPTIONAL | **DONE** — `docs/DATA_MODEL.md` E11 (writer/reader model, approval-before-publish, lineage) |
 | E12 | p13 | SQL indexes on common queries (severity/category/version); regression full-scan SLO verified in CI | OPTIONAL | not started |
 | E13 | p13 | Baseline CPU/mem/latency/throughput under representative run (100 cases + full regression) | OPTIONAL | not started |
 | E14 | p13 | Load test: 100 consecutive cases vs live target; platform metrics; identify bottleneck + the architectural fix | OPTIONAL | not started |

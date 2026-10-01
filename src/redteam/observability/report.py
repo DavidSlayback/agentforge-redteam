@@ -53,6 +53,10 @@ def render_markdown(store: Store) -> str:
     cost = queries.cost_summary(store)
     lines += ["", "## Cost", f"- {cost['calls']} model calls (USD pricing not wired; cost is metered in calls)"]
 
+    q = queries.queue_depth(store)
+    lines += ["", "## Queue depth (pending work)",
+              f"- campaigns pending: {q['campaigns_pending']}; reports pending approval: {q['reports_pending_approval']}"]
+
     lines += ["", "## Recent agent actions"]
     trace = queries.agent_trace(store, limit=10)
     lines += [f"- {a['ts']} {a['agent']}/{a['action']}: {a['reason']}" for a in trace] or ["- (none)"]
