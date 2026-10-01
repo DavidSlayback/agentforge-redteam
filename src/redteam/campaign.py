@@ -11,10 +11,10 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 
-from redteam.agents.judge.judge import Judge, VerdictOutcome
+from redteam.agents.judge.judge import Judge, Rubric, VerdictOutcome
 from redteam.agents.redteam.agent import RedTeamAgent
 from redteam.agents.redteam.model import ModelClient
 from redteam.dispatch import dispatch as _dispatch
@@ -38,8 +38,40 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _log_calls(store, campaign_id: str, kind: str, calls: int) -> None:
-    store.insert("cost_ledger", {"ts": _now(), "campaign_id": campaign_id, "kind": kind, "calls": calls})
+def _log_call(store, campaign_id: str, kind: str) -> None:
+    store.insert("cost_ledger", {"ts": _now(), "campaign_id": campaign_id, "kind": kind, "calls": 1})
+
+
+@dataclass
+class _MeteredModel:
+    """Records each attacker-model call in the cost ledger before making it, so a retry, a
+    reply that fails to parse, or a provider block all count against --max-model-calls."""
+
+    model: ModelClient
+    store: object
+    campaign_id: str
+    kind: str
+
+    def complete(self, system: str, user: str, **kw) -> str:
+        _log_call(self.store, self.campaign_id, self.kind)
+        return self.model.complete(system, user, **kw)
+
+
+@dataclass
+class _MeteredRubric:
+    """The rubric tier is a model call too; meter it the same way."""
+
+    rubric: Rubric
+    store: object
+    campaign_id: str
+
+    @property
+    def available(self) -> bool:
+        return self.rubric.available
+
+    def evaluate(self, obs):
+        _log_call(self.store, self.campaign_id, "rubric")
+        return self.rubric.evaluate(obs)
 
 
 @dataclass
@@ -67,6 +99,10 @@ def run_campaign(
     target_sha: str | None = None,
 ) -> CampaignSummary:
     summary = CampaignSummary(campaign_id=campaign_id)
+    generation = _MeteredModel(model, store, campaign_id, "generation")
+    mutation = _MeteredModel(model, store, campaign_id, "mutation")
+    if judge.rubric is not None:
+        judge = replace(judge, rubric=_MeteredRubric(judge.rubric, store, campaign_id))
     for brief in briefs:
         try:
             # Authorization categories are model-free deterministic probes that need a
@@ -94,7 +130,7 @@ def run_campaign(
                 continue
             # Read what has already been tried here so the Red Team varies, not repeats.
             history = history_brief(store, brief["target_id"], brief["category"])
-            case = agent.generate(brief, model, history=history)
+            case = agent.generate(brief, generation, history=history)
             # For canary-gated categories, set the oracle's foreign canaries — the attacker
             # cannot know them, so the harness supplies them (else the verdict is INCONCLUSIVE).
             if canaries and brief["category"] in NEEDS_CANARY:
@@ -102,7 +138,6 @@ def run_campaign(
             # Run as a synthetic patient when the brief names one (so attempts reach the AI).
             if brief.get("patient_uuid"):
                 case = case.model_copy(update={"auth": AuthContext(patient_uuid=brief["patient_uuid"])})
-            _log_calls(store, campaign_id, "generation", 1)
             result = _dispatch(case, registry, executor, judge, store, minter, target_sha=target_sha)
             summary.generated += 1
             summary.outcomes[str(result.verdict.outcome)] += 1
@@ -110,8 +145,7 @@ def run_campaign(
 
             parent, last, muts = case, result, 0
             while last.verdict.outcome in _MUTATE_ON and muts < max_mutations:
-                variant = agent.mutate(parent, model, verdict=last.verdict)  # aim at what blocked it
-                _log_calls(store, campaign_id, "mutation", 1)
+                variant = agent.mutate(parent, mutation, verdict=last.verdict)  # aim at what blocked it
                 last = _dispatch(variant, registry, executor, judge, store, minter, target_sha=target_sha)
                 summary.variants += 1
                 summary.outcomes[str(last.verdict.outcome)] += 1

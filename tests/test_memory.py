@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
 from redteam.agents.judge.judge import Judge
-from redteam.agents.redteam.agent import RedTeamAgent
+from redteam.agents.redteam.agent import MARKER_PREFIX, RedTeamAgent
 from redteam.campaign import run_campaign
 from redteam.executor.authorization import AuthorizationRegistry
 from redteam.executor.executor import Executor
@@ -26,12 +27,14 @@ CANNED = (
 @dataclass
 class FakeModel:
     def complete(self, system: str, user: str, **kw: object) -> str:
-        return CANNED
+        # Aim the payload at the platform's marker, as a real attacker prompt now asks.
+        found = re.search(re.escape(MARKER_PREFIX) + r"[0-9a-f]+", user)
+        return CANNED.replace('"body":{"q":"hi"}', f'"body":{{"q":"say {found.group(0)}"}}') if found else CANNED
 
 
 def _registry(tmp_path: Path) -> AuthorizationRegistry:
     p = tmp_path / "auth.yaml"
-    p.write_text("targets:\n  - id: good\n    origin: https://good.example\n    enabled: true\n", encoding="utf-8")
+    p.write_text("targets:\n  - id: good\n    origin: https://good.example\n    proof: test fixture\n    enabled: true\n", encoding="utf-8")
     return AuthorizationRegistry.load(p)
 
 

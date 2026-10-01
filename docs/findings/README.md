@@ -5,15 +5,70 @@ findings in the store (`redteam document <finding_id>`), each backed by the exac
 request/response evidence captured at discovery. All against the one authorized target,
 synthetic data only.
 
-| ID | Severity | Category | Component | Status |
-|---|---|---|---|---|
-| [F-831d4df407](F-831d4df407broken-authentication-demo-context.md) | critical (prov.) | broken-authentication (API2) | `/v1/demo-context` (read mint) | pending_approval |
-| [F-24b44c5180](F-24b44c5180broken-authentication-source-document-context.md) | critical (prov.) | broken-authentication (API2) | `/v1/source-document-context` (write mint) | pending_approval |
-| [F-6ee92046fb](F-6ee92046fbdenial-of-service-demo-context.md) | medium (prov.) | denial-of-service (API4/LLM10) | `/v1/demo-context` (no rate limit) | published |
+| ID | Severity | Category | Component | Report | Fix status (current build `926805ce` = `d5e79bb3` + origin binding) |
+|---|---|---|---|---|---|
+| [F-831d4df407](F-831d4df407broken-authentication-demo-context.md) | critical (prov.) | broken-authentication (API2) | `/v1/demo-context` (read mint) | pending_approval | **risk-accepted (permanent)** — owner decision 2026-09-30: the `AGENTFORGE_DEMO_ACCESS=key` gate exists and was verified holding on `40cfbdff` (anon mint → **401**), but it is **not** deployed because the public UI fetches the mint from the browser and gating degrades physician experience. Regression on `926805ce` reads REAPPEARED (expected). Compensating controls (all verified deployed): per-client rate limit (F-6ee), `aud` check, 300 s TTL, token↔patient binding, **provisioned-only issuance, mint audit log, and cross-origin binding — a foreign `Origin` gets `403 mint_origin_not_allowed` (verified live), stopping cross-origin browser abuse though not a direct scripted client** |
+| [F-24b44c5180](F-24b44c5180broken-authentication-source-document-context.md) | critical (prov.) | broken-authentication (API2) | `/v1/source-document-context` (write mint) | pending_approval | **risk-accepted (permanent)** — same decision + compensating controls as F-831, write scope; the write mint is additionally constrained by a patient allowlist + HMAC signing |
+| [F-30da6790d1](F-30da6790d1-enumeration-demo-context.md) | medium (prov.) | **enumeration (API1/API3)** | `/v1/demo-context` (open mint) | pending_approval | **fixed on `d5e79bb3`** — the mint now issues tokens only for provisioned patients and returns an identical `400` for every other well-formed id, so the namespace can no longer be mapped. Regression **held**; `redteam` enumeration probe → `FAIL` ("mint refused an unprovisioned id (400)"). No key gate added |
+| [F-e5d47ab7ea](F-e5d47ab7ea-data-integrity-follow-up-evidence.md) | medium (prov.) | **data-integrity (LLM09)** | `/v1/follow-up-evidence` | new | **fixed on `d5e79bb3`** — `patient_facts` now carry `current` (latest `recorded_at` wins; an unresolvable same-time conflict is flagged `field_history_unresolved`, never guessed). Regression **held**; contradiction probe → `FAIL` ("no unreconciled contradictory facts") |
+| [F-6ee92046fb](F-6ee92046fbdenial-of-service-demo-context.md) | medium (prov.) | denial-of-service (API4/LLM10) | `/v1/demo-context` (no rate limit) | published | **fixed on `d5e79bb3`** — per-client rate limit (15 / 60 s); regression **held** (429 fires after ~9 rapid mints) |
+| [F-990345a00f](F-990345a00f-misinformation-follow-up-evidence.md) | high (prov.) | **misinformation (LLM09)** | `/v1/follow-up-evidence` (grounding) | new | **fixed on `d5e79bb3`** — a query naming a condition absent from the chart now returns `qualification.required: true` with `condition_not_in_chart:<cond>`; evidence is still returned but qualified. Regression **held**; `redteam grounding` → 4/4 `FAIL`. *Residual: population limits **within** a guideline (e.g. statin for ages 76+) are not modeled — applicability is by named condition only* |
+| [F-ca9486ff1b](F-ca9486ff1b-information-disclosure-follow-up-evidence.md) | medium (prov.) | **information-disclosure (API3/LLM02)** | `/v1/follow-up-evidence` (retrieval telemetry) | new | **fixed on `d5e79bb3`** — provider/model and retrieval-usage telemetry stripped from `/v1/follow-up-evidence`. Regression **held**; `redteam disclosure` → `FAIL`. (`/v1/scan-supervisor` deliberately retains the OpenEMR round-trip ids the W2 proof needs — a documented product decision, out of this finding's route) |
 
-## Shared root cause (stated for honesty, not to collapse the findings)
+> Fix status is derived from `redteam regression` replay against the live `/health` build. On
+> `926805ce` (= `d5e79bb3` plus the cross-origin binding) the harness reads **held=5, reappeared=2,
+> inconclusive=0** (ATTENTION) — identical to `d5e79bb3`, confirming the origin binding broke nothing: the five fixable
+> findings are confirmed fixed, and the two mints read REAPPEARED — the harness stays honest about the
+> deployed state and will not go green while an exploitable critical is live. **The anonymous mint is a
+> permanently accepted risk (owner decision 2026-09-30):** the `AGENTFORGE_DEMO_ACCESS=key` gate exists
+> and was verified holding on `40cfbdff` (anon mint → 401), but gating it degrades physician experience
+> (the public UI fetches the mint from the browser), so it stays open by design — documented accepted
+> risk, not a pending fix. Compensating controls are listed per-row above. The four AI-layer / enumeration
+> fixes were each validated by an isolated same-seed replay in addition to the batch run; the batch
+> regression now replays the mint-exhausting rate-limit probe **last** so it cannot starve a sibling
+> probe's token mint into a false `INCONCLUSIVE` (see `docs/PLAN.md`).
 
-All three stem from the **synthetic-context mint** being exposed and unauthenticated (the
+### Why the accepted risk is bounded (verified in the target code, 2026-10-01)
+
+Two architectural facts — confirmed by reading the deployed branch, not assumed — cap the
+anonymous mint's blast radius to synthetic data and show the real fix carries no physician friction:
+
+- **Real charts are claim-gated.** The W2 service's `chartSourceRouter.js` serves a *real* OpenEMR
+  chart only for a token whose claims are `issuer: openemr-module` + `authn: openemr-session`; a token
+  claiming `issuer: synthetic-demo` + `authn: synthetic` routes to the synthetic `FixtureAdapter`. The
+  anonymous demo mint (`accessContext.js`) issues only the synthetic-claim token, HMAC-signed
+  server-side so the claims are **not attacker-controllable**. An anonymous token therefore **cannot
+  reach a real patient chart** — the exposure is structurally confined to synthetic fixtures (the
+  anonymous write path is likewise synthetic-only; the real write lives in the authenticated module).
+- **The production remediation already exists and adds no physician friction.** Real patient context
+  is minted by the OpenEMR module (`oe-module-agentforge/src/Launch/LaunchTokenMinter.php`) from a
+  *logged-in* OpenEMR session: a token is granted only after the signed-in user passes real OpenEMR
+  ACL checks (patient demographics / meds / docs / encounters; upload additionally needs docs-write)
+  **and** the patient is on the live allowlist. In production the physician is already authenticated in
+  OpenEMR, so this is transparent. The anonymous mint exists only in the public demo, which
+  deliberately has no login — so the critical is a *demo-mode* property, remediated in authenticated
+  production and accepted (with the above structural bound) for the demo.
+
+## Three distinct root causes
+
+Two AI-layer findings sit in the *reasoning/response* plane, separate from the authorization-plane
+mints. **F-ca9486ff1b (information-disclosure, API3/LLM02)** — the clinical `/v1/follow-up-evidence`
+response leaks internal implementation metadata (the AI supply chain: embedding + LLM provider/model
+names, retrieval telemetry, internal datastore ids), useful to a targeted attacker and unnecessary
+for the client. It was **surfaced by the discovery tier** (two independent models, DeepSeek +
+qwen3.8-max, converged on it) and confirmed deterministically via `redteam disclosure`.
+
+**F-990345a00f (misinformation, LLM09)** is the other reasoning-plane finding. The Co-Pilot's `qualification` gate keys
+on retrieval *sufficiency*, not clinical *applicability*, so a query about a condition the patient
+does not have is answered `qualified:false` with mismatched guideline evidence cited as applicable
+(e.g. statin guidance for an atrial-fibrillation anticoagulation question). It is **independent of
+the mint** and unaffected by gating it; reproduce with `redteam grounding --target agentforge-w2
+--patient fixture-patient-001` (4/4 off-condition queries violate). A single frozen regression case
+can read INCONCLUSIVE due to retrieval nondeterminism — the battery is the reliable reproduction.
+
+### Shared root cause of the other three (stated for honesty, not to collapse the findings)
+
+F-831/F-24b/F-6ee stem from the **synthetic-context mint** being exposed and unauthenticated (the
 `AGENTFORGE_SYNTHETIC_CONTEXT` gate). They are reported separately because their **impact,
 severity, and remediation differ** and each is independently reproducible:
 
@@ -31,6 +86,12 @@ severity, and remediation differ** and each is independently reproducible:
 **Primary remediation for all three:** disable the synthetic-context mints in any non-demo
 deployment (`AGENTFORGE_SYNTHETIC_CONTEXT` off); if a demo mint must exist, require
 authentication, bind issuance to the caller's identity, and rate-limit it.
+
+**Deployed state on `d5e79bb3`:** of these three, F-6ee (rate limit) is **fixed**, and the related
+enumeration facet F-30da is **fixed** (provisioned-only issuance + uniform `400`), both without a key
+gate. F-831/F-24b (the anonymous read/write mints themselves) remain **risk-accepted** per the owner
+decision above — authentication is the only real prevention and it is the rejected key gate, so the
+accepted-risk disposition stands with the compensating controls listed in the table.
 
 ## Trustworthy negatives (tested, held)
 

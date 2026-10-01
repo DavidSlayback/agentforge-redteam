@@ -37,6 +37,13 @@ trail, and observability substrate. Details, diagram, and tradeoffs:
 | AI cost analysis | [docs/COST_ANALYSIS.md](docs/COST_ANALYSIS.md) |
 | Inter-agent contracts (v1 JSON Schema) | [contracts/](contracts/) |
 | Observability snapshot | [dashboard.html](dashboard.html) (regenerate with `redteam dashboard`) |
+| Data model, data quality, access controls (E9–E11) | [docs/DATA_MODEL.md](docs/DATA_MODEL.md) |
+| External APIs: auth / rate limits / handling (E7) | [docs/EXTERNAL_APIS.md](docs/EXTERNAL_APIS.md) |
+| Build-vs-configure decision record (E3) | [docs/adr/0005-build-vs-configure.md](docs/adr/0005-build-vs-configure.md) |
+| Performance baseline + load profile (E13/E14) | [docs/PERF.md](docs/PERF.md) |
+| Triage exercise (E4) | [docs/TRIAGE_EXERCISE.md](docs/TRIAGE_EXERCISE.md) |
+| ATO-style evidence packet (E15) | [docs/ATO_PACKET.md](docs/ATO_PACKET.md) |
+| Discovery-tier triage record | [docs/DISCOVERY_TRIAGE.md](docs/DISCOVERY_TRIAGE.md) |
 
 ## Setup
 
@@ -63,6 +70,7 @@ win over it). Only the commands that call a model need keys — `authz`, `regres
 | `AGENTFORGE_REDTEAM_RUBRIC_MODEL` | `campaign` (optional) | Enables the rubric Judge tier; must be a non-Qwen family (in use: `deepseek-v4-pro`) |
 | `AGENTFORGE_REDTEAM_RUBRIC_BASE_URL`, `AGENTFORGE_REDTEAM_RUBRIC_KEY` | optional | Separate rubric endpoint/key; fall back to the Red Team endpoint/key |
 | `AGENTFORGE_REDTEAM_JEV_KEY` | `campaign --selector jev` (optional) | Jev orchestrator selector; deterministic selector otherwise |
+| `AGENTFORGE_REDTEAM_DISCOVERY_MODEL` | `discover` / `poll --discover` (optional) | Model for the open-ended discovery reviewer. Defaults to the rubric model (non-Qwen); an explicit value is honored even if same-family, since discovery emits candidates (leads), not verdicts. **Recommended: `qwen3.8-max`** — it out-performed DeepSeek as the reviewer in the 2026-09-30 comparison (higher signal, fewer false positives) |
 
 ### Authorization (read before running anything)
 
@@ -142,5 +150,7 @@ The store defaults to `var/redteam.db` (gitignored); pass `--store` to use anoth
 The platform needs no target code access; it reaches the Co-Pilot over HTTP only. It uses
 the Co-Pilot's synthetic-context mint (`/v1/demo-context`, enabled by
 `AGENTFORGE_SYNTHETIC_CONTEXT` on the demo deployment) to obtain patient-scoped session
-tokens for fixture patients. That same mint is the root of the three reported findings;
-see [docs/findings/](docs/findings/).
+tokens for fixture patients. That same mint is the root of three of the five reported
+findings (the anonymous read/write mints + the missing rate limit); the other two are
+AI-layer issues in `/v1/follow-up-evidence` (off-condition misinformation and internal-metadata
+disclosure). See [docs/findings/](docs/findings/).

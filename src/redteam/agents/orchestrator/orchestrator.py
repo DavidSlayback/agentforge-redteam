@@ -91,7 +91,7 @@ class Orchestrator:
                 target_sha=target_sha,
             )
             produced = self.store.count("findings") > before_findings
-            # Cost is real model calls from the ledger (generation + mutation).
+            # Cost is real model calls from the ledger (generation + mutation + rubric).
             calls_delta = cost_summary(self.store)["calls"] - before_calls
             gov.record(produced_finding=produced, model_calls=calls_delta)
             run.decisions.append({"brief": chosen.brief, "outcomes": dict(summary.outcomes), "new_finding": produced})

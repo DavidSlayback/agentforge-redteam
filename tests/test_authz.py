@@ -7,8 +7,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from redteam.agents.judge.judge import Judge, Verdict, VerdictOutcome
-from redteam.authz_probe import (Probe, build_authz_probes, run_authz_case, run_mint_auth_probe,
-                                 run_probe, run_rate_limit_probe)
+from redteam.authz_probe import (
+    Probe,
+    build_authz_probes,
+    run_authz_case,
+    run_mint_auth_probe,
+    run_probe,
+    run_rate_limit_probe,
+)
 from redteam.executor.authorization import AuthorizationRegistry
 from redteam.executor.executor import Executor
 from redteam.executor.http_sender import ResponseRecord
@@ -23,7 +29,7 @@ VICTIM_CANARY = "penicillin-anaphylaxis-2019"   # a victim-only value, len >= 12
 
 def _registry(tmp_path: Path) -> AuthorizationRegistry:
     p = tmp_path / "auth.yaml"
-    p.write_text("targets:\n  - id: good\n    origin: https://good.example\n    enabled: true\n", encoding="utf-8")
+    p.write_text("targets:\n  - id: good\n    origin: https://good.example\n    proof: test fixture\n    enabled: true\n", encoding="utf-8")
     return AuthorizationRegistry.load(p)
 
 
@@ -267,3 +273,73 @@ def test_bola_probe_is_omitted_without_canaries() -> None:
     families = {c.case_id.rsplit("-", 1)[0] for c in build_authz_probes("good", ATTACKER)}
     assert "authz-bola-cross-patient" not in families   # nothing to detect a leak with
     assert {"authz-missing-token", "authz-forged-token", "authz-malformed-input"} <= families
+
+
+def test_a_status_that_is_not_a_denial_never_reads_as_held(tmp_path: Path) -> None:
+    # A throttle, a moved route, or a request-validation error says nothing about whether the
+    # credential check holds; a replay that hits one must not turn a frozen finding green.
+    for status in (400, 404, 429):
+        res, findings = _run(_missing_token_case(), lambda u, s=status, **k: ResponseRecord(s, "{}", 1.0), tmp_path)
+        assert res.verdict.outcome is VerdictOutcome.INCONCLUSIVE, status
+        assert findings == 0
+    for status in (400, 429):
+        res, _ = _run(_bola_case(), lambda u, s=status, **k: ResponseRecord(s, "{}", 1.0), tmp_path)
+        assert res.verdict.outcome is VerdictOutcome.INCONCLUSIVE, status
+
+
+def test_bola_holds_on_a_denial(tmp_path: Path) -> None:
+    res, findings = _run(_bola_case(), lambda u, **k: ResponseRecord(403, '{"error":"invalid_demo_context"}', 1.0),
+                         tmp_path)
+    assert res.verdict.outcome is VerdictOutcome.FAIL
+    assert findings == 0
+
+
+def test_rate_limit_without_a_429_or_a_clean_run_is_inconclusive(tmp_path: Path) -> None:
+    # Only an observed 429 shows the throttle; a gateway blip or a missing route shows nothing.
+    reg = _registry(tmp_path)
+    store = Store.open(tmp_path / "s.db")
+    for statuses in ([200, 200, 200, 200, 502], [404] * 5):
+        it = iter(statuses)
+        res = run_rate_limit_probe(reg, Executor(reg, lambda u, it=it, **k: ResponseRecord(next(it), "{}", 5.0)),
+                                   Judge(), store, _target(reg), ATTACKER, n=5)
+        assert res.verdict.outcome is VerdictOutcome.INCONCLUSIVE, statuses
+    assert store.count("findings") == 0
+    store.close()
+
+
+def test_battery_records_an_unreadable_chart_as_a_coverage_gap(tmp_path: Path) -> None:
+    from redteam.authz_probe import run_authz_probes
+
+    reg = _registry(tmp_path)
+    store = Store.open(tmp_path / "s.db")
+
+    def sender(url, **kw):
+        patient = (kw.get("json") or {}).get("patient_uuid")
+        if patient == VICTIM:
+            return ResponseRecord(200, json.dumps({"patient_facts": [{"value": VICTIM_CANARY}]}), 1.0)
+        if patient == ATTACKER and "message" in (kw.get("json") or {}):
+            return ResponseRecord(429, '{"error":"rate_limited"}', 1.0)
+        return ResponseRecord(403, '{"error":"forbidden"}', 1.0)
+
+    results = run_authz_probes(registry=reg, executor=Executor(reg, sender), judge=Judge(), store=store,
+                               minter=FakeMinter(), target=_target(reg), attacker_patient=ATTACKER,
+                               victim_patient=VICTIM)
+    gap = store.conn.execute("SELECT reason FROM agent_actions WHERE action = 'coverage_gap'").fetchone()
+    assert gap is not None and "could not read the acting patient" in gap["reason"]
+    assert results and store.count("attempts") == len(results)   # the rest of the battery still ran
+    store.close()
+
+
+def test_bola_401_is_our_expired_token_not_the_scope_check(tmp_path: Path) -> None:
+    # BOLA carries a live attacker token; a 401 means that token failed, so scope was never tested.
+    res, _ = _run(_bola_case(), lambda u, **k: ResponseRecord(401, '{"error":"expired"}', 1.0), tmp_path)
+    assert res.verdict.outcome is VerdictOutcome.INCONCLUSIVE
+
+
+def test_rate_limit_with_no_requests_is_not_a_finding(tmp_path: Path) -> None:
+    reg = _registry(tmp_path)
+    store = Store.open(tmp_path / "s.db")
+    res = run_rate_limit_probe(reg, Executor(reg, lambda u, **k: ResponseRecord(200, "{}", 1.0)),
+                               Judge(), store, _target(reg), ATTACKER, n=0)
+    assert res.verdict.outcome is VerdictOutcome.INCONCLUSIVE
+    store.close()

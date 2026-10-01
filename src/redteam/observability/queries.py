@@ -51,6 +51,19 @@ def findings_by_status(store: Store) -> dict[str, int]:
     )}
 
 
+def queue_depth(store: Store) -> dict[str, int]:
+    """Pending work in the store's queues (E10 queue-depth monitoring): campaigns not yet run and
+    reports awaiting the human approval gate. A growing depth means the platform is accruing work
+    faster than it is draining — the signal an operator or autoscaler watches."""
+    campaigns = store.conn.execute(
+        "SELECT COUNT(*) AS c FROM campaigns WHERE status = 'new'"
+    ).fetchone()["c"]
+    pending_reports = store.conn.execute(
+        "SELECT COUNT(*) AS c FROM vuln_reports WHERE status = 'pending_approval'"
+    ).fetchone()["c"]
+    return {"campaigns_pending": int(campaigns), "reports_pending_approval": int(pending_reports)}
+
+
 def cost_summary(store: Store) -> dict[str, float]:
     r = store.conn.execute(
         "SELECT COALESCE(SUM(usd), 0.0) AS usd, COALESCE(SUM(tokens), 0) AS tokens, "

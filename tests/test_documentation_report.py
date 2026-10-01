@@ -27,7 +27,7 @@ MINT_OK = json.dumps({"demo_token": "eyJzY29wZSI6InJlYWQtYnJpZWZpbmcifQ.sig", "p
 def _registry(tmp_path: Path) -> AuthorizationRegistry:
     p = tmp_path / "auth.yaml"
     p.write_text("targets:\n  - id: good\n    origin: https://good.example\n    base_path: /app\n"
-                 "    enabled: true\n", encoding="utf-8")
+                 "    proof: test fixture\n    enabled: true\n", encoding="utf-8")
     return AuthorizationRegistry.load(p)
 
 
@@ -120,14 +120,14 @@ def test_status_is_honest_before_and_after_a_fix_replay(tmp_path: Path) -> None:
     report_id = doc.document(store, fid, registry=reg)
     md = _render(store, reg, fid)
     assert f"**Report {report_id}:** `pending_approval`" in md
-    assert "Not yet validated" in md and "held" not in md.split("**Fix validation:**")[1]
+    assert "No harness replay" in md and "held" not in md.split("**Fix validation:**")[1]
 
     # a candidate build rejects the anonymous mint -> the regression replay holds
     fixed = Executor(reg, lambda u, **k: ResponseRecord(403, '{"error":"forbidden"}', 2.0))
     replay(store, reg, fixed, Judge(), "build-b")
     md = _render(store, reg, fid)
     fixval = md.split("**Fix validation:**")[1]
-    assert "`build-b` — held" in fixval and "Not yet validated" not in fixval
+    assert "`build-b` — held" in fixval and "No harness replay" not in fixval
 
     # re-documenting refreshes derived fields but never duplicates or resets approval
     doc.approve(store, report_id, approver="david")
@@ -141,10 +141,110 @@ def test_status_is_honest_before_and_after_a_fix_replay(tmp_path: Path) -> None:
     reopened = Executor(reg, lambda u, **k: ResponseRecord(200, MINT_OK, 2.0))
     replay(store, reg, reopened, Judge(), "build-c")
     fixval = _render(store, reg, fid).split("**Fix validation:**")[1]
-    assert "`build-c` — reappeared" in fixval and "Not yet validated" not in fixval
+    assert "`build-c` — reappeared" in fixval and "No harness replay" not in fixval
+    assert "Not validated as fixed (latest build `build-c`: reappeared)." in fixval
 
     # a fresh probe re-finds it on build-c after the replay: build-c stays a fix build
     run_mint_auth_probe(reg, reopened, Judge(), store, reg.by_id("good"), "fixture-patient-001", target_sha="build-c")
     fixval = _render(store, reg, fid).split("**Fix validation:**")[1]
-    assert "`build-c` — reappeared" in fixval and "Not yet validated" not in fixval
+    assert "`build-c` — reappeared" in fixval and "No harness replay" not in fixval
+    store.close()
+
+
+# ---- fix status = the latest observation on each build, whatever produced it ---------------
+
+def VULN(url, **kw) -> ResponseRecord:     # the anonymous mint still issues a token
+    return ResponseRecord(200, MINT_OK, 2.0)
+
+
+def FIXED(url, **kw) -> ResponseRecord:    # the mint requires auth
+    return ResponseRecord(403, '{"error":"forbidden"}', 2.0)
+
+
+def _fix_status(store, reg, fid) -> tuple[dict, str]:
+    DocumentationAgent().document(store, fid, registry=reg)
+    row = store.conn.execute("SELECT fix_validation FROM vuln_reports WHERE finding_id = ?", (fid,)).fetchone()
+    return json.loads(row["fix_validation"]), _render(store, reg, fid).split("**Fix validation:**")[1]
+
+
+def test_a_fresh_hit_after_a_held_replay_means_the_build_is_not_fixed(tmp_path: Path) -> None:
+    reg, store, fid = _mint_finding(tmp_path)
+    replay(store, reg, Executor(reg, FIXED), Judge(), "build-b")
+    run_mint_auth_probe(reg, Executor(reg, VULN), Judge(), store, reg.by_id("good"), "fixture-patient-001",
+                        target_sha="build-b")
+    fixval, md = _fix_status(store, reg, fid)
+    assert fixval["sha"] == "build-b" and fixval["result"] == "reappeared"
+    assert "`build-b` — reappeared" in md and "`build-b` — held" not in md
+    store.close()
+
+
+def test_a_reappearing_replay_counts_even_after_a_fresh_hit_on_that_build(tmp_path: Path) -> None:
+    # The order the hunt and the replay happened to run in must not decide the status.
+    reg, store, fid = _mint_finding(tmp_path)
+    run_mint_auth_probe(reg, Executor(reg, VULN), Judge(), store, reg.by_id("good"), "fixture-patient-001",
+                        target_sha="build-b")
+    replay(store, reg, Executor(reg, VULN), Judge(), "build-b")
+    fixval, md = _fix_status(store, reg, fid)
+    assert fixval["sha"] == "build-b" and fixval["result"] == "reappeared"
+    assert "No harness replay" not in md
+    store.close()
+
+
+def test_an_inconclusive_replay_is_never_held(tmp_path: Path) -> None:
+    reg, store, fid = _mint_finding(tmp_path)
+    replay(store, reg, Executor(reg, lambda u, **k: ResponseRecord(429, "{}", 2.0)), Judge(), "build-b")
+    fixval, md = _fix_status(store, reg, fid)
+    assert fixval == {"sha": "build-b", "result": "inconclusive", "at": fixval["at"]}
+    assert "Not validated as fixed (latest build `build-b`: inconclusive)." in md
+    store.close()
+
+
+def test_the_latest_build_decides_the_headline(tmp_path: Path) -> None:
+    reg, store, fid = _mint_finding(tmp_path)
+    replay(store, reg, Executor(reg, VULN), Judge(), "build-b")
+    replay(store, reg, Executor(reg, FIXED), Judge(), "build-c")
+    fixval, md = _fix_status(store, reg, fid)
+    assert fixval["sha"] == "build-c" and fixval["result"] == "held"
+    assert "`build-b` — reappeared" in md and "`build-c` — held" in md and "Not validated" not in md
+    store.close()
+
+
+def test_a_build_the_exploit_succeeded_on_is_never_fixed(tmp_path: Path) -> None:
+    # A build is immutable: once the exploit worked on that SHA, a later clean replay on the same
+    # SHA is flakiness (a throttle, a blip), not a fix.
+    reg, store, fid = _mint_finding(tmp_path)
+    run_mint_auth_probe(reg, Executor(reg, VULN), Judge(), store, reg.by_id("good"), "fixture-patient-001",
+                        target_sha="build-b")
+    replay(store, reg, Executor(reg, FIXED), Judge(), "build-b")
+    fixval, md = _fix_status(store, reg, fid)
+    assert fixval["sha"] == "build-b" and fixval["result"] == "reappeared"
+    assert "`build-b` — held" not in md
+    store.close()
+
+
+def test_hunts_before_any_validation_are_not_fix_attempts(tmp_path: Path) -> None:
+    # Re-finding the weakness on more builds before anyone tried a fix is not a fix validation.
+    reg, store, fid = _mint_finding(tmp_path)
+    run_mint_auth_probe(reg, Executor(reg, VULN), Judge(), store, reg.by_id("good"), "fixture-patient-001",
+                        target_sha="build-b")
+    fixval, md = _fix_status(store, reg, fid)
+    assert fixval == {"sha": None, "result": None} and "No harness replay" in md
+    # but a build first seen AFTER validation began is a regression the report must show
+    replay(store, reg, Executor(reg, FIXED), Judge(), "build-c")
+    run_mint_auth_probe(reg, Executor(reg, VULN), Judge(), store, reg.by_id("good"), "fixture-patient-001",
+                        target_sha="build-d")
+    fixval, md = _fix_status(store, reg, fid)
+    assert "`build-c` — held" in md and "`build-b`" not in md   # pre-validation hunt, not a fix attempt
+    assert fixval["sha"] == "build-d" and fixval["result"] == "reappeared"
+    store.close()
+
+
+def test_a_later_inconclusive_replay_is_not_held_and_the_origin_build_is_not_a_fix(tmp_path: Path) -> None:
+    reg, store, fid = _mint_finding(tmp_path)
+    replay(store, reg, Executor(reg, FIXED), Judge(), "build-a")           # origin build: a sighting
+    replay(store, reg, Executor(reg, FIXED), Judge(), "build-b")
+    replay(store, reg, Executor(reg, lambda u, **k: ResponseRecord(429, "{}", 2.0)), Judge(), "build-b")
+    fixval, md = _fix_status(store, reg, fid)
+    assert "`build-a`" not in md
+    assert fixval["sha"] == "build-b" and fixval["result"] == "inconclusive"
     store.close()

@@ -11,8 +11,8 @@ computed from the store, and its current status (measured now vs. needs a compon
 | 1 | **Attack success rate by category, per target build** | Whether the Co-Pilot resists each attack class, and whether it is getting more or less resilient over versions | `queries.pass_fail_by_category` / `owasp_coverage` / `outcomes_by_sha` | measured |
 | 2 | **Unique findings after dedup** | Real distinct weaknesses, not repeated noise — the number leadership acts on | `findings` deduped by `(oracle, sink, category)` | measured |
 | 3 | **Fix-holds rate under mutation** | A fix generalizes past the exact string — the regression truly passed | regression `replay`: `held` vs `reappeared` across variants | measured (harness); needs mutated variants per finding |
-| 4 | **Over-refusal / benign pass rate** | Fixes don't break the clinician — security gains aren't paid for in utility | a benign clinician + XSTest-style set on the same SHA | needs a benign eval set |
-| 5 | **Judge agreement (Cohen's κ) & pair-disagreement rate** | The verdicts are trustworthy and the Judge isn't drifting | a human-labeled calibration set; two-judge disagreement over time | needs calibration set + rubric judge |
+| 4 | **Over-refusal / benign pass rate** | Fixes don't break the clinician — security gains aren't paid for in utility | `evals/benign/clinician_v1.yaml` (6 clinical + 5 XSTest-style + 2 off-topic controls) via `redteam benign`; `benign_runs` table; "Over-refusal" section of `redteam report` | measured: baseline **0/11 (0%)**, controls 2/2, on `da7451d1` (pre-gating); re-run after the gated-mint build. n=11, single run — a trend, not a population estimate |
+| 5 | **Judge agreement (Cohen's κ) & pair-disagreement rate** | The verdicts are trustworthy and the Judge isn't drifting | `evals/calibration/calibration_v1.yaml` via `redteam calibrate` (raw agreement + Cohen's κ, `src/redteam/drift.py`); two-judge disagreement over time | **measured: κ=1.00, full agreement** — 10 deterministic entries reproduce unconditionally (10/10); 2 rubric entries score only when a rubric model is configured (12/12 with one, `n=10 skipped=2` without). Labels are objective ground truth. Reports `NOT VALIDATED` pending a human flip of `review_status` to `human-reviewed` — a skim, since labels follow from observable facts |
 | 6 | **Coverage vector** (categories × routes × oracles × access modes) | What has and has *not* been exercised — honest about blind spots | `owasp_coverage` + recon inventory | partial (category/verdict now) |
 | 7 | **Cost per finding & cost per run, projected to scale** | The platform is economically sustainable to run continuously | `cost_summary` (model calls); projections in `docs/COST_ANALYSIS.md` | measured (calls; USD deliberately not wired — see COST_ANALYSIS.md) |
 | 8 | **Time-to-first-finding & planted-vuln recall** | The platform actually finds real bugs, fast, in an unattended drill | drill scoring (reached/triggered/detected) | needs the drill |
@@ -39,3 +39,13 @@ Pass thresholds (e.g., an over-refusal ceiling, a minimum κ, a fix-holds bar) a
 the calibration and benign sets exist; the prior-art review deliberately declines to fix
 numbers from the teaser alone. Until then, metrics are reported as trends and per-case
 evidence, never as a single headline score.
+
+**How over-refusal is detected on this target (#4).** The Co-Pilot's follow-up route is an
+evidence-retrieval service, not a free-text chatbot: it never says "I can't help." It declines by
+*qualifying* (`qualification.required: true`, e.g. `insufficient_guideline_evidence`) or by a
+non-`ready` status. The detector keys on those fields, not refusal-phrase regexes; auth/throttle/
+5xx responses and qualifications issued under a retrieval *failure* are inconclusive, not
+refusals. The off-topic controls prove the detector can see a decline (both were qualified), so a
+0% rate is a measurement, not a blind spot. Proposed ceiling (pending David): over-refusal must
+not rise after a fix on the same set — `redteam benign --max-over-refusal <x>` enforces any chosen
+ceiling as a non-zero exit.

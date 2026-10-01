@@ -18,7 +18,7 @@ MARK = "ZZ-REG"
 
 def _registry(tmp_path: Path) -> AuthorizationRegistry:
     p = tmp_path / "auth.yaml"
-    p.write_text("targets:\n  - id: good\n    origin: https://good.example\n    enabled: true\n", encoding="utf-8")
+    p.write_text("targets:\n  - id: good\n    origin: https://good.example\n    proof: test fixture\n    enabled: true\n", encoding="utf-8")
     return AuthorizationRegistry.load(p)
 
 
@@ -92,3 +92,104 @@ def test_replay_surfaces_unreplayable_pre_migration_cases(tmp_path: Path) -> Non
     r = replay(store, reg, echo, Judge(), target_sha="sha-x")
     assert r.unreplayable and not r.reappeared and not r.held
     store.close()
+
+
+# --- cross-category regression flagging (P5) ---------------------------------------------
+
+def _freeze_two_categories(reg, store):
+    """Freeze an anonymous-mint finding (broken-authentication) on /v1/demo-context and a
+    rate-limit finding (denial-of-service) on /v1/source-document-context — two distinct
+    categories on distinct endpoints, so a replay sender can drive each independently."""
+    from redteam.authz_probe import mint_probe, rate_limit_probe, run_probe
+
+    def success(url, **k):  # both probes succeed -> both promote + freeze
+        if "source-document-context" in url:
+            return ResponseRecord(200, "ok", 1.0)                 # rate: no 429 -> SUCCESS
+        return ResponseRecord(200, '{"demo_token":"x"}', 2.0)      # mint: token -> SUCCESS
+
+    ex = Executor(reg, success)
+    target = reg.by_id("good")
+    run_probe(mint_probe(ex, Judge(), target, "p", endpoint="/v1/demo-context"), store, reg)
+    run_probe(rate_limit_probe(ex, target, "p", endpoint="/v1/source-document-context", n=3), store, reg)
+    assert store.count("regression_cases") == 2
+
+
+def test_cross_category_regression_flagged_when_a_fix_reopens_another_category(tmp_path: Path) -> None:
+    reg = _registry(tmp_path)
+    store = Store.open(tmp_path / "s.db")
+    _freeze_two_categories(reg, store)
+
+    # prior build: mint OPEN (200+token -> SUCCESS), rate HELD (a 429 -> throttled -> FAIL)
+    def prior(url, **k):
+        if "source-document-context" in url:
+            return ResponseRecord(429, "slow down", 1.0)
+        return ResponseRecord(200, '{"demo_token":"x"}', 2.0)
+    replay(store, reg, Executor(reg, prior), Judge(), target_sha="sha-prior")
+
+    # new build: mint HELD (401 -> FAIL, a fix landed for broken-authentication) while rate
+    # REOPENS (all 200, no 429 -> SUCCESS for denial-of-service)
+    def new(url, **k):
+        if "source-document-context" in url:
+            return ResponseRecord(200, "ok", 1.0)
+        return ResponseRecord(401, "unauthorized", 1.0)
+    r = replay(store, reg, Executor(reg, new), Judge(), target_sha="sha-new")
+
+    assert r.fixed_categories == {"broken-authentication"}
+    assert r.regressed_categories == {"denial-of-service"}
+    assert r.cross_category_regression is True
+    assert not r.ok                       # a reappearance is never green
+    store.close()
+
+
+def test_plain_reappearance_without_a_fix_is_not_cross_category(tmp_path: Path) -> None:
+    reg = _registry(tmp_path)
+    store = Store.open(tmp_path / "s.db")
+    _freeze_two_categories(reg, store)
+
+    # prior: both HELD
+    def prior(url, **k):
+        if "source-document-context" in url:
+            return ResponseRecord(429, "slow down", 1.0)          # rate HELD
+        return ResponseRecord(401, "unauthorized", 1.0)           # mint HELD
+    replay(store, reg, Executor(reg, prior), Judge(), target_sha="sha-prior")
+
+    # new: rate reopens, mint stays held -> a regression, but NO fix landed -> not cross-category
+    def new(url, **k):
+        if "source-document-context" in url:
+            return ResponseRecord(200, "ok", 1.0)                 # rate reopens
+        return ResponseRecord(401, "unauthorized", 1.0)           # mint still held
+    r = replay(store, reg, Executor(reg, new), Judge(), target_sha="sha-new")
+
+    assert r.regressed_categories == {"denial-of-service"}
+    assert r.fixed_categories == set()
+    assert r.cross_category_regression is False   # nothing was fixed, so nothing "caused" it
+    assert r.newly_regressed and not r.ok
+    store.close()
+
+
+def test_mint_exhausting_classifies_probe_kinds() -> None:
+    from redteam.regression import _mint_exhausting
+
+    assert _mint_exhausting('{"probe_kind": "rate_limit"}') is True
+    assert _mint_exhausting('{"probe_kind": "dos"}') is True
+    assert _mint_exhausting('{"probe_kind": "grounding"}') is False
+    assert _mint_exhausting('{"probe_kind": "contradiction"}') is False
+    assert _mint_exhausting(None) is False
+    assert _mint_exhausting("not json") is False
+    assert _mint_exhausting('{"no_kind": 1}') is False
+
+
+def test_replay_orders_mint_exhausting_probes_last() -> None:
+    """Rate-limit/DoS probes must replay after mint-dependent ones, so the rate-limit burst
+    cannot starve a sibling's token mint into a false INCONCLUSIVE."""
+    from redteam.regression import _mint_exhausting
+
+    rows = [
+        {"case_id": "rl", "case_json": '{"probe_kind": "rate_limit"}'},
+        {"case_id": "gr", "case_json": '{"probe_kind": "grounding"}'},
+        {"case_id": "dos", "case_json": '{"probe_kind": "dos"}'},
+        {"case_id": "co", "case_json": '{"probe_kind": "contradiction"}'},
+    ]
+    ordered = sorted(rows, key=lambda r: _mint_exhausting(r["case_json"]))  # stable sort
+    assert [r["case_id"] for r in ordered[:2]] == ["gr", "co"]              # mint-dependent first
+    assert {r["case_id"] for r in ordered[2:]} == {"rl", "dos"}            # mint-exhausting last

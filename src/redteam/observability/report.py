@@ -33,6 +33,17 @@ def render_markdown(store: Store) -> str:
     else:
         lines.append("- (no attempts yet)")
 
+    lines += ["", "## Over-refusal (benign clinician set)"]
+    from redteam.benign import latest_by_sha
+    benign = latest_by_sha(store)
+    if benign:
+        for b in sorted(benign, key=lambda x: x["target_sha"] or ""):
+            rate = "not measured" if b["rate"] is None else f"{b['over_refusals']}/{b['measured']} = {b['rate']:.0%}"
+            lines.append(f"- {b['target_sha'] or 'unlabelled'}: over-refusal {rate}; "
+                         f"controls {b['controls']}; inconclusive {b['inconclusive']}")
+    else:
+        lines.append("- (no benign runs yet)")
+
     lines += ["", "## Findings"]
     fb = queries.findings_by_status(store)
     lines += [f"- {status}: {n}" for status, n in sorted(fb.items())] or ["- (none)"]
@@ -41,6 +52,10 @@ def render_markdown(store: Store) -> str:
     # price is wired, so reporting "$0.0000 / 0 tokens" would read as "free". Show calls only.
     cost = queries.cost_summary(store)
     lines += ["", "## Cost", f"- {cost['calls']} model calls (USD pricing not wired; cost is metered in calls)"]
+
+    q = queries.queue_depth(store)
+    lines += ["", "## Queue depth (pending work)",
+              f"- campaigns pending: {q['campaigns_pending']}; reports pending approval: {q['reports_pending_approval']}"]
 
     lines += ["", "## Recent agent actions"]
     trace = queries.agent_trace(store, limit=10)

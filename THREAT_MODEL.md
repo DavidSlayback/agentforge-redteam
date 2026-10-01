@@ -28,11 +28,21 @@ order** clinical actions.
 
 The authorization layer is **genuinely robust**: a session token is bound server-side to its
 patient, and mismatched / missing / forged tokens are rejected `403` in ~120 ms — before any
-model call. Direct and indirect prompt injection were defended across models. **The one
-standing real issue** is `/v1/demo-context`: it mints a valid patient token **unauthenticated**
-(gated by `AGENTFORGE_SYNTHETIC_CONTEXT`), so the strong token binding only protects data
-because tokens are, in the demo, freely mintable — an insecure-design / broken-authentication
-finding if that gate is ever enabled in production.
+model call. Direct and indirect prompt injection were defended across models (including a
+qwen3.8-max attacker at volume). **Five findings stand (build `da7451d1`), across two planes:**
+
+- **Authorization plane (one root cause, three impacts):** `/v1/demo-context` and
+  `/v1/source-document-context` mint valid patient tokens **unauthenticated** (gated by
+  `AGENTFORGE_SYNTHETIC_CONTEXT`) — anonymous **read** (F-831d4df407) and **write** (F-24b44c5180)
+  credential issuance — and the mint has **no rate limit** (F-6ee92046fb, now **fixed**: `429`
+  fires). The strong token binding only protects data because, in the demo, tokens are freely
+  mintable.
+- **Reasoning/response plane (AI-layer, found this sprint):** the `/v1/follow-up-evidence`
+  qualification gate keys on retrieval *sufficiency*, not clinical *applicability*, so it presents
+  off-condition guideline evidence as applicable, unqualified (**F-990345a00f**, misinformation
+  LLM09); and the clinical response leaks internal implementation metadata — the AI supply chain
+  (embedding/LLM provider+model names), retrieval telemetry, and internal datastore ids
+  (**F-ca9486ff1b**, information-disclosure API3/LLM02).
 
 ## Attack-surface map
 
@@ -72,7 +82,8 @@ finding if that gate is ever enabled in production.
 ## OWASP coverage (E1)
 
 Every OWASP risk the PRD names, with where it is tested or why it is not. "Held" and
-"finding" are live results on build `bfbb1eb2`; see `evals/README.md` for per-case results.
+"finding" are live results; the current build under test is `da7451d1` (earlier runs on
+`bfbb1eb2` are noted where they predate a fix). See `evals/README.md` for per-case results.
 
 | OWASP risk | Coverage | Status |
 |---|---|---|

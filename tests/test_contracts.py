@@ -43,7 +43,7 @@ def _row(store, sql: str) -> dict:
 def live(tmp_path: Path):
     """A store after one SUCCESS attempt, so every downstream record actually exists."""
     p = tmp_path / "auth.yaml"
-    p.write_text("targets:\n  - id: good\n    origin: https://good.example\n    enabled: true\n", encoding="utf-8")
+    p.write_text("targets:\n  - id: good\n    origin: https://good.example\n    proof: test fixture\n    enabled: true\n", encoding="utf-8")
     reg = AuthorizationRegistry.load(p)
     store = Store.open(tmp_path / "s.db")
     case = SeedCase(case_id="c1", category="prompt-injection", owasp=["LLM01"], target_id="good",

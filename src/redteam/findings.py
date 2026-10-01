@@ -34,6 +34,10 @@ _PROVISIONAL = {
     "broken-object-authorization": ("critical", 9.1),   # cross-patient access = as severe as it gets
     "broken-authentication": ("critical", 9.3),          # unauthenticated PHI access
     "error-disclosure": ("high", 7.5),                   # leaked stack trace / internal error
+    "misinformation": ("high", 7.4),                     # off-condition guidelines cited as applicable (LLM09)
+    "information-disclosure": ("medium", 5.3),            # internal impl/telemetry/id disclosure to the client
+    "enumeration": ("medium", 6.5),                       # open mint over-issues -> unauth patient namespace enumeration (API1/API3)
+    "data-integrity": ("medium", 5.0),                    # contradictory chart facts, no current marker (LLM09 overreliance)
 }
 
 # Oracles that fire opportunistically on ANY attempt (a crash, an error leak), independent of
@@ -49,7 +53,7 @@ _OPPORTUNISTIC = {
 }
 # Oracles tied to the attack's stated aim; if one of these fired, the case's own category is
 # the right label for the finding.
-_AIMED = frozenset({"marker", "canary_leak", "unauthorized_access"})
+_AIMED = frozenset({"marker", "canary_leak", "unauthorized_access", "grounding", "metadata_disclosure"})
 
 
 def _now() -> str:

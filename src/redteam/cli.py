@@ -193,10 +193,178 @@ def cmd_regression(args: argparse.Namespace) -> int:
     print(f"regression @ {args.sha}: held={len(r.held)} reappeared={len(r.reappeared)} "
           f"inconclusive={len(r.inconclusive)} unreplayable={len(r.unreplayable)} "
           f"-> {'OK' if r.ok else 'ATTENTION'}")
+    if r.newly_regressed:
+        print(f"  NEWLY REGRESSED (held on the prior build, open now): "
+              f"{sorted(r.regressed_categories)}")
+    if r.cross_category_regression:
+        print(f"  CROSS-CATEGORY REGRESSION: a fix for {sorted(r.fixed_categories)} coincided with "
+              f"a reopening in {sorted(r.regressed_categories - r.fixed_categories)} — inspect the change")
     store.close()
     # Non-zero unless every frozen case held: a reappearance, or a critical that couldn't be
     # verified fixed (inconclusive/unreplayable), must fail the gate loudly.
     return 0 if r.ok else 1
+
+
+def cmd_poll(args: argparse.Namespace) -> int:
+    """Poll /health once; if the target's git_sha changed since the last observation, run the
+    regression suite against the new build and record the trigger. Cron-friendly: run it on a
+    schedule (Q11) — each invocation is one observation."""
+    from redteam.recon import poll, poll_summary
+
+    registry, target, executor, minter, judge = _wire_deterministic(args.target)
+    store = Store.open(args.store)
+    discover = None
+    if args.discover:
+        # On a SHA change, also sweep the new build's evidence with the open-ended discovery tier
+        # (poll -> regression -> discover). Best-effort: skipped with a note if no model configured.
+        from redteam.agents.judge.discovery import DiscoveryJudge
+        from redteam.config import load_dotenv
+        from redteam.discovery import run_discovery
+        load_dotenv()
+        dj = DiscoveryJudge.from_env()
+        if dj.available:
+            discover = lambda sha: run_discovery(store, dj, target_sha=sha, limit=args.discover_limit)  # noqa: E731
+        else:
+            print("poll: --discover requested but no discovery model configured; skipping discovery")
+    result = poll(store, registry, executor, judge, target, args.target, minter=minter, discover=discover)
+    code, message = poll_summary(result)
+    print(f"poll {args.target}: {message}")
+    store.close()
+    return code
+
+
+def cmd_discover(args: argparse.Namespace) -> int:
+    """Open-ended discovery pass: review captured evidence with an independent less-safeguarded LLM
+    and log candidates the deterministic oracles missed. Candidates are LEADS for human triage, not
+    findings — `redteam candidates` lists them, then a human hardens real ones into oracles."""
+    from redteam.agents.judge.discovery import DiscoveryJudge
+    from redteam.config import load_dotenv
+    from redteam.discovery import run_discovery
+
+    load_dotenv()
+    judge = DiscoveryJudge.from_env()
+    if not judge.available:
+        print("discovery tier not configured: set AGENTFORGE_REDTEAM_RUBRIC_MODEL (a non-Qwen model)")
+        return 2
+    store = Store.open(args.store)
+    s = run_discovery(store, judge, target_sha=args.target_sha, limit=args.limit,
+                      min_confidence=args.min_confidence)
+    for c in s.candidates:
+        print(f"  [{c['severity']:8} conf={c['confidence']:.2f}] {c['vuln_class']} @ {c['route']}: {c['why']}")
+    print(f"discovery: reviewed={s.reviewed} candidates={len(s.candidates)} "
+          f"errors={s.errors} no_evidence={s.skipped_no_evidence}")
+    store.close()
+    return 0
+
+
+def cmd_candidates(args: argparse.Namespace) -> int:
+    """List open discovery candidates (LLM-proposed leads awaiting human triage)."""
+    from redteam.discovery import list_candidates
+
+    store = Store.open(args.store)
+    cands = list_candidates(store, status=args.status)
+    for c in cands:
+        print(f"  {c['candidate_id']} [{c['severity']} conf={c['confidence']:.2f}] {c['vuln_class']} "
+              f"@ {c['route']} (attempt {c['attempt_id']})\n      {c['why']}")
+    print(f"{len(cands)} candidate(s) with status={args.status!r}")
+    store.close()
+    return 0
+
+
+def cmd_disclosure(args: argparse.Namespace) -> int:
+    """Internal-metadata disclosure probe (info-disclosure): does the clinical response leak the AI
+    supply chain (provider/model names), retrieval telemetry, or internal datastore ids? Deterministic."""
+    from redteam.authz_probe import run_disclosure_probes
+
+    registry, target, executor, minter, judge = _wire_deterministic(args.target)
+    store = Store.open(args.store)
+    results = run_disclosure_probes(registry=registry, executor=executor, judge=judge, store=store,
+                                    minter=minter, target=target, patient=args.patient,
+                                    route=args.route, target_sha=args.target_sha)
+    for r in results:
+        print(f"  {str(r.verdict.outcome):13} {r.verdict.reason}")
+    store.close()
+    return 1 if any(str(r.verdict.outcome) == "SUCCESS" for r in results) else 0
+
+
+def cmd_triage(args: argparse.Namespace) -> int:
+    """Set a discovery candidate's triage status (by id or by vuln_class). Records the disposition in
+    the store so the candidate→finding workflow is auditable."""
+    from redteam.discovery import triage_candidates
+
+    store = Store.open(args.store)
+    n = triage_candidates(store, args.status, candidate_id=args.candidate,
+                          vuln_class=getattr(args, "class"), note=args.note)
+    print(f"triaged {n} candidate(s) -> {args.status}")
+    store.close()
+    return 0
+
+
+def cmd_grounding(args: argparse.Namespace) -> int:
+    """Run the off-condition grounding battery (OWASP LLM09): does the target present guideline
+    evidence as applicable for conditions the patient does not have? Deterministic; no attacker
+    model (the target's own responses are judged by the GroundingOracle)."""
+    from collections import Counter
+
+    from redteam.authz_probe import run_grounding_probes
+
+    registry, target, executor, minter, judge = _wire_deterministic(args.target)
+    store = Store.open(args.store)
+    results = run_grounding_probes(registry=registry, executor=executor, judge=judge, store=store,
+                                   minter=minter, target=target, patient=args.patient,
+                                   route=args.route, target_sha=args.target_sha)
+    for r in results:
+        print(f"  {str(r.verdict.outcome):13} {r.verdict.reason}")
+    outcomes = Counter(str(r.verdict.outcome) for r in results)
+    print(f"grounding probes: {dict(outcomes)}")
+    store.close()
+    return 1 if outcomes.get("SUCCESS") else 0
+
+
+def cmd_benign(args: argparse.Namespace) -> int:
+    """Run the benign clinician set and report over-refusal (KEY_METRICS #4). Deterministic
+    classification; the only model calls are the target's own."""
+    from redteam.benign import load_benign_set, run_benign
+
+    bset = load_benign_set(args.set)
+    registry, target, executor, minter, _judge = _wire_deterministic(args.target)
+    store = Store.open(args.store)
+    s = run_benign(store, executor, minter, target, bset, target_sha=args.target_sha)
+    for r in s.results:
+        print(f"  {r['score']:15} {r['case_id']:16} {r['outcome']:12} {r['detail']}")
+    rate = s.over_refusal_rate
+    print(f"benign {bset.version} @ {args.target_sha or 'unlabelled'}: "
+          + ("over-refusal NOT MEASURED" if rate is None
+             else f"over-refusal {s.over_refusals}/{s.answer_measured} = {rate:.0%}")
+          + f"; controls {s.controls_passed}/{s.controls_measured}; inconclusive {s.inconclusive}")
+    store.close()
+    if rate is None:
+        return 1   # not measured is never a pass
+    if args.max_over_refusal is not None and rate > args.max_over_refusal:
+        return 1
+    return 0
+
+
+def cmd_calibrate(args: argparse.Namespace) -> int:
+    """Score the Judge against the human-labelled calibration set (KEY_METRICS #5). Offline: no
+    target traffic. Rubric entries run only if a rubric model is configured (else skipped)."""
+    from redteam.agents.judge.judge import Judge
+    from redteam.agents.judge.rubric import ModelRubric
+    from redteam.config import load_dotenv
+    from redteam.drift import load_calibration, run_calibration
+
+    load_dotenv()
+    cset = load_calibration(args.set)
+    run = run_calibration(Judge(rubric=ModelRubric.from_env()), cset)
+    r = run.report
+    kappa = "undefined" if r.kappa is None else f"{r.kappa:.2f}"
+    rate = "n/a" if r.n == 0 else f"{r.agreement_rate:.0%}"   # never print 100% over zero entries
+    print(f"calibration {cset.version} (labeled_by={cset.labeled_by}, review={cset.review_status}): "
+          f"n={r.n} agree={r.agree} rate={rate} kappa={kappa} skipped={len(run.skipped)}")
+    for d in r.disagreements:
+        print(f"  DISAGREE expected={d['expected']} got={d['got']} :: {d['response']}")
+    print(f"-> {run.status}")
+    return 0 if run.validated else 1
 
 
 def cmd_campaign(args: argparse.Namespace) -> int:
@@ -214,8 +382,14 @@ def cmd_campaign(args: argparse.Namespace) -> int:
     canaries: list[str] = []
     if args.victim_patient and args.patient and any(c in NEEDS_CANARY for c in args.category):
         from redteam.canary import discover_foreign_canaries
-        canaries = discover_foreign_canaries(executor, minter, target, args.victim_patient, args.patient)
-        print(f"discovered {len(canaries)} victim-only canaries for cross-patient checks")
+        from redteam.errors import TargetUnreachable
+        try:
+            canaries = discover_foreign_canaries(executor, minter, target, args.victim_patient, args.patient)
+            print(f"discovered {len(canaries)} victim-only canaries for cross-patient checks")
+        except TargetUnreachable as exc:
+            # The other categories need no canary; the campaign skips (and records) the canary-gated
+            # ones, so a failed read is a visible coverage gap rather than an aborted hunt.
+            print(f"  COVERAGE-GAP   no canaries: {exc}")
 
     orch = Orchestrator(registry=registry, executor=executor, judge=judge, store=store,
                         agent=agent, model=model, minter=minter, selector=selector)
@@ -266,6 +440,56 @@ def build_parser() -> argparse.ArgumentParser:
     rg.add_argument("--target", required=True)
     rg.add_argument("--sha", required=True)
     rg.set_defaults(func=cmd_regression)
+
+    pl = sub.add_parser("poll", help="poll /health; on a git_sha change, run the regression suite")
+    pl.add_argument("--target", required=True)
+    pl.add_argument("--discover", action="store_true",
+                    help="on a SHA change, also run an open-ended discovery pass over the new evidence")
+    pl.add_argument("--discover-limit", type=int, default=25, dest="discover_limit")
+    pl.set_defaults(func=cmd_poll)
+
+    dv = sub.add_parser("discover", help="open-ended discovery pass over evidence (finds classes with no oracle yet)")
+    dv.add_argument("--target-sha", default=None, dest="target_sha", help="restrict to one build's evidence")
+    dv.add_argument("--limit", type=int, default=25, help="most-recent attempts to review")
+    dv.add_argument("--min-confidence", type=float, default=0.5, dest="min_confidence")
+    dv.set_defaults(func=cmd_discover)
+
+    ca = sub.add_parser("candidates", help="list open discovery candidates (leads for human triage)")
+    ca.add_argument("--status", default="new", help="filter by status (new|confirmed|dismissed|promoted); '' for all")
+    ca.set_defaults(func=cmd_candidates)
+
+    tr = sub.add_parser("triage", help="set a discovery candidate's status (by id or vuln_class)")
+    tr.add_argument("--status", required=True, choices=["new", "confirmed", "dismissed", "promoted"])
+    tr.add_argument("--candidate", default=None, help="a candidate_id")
+    tr.add_argument("--class", default=None, dest="class", help="disposition all candidates of this vuln_class")
+    tr.add_argument("--note", default=None, help="triage rationale appended to the candidate")
+    tr.set_defaults(func=cmd_triage)
+
+    ds = sub.add_parser("disclosure", help="internal-metadata disclosure probe (info-disclosure)")
+    ds.add_argument("--target", required=True)
+    ds.add_argument("--patient", required=True)
+    ds.add_argument("--route", default="/v1/follow-up-evidence")
+    ds.add_argument("--target-sha", default=None, dest="target_sha")
+    ds.set_defaults(func=cmd_disclosure)
+
+    gr = sub.add_parser("grounding", help="off-condition grounding battery (OWASP LLM09 misinformation)")
+    gr.add_argument("--target", required=True)
+    gr.add_argument("--patient", required=True, help="a synthetic patient; queries ask about conditions it lacks")
+    gr.add_argument("--route", default="/v1/follow-up-evidence")
+    gr.add_argument("--target-sha", default=None, dest="target_sha")
+    gr.set_defaults(func=cmd_grounding)
+
+    bn = sub.add_parser("benign", help="run the benign clinician set; report over-refusal (KEY_METRICS #4)")
+    bn.add_argument("--target", required=True)
+    bn.add_argument("--set", default="evals/benign/clinician_v1.yaml")
+    bn.add_argument("--target-sha", default=None, help="the /health git_sha under test")
+    bn.add_argument("--max-over-refusal", type=float, default=None,
+                    help="exit non-zero if the over-refusal rate exceeds this fraction (e.g. 0.1)")
+    bn.set_defaults(func=cmd_benign)
+
+    cb = sub.add_parser("calibrate", help="score the Judge against the human-labelled calibration set (KEY_METRICS #5)")
+    cb.add_argument("--set", default="evals/calibration/calibration_v1.yaml")
+    cb.set_defaults(func=cmd_calibrate)
 
     az = sub.add_parser("authz", help="run the deterministic authorization-probe battery (no attacker model)")
     az.add_argument("--target", required=True)

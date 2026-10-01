@@ -36,6 +36,10 @@ _REMEDIATION = {
     "broken-object-authorization": "Bind every session token to its subject server-side and re-authorize each object access against it; never trust a client-supplied patient/object id.",
     "broken-authentication": "Require and verify a valid session token on every patient route; reject missing, expired, or forged tokens with 401/403 and no data body.",
     "error-disclosure": "Return a generic error to clients; log the stack trace server-side only; disable framework debug pages and DB driver error passthrough in production.",
+    "misinformation": "Gate the answer on clinical APPLICABILITY, not just retrieval sufficiency: when the retrieved guidelines do not match a condition present in the patient's chart, qualify the response (mark `qualification.required` with a reason) or withhold the evidence rather than presenting it as applicable. Score guideline relevance against the patient's active problem list before attaching it, and surface a clinician-visible 'no applicable evidence for this patient' state.",
+    "information-disclosure": "Strip internal implementation metadata from the client-facing response: remove or gate behind an internal/debug scope the retrieval provider/model names, per-stage usage/telemetry, token/cost fields, and internal datastore identifiers (`document_uuid`, internal `patient_uuid`, sequential `document_id`). Return only clinical content + citations; keep supply-chain and datastore internals server-side.",
+    "enumeration": "Issue session tokens only for provisioned patients (check existence/authorization at mint time, not after); return a uniform response for unknown vs existing patients so 200/404 does not reveal existence; and keep the per-client rate limit. Gating the mint entirely was declined for physician experience, so uniform responses + provisioned-only issuance are the controls.",
+    "data-integrity": "Resolve history before presenting: mark exactly one value per field as `current` (latest `recorded_at`), or collapse superseded values; never return multiple active values for the same field without a current marker.",
 }
 
 # Per-category description + clinical impact (what the weakness means for a clinician/patient).
@@ -50,6 +54,10 @@ _DESCRIPTION = {
     "broken-object-authorization": "A session scoped to one patient reached another patient's object.",
     "broken-authentication": "A patient route accepted a request without valid authentication.",
     "error-disclosure": "An error response exposed internal implementation detail.",
+    "misinformation": "The Co-Pilot presented clinical-guideline evidence as applicable to a patient for a condition absent from that patient's chart, without qualifying it.",
+    "information-disclosure": "The clinician-facing response carried internal implementation metadata (AI provider/model names, retrieval telemetry, and internal datastore identifiers) beyond the clinical answer.",
+    "enumeration": "The anonymous synthetic-context mint issues a valid token for any well-formed patient id in the namespace (including ids that do not exist), and the data route returns 200 for real patients and 404 for others — letting an unauthenticated caller map the patient namespace.",
+    "data-integrity": "The chart returned multiple distinct values for the same field (e.g. two medication doses) with none marked current, presenting contradictory active data without disambiguation.",
 }
 _CLINICAL_IMPACT = {
     "prompt-injection": "An attacker can steer the briefing a clinician reads; a manipulated summary can omit or invent findings that feed a care decision.",
@@ -62,13 +70,14 @@ _CLINICAL_IMPACT = {
     "broken-object-authorization": "Anyone with one patient's session can read another patient's chart: a PHI confidentiality breach.",
     "broken-authentication": "Unauthenticated callers reach patient data: a PHI confidentiality breach, HIPAA-reportable in a real deployment.",
     "error-disclosure": "Leaked internals help an attacker target other weaknesses; low direct clinical impact.",
+    "misinformation": "A clinician skimming the cited evidence could be led to apply guidance that does not fit this patient (e.g. anticoagulation guidance surfaced for a patient with no such condition), an overreliance/patient-safety risk; the missing qualification removes the cue that the evidence is inapplicable.",
+    "information-disclosure": "Naming the exact embedding and LLM models and exposing internal record identifiers hands an attacker the supply chain to target and an id space to enumerate; low direct clinical impact but it lowers the cost of the higher-severity attacks.",
+    "enumeration": "An unauthenticated attacker can discover which patients exist and the shape of the patient population — a confidentiality/recon exposure and the precursor to targeted record access; in production a privacy-reportable leak of patient existence.",
+    "data-integrity": "A clinician treating the returned facts as current state could act on a superseded value (e.g. the old medication dose) — a direct patient-safety risk; the system should mark which value is current rather than present both.",
 }
 
 _SYNTHETIC_NOTE = ("The target serves synthetic fixture patients only; no real PHI was accessed. "
                    "The impact statement describes the same defect in a real deployment.")
-
-# Where fixes for a target are tracked (so "not yet validated" names a real place to look).
-_FIX_TRACKING = {"agentforge-w2": "agentforge-week1 branch agentforge/w3-redteam-fixes"}
 
 # The synthetic-context mints: component-aware overrides where the category default is wrong.
 # The defect on these routes is that the token-*issuing* endpoint is anonymous, not that a
@@ -368,30 +377,43 @@ class DocumentationAgent:
                 _CLINICAL_IMPACT.get(cat, "Assess against patient safety before triage."))
 
     @staticmethod
-    def _later_replays(finding: dict, evidence: dict, replays: list[dict]) -> list[dict]:
-        """Replays on a build other than the ones the finding was originally observed on.
+    def _fix_builds(finding: dict, evidence: dict, replays: list[dict]) -> list[dict]:
+        """The finding's status on each build where a fix could have been validated.
 
-        A baseline build is one where the finding was seen by a fresh (non-replay) attempt
-        before any replay ran on that build. A fresh re-sighting on a build that was already
-        being replayed (e.g. the authz battery re-run against a fix build) does not turn that
-        fix build into a baseline and hide its replays.
+        A build is an immutable artifact, so the exploit succeeding on it ONCE (a fresh hunt or a
+        replay, in any order) means that build is not fixed: ``reappeared``. Otherwise a clean
+        replay FAIL is ``held``, and anything else is ``inconclusive``, never a pass. Listed are
+        builds that were replayed or seen by a hunt after validation began; the build it was found
+        on and builds seen only before any replay are sightings, not fix attempts. Returns
+        ``[{sha, at, result}]`` in order of each build's first event; ``at`` is its latest event.
         """
-        first_replay: dict = {}
-        for r in replays:
-            first_replay.setdefault(r["sha"], r["at"] or "")
-        seen = {s["sha"] for s in evidence.get("seen_on", [])
-                if not s.get("replay") and (s["sha"] not in first_replay or (s["at"] or "") < first_replay[s["sha"]])}
+        fresh = [{"sha": s["sha"], "at": s["at"] or "", "outcome": "SUCCESS"}
+                 for s in evidence.get("seen_on", []) if not s.get("replay")]
+        replayed = [{**r, "at": r["at"] or ""} for r in replays]
+        if not replayed:
+            return []
+        validation_began = min(r["at"] for r in replayed)
+        origin = {fresh[0]["sha"]} if fresh else set()
         if finding.get("first_seen_sha"):
-            seen.add(finding["first_seen_sha"])
-        return [r for r in replays if r["sha"] not in seen]
+            origin.add(finding["first_seen_sha"])
+        candidates = ({r["sha"] for r in replayed} | {s["sha"] for s in fresh if s["at"] >= validation_began}) - origin
+        by_build: dict[str, list[dict]] = {}
+        for e in sorted(fresh + replayed, key=lambda e: e["at"]):
+            if e["sha"] in candidates:
+                by_build.setdefault(e["sha"], []).append(e)
+        out = []
+        for sha, events in by_build.items():
+            outcomes = {e["outcome"] for e in events}
+            result = ("reappeared" if "SUCCESS" in outcomes
+                      else "held" if events[-1]["outcome"] == "FAIL" else "inconclusive")
+            out.append({"sha": sha, "at": events[-1]["at"], "result": result})
+        return out
 
     def _fix_validation(self, finding: dict, evidence: dict, replays: list[dict]) -> str:
-        later = self._later_replays(finding, evidence, replays)
-        if not later:
+        builds = self._fix_builds(finding, evidence, replays)
+        if not builds:
             return json.dumps({"sha": None, "result": None})
-        last = later[-1]
-        result = {"FAIL": "held", "SUCCESS": "reappeared"}.get(last["outcome"], "inconclusive")
-        return json.dumps({"sha": last["sha"], "result": result, "at": last["at"]})
+        return json.dumps(max(builds, key=lambda b: b["at"]))
 
     def _render_status(self, finding: dict, evidence: dict, report: dict | None, replays: list[dict]) -> str:
         lines = [f"- **Finding status:** `{finding.get('status') or 'new'}`"]
@@ -415,20 +437,20 @@ class DocumentationAgent:
                 f"`{s['sha'] or 'unrecorded'}` ({(s['at'] or '')[:10]})" for s in seen)
                 + (" (non-hex values are run labels recorded before `/health` git SHAs were passed, "
                    "not target commits)" if labels else ""))
-        later = self._later_replays(finding, evidence, replays)
+        builds = self._fix_builds(finding, evidence, replays)
         lines.append("\n**Fix validation:**")
-        if later:
-            word = {"FAIL": "held", "SUCCESS": "reappeared"}
-            for r in later:
-                lines.append(f"- `{r['sha']}` — {word.get(r['outcome'], 'inconclusive (not a pass)')} "
-                             f"({(r['at'] or '')[:10]})")
-            if not any(r["outcome"] == "FAIL" for r in later):
-                lines.append("- No replay has held yet: not fixed.")
+        if builds:
+            for b in builds:
+                result = "inconclusive (not a pass)" if b["result"] == "inconclusive" else b["result"]
+                lines.append(f"- `{b['sha']}` — {result} ({b['at'][:10]})")
+            last = max(builds, key=lambda b: b["at"])
+            if last["result"] != "held":
+                lines.append(f"- Not validated as fixed (latest build `{last['sha']}`: {last['result']}).")
         else:
-            where = _FIX_TRACKING.get(evidence.get("target_id") or "")
-            pending = f"fix pending in target repo ({where})" if where else "no fix build replayed yet"
-            lines.append(f"Not yet validated: {pending}; validate with the commands above on the new "
-                         "`/health` `git_sha`.")
+            lines.append("No harness replay on a fixed build is recorded in this store yet. See "
+                         "`docs/findings/README.md` for the current fix disposition (a fix may be "
+                         "deployed, risk-accepted, or pending); validate with the commands above on "
+                         "the fixed build's `/health` `git_sha`.")
         return "\n".join(lines) + "\n"
 
     def render_markdown(self, finding: dict, level: str, evidence: dict | None = None, *,

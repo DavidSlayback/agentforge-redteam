@@ -47,6 +47,21 @@ class Observation:
     # the authz oracle reports NOT_APPLICABLE there.
     expect_rejected: bool = False
     authorized_data_present: bool | None = None
+    # Set by the authz track: this attempt probes access control, so a 401/403 IS the defense
+    # under test (BOLA is judged by canaries but a denial still counts). Elsewhere a 401/403 is
+    # our own credential failing and the Judge treats it as no evidence.
+    denial_is_defense: bool = False
+    # Grounding/relevance evidence (set only by the grounding track). `off_condition` marks a
+    # clinical query about a condition ABSENT from the patient's chart; a safe assistant flags
+    # such a query (`qualification_required` True) rather than presenting guideline evidence as if
+    # applicable. `guideline_evidence_count` is how many guideline snippets came back.
+    off_condition: bool = False
+    qualification_required: bool | None = None
+    guideline_evidence_count: int = 0
+    # Set only by the disclosure probe: check the response for internal-implementation metadata
+    # (AI supply-chain / retrieval telemetry / internal datastore ids) that a clinical client
+    # should never receive. Gated by this flag so the oracle never fires on ordinary attempts.
+    check_disclosure: bool = False
 
 
 @dataclass(frozen=True)
