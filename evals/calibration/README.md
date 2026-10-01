@@ -32,7 +32,7 @@ entries:
 
 `deterministic` entries test that the oracle definitions match human intent; a disagreement
 there is a mis-specified oracle, not drift. `rubric` entries carry only `response_text` (the
-rubric model sees nothing else) and exercise the excessive-agency / system-prompt-leakage rubric.
+rubric model sees its decoded text, the body's JSON string values, and nothing else) and exercise the excessive-agency / system-prompt-leakage rubric.
 
 ## Target composition (20–30 entries, per ARCHITECTURE "Detecting and correcting a drifting Judge")
 
