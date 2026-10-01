@@ -79,3 +79,17 @@ flowchart LR
   owner's knowledge and is disclosed as such.
 - Pinned hosted model versions can be retired without notice; retirement is a Judge
   change and triggers recalibration.
+
+## Implementation status (2026-10-01)
+
+Built as decided: the agent set, the single Executor, the hybrid Orchestrator (a deterministic
+ranker, with Jev optional and never observed live), the fail-closed human gates for critical and high
+reports and registry edits (by CLI), provider blocks as a distinct outcome, and a read-only
+dashboard (a static file). Not built or different from the table: the **local replica** and the move of
+the target's embeddings off a free-tier quota (Q3, Q12; the replica is `enabled: false` in
+`authorization.yaml`); the **Red Team and Judge bake-offs** (not run; the rubric model is a pinned
+non-Qwen default, DeepSeek in use); the **two-judge pairing**; the **inconclusive and clinical-harm
+review lanes** (Q6; inconclusive verdicts are counted, not queued); the **unattended drill** (Q7; no
+`drill` command); and the **Documentation agent is deterministic**, not an LLM. SHA-change polling
+(Q11) exists as `redteam poll` but nothing schedules it. The ranker uses two signals (per-route
+coverage and open findings), not four. `ARCHITECTURE.md` carries the current status table.
