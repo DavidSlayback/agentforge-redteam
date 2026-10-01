@@ -33,8 +33,9 @@ class Observation:
     optional because a given attempt exercises only some of them.
     """
 
-    # The response body as the target sent it (on the attack paths, with verbatim echoes of the
-    # attack payload removed).
+    # The response body as the target sent it, with echoes of the request removed (verbatim and
+    # JSON-escaped) on every attack and probe path. The evidence gate's empty-answer check,
+    # metadata disclosure, contradiction and the raw half of error leak read it.
     response_text: str | None = None
     # The body's decoded string values with their JSON paths (oracles/decode.py), verbatim, with
     # verbatim echoes removed value by value. The rubric model reads these. Left unset, it is the
