@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from redteam.agents.redteam.agent import RedTeamAgent
+from redteam.owasp import DOS_LATENCY_BUDGET_MS
 
 # The model returns its own category and a tight latency budget on a non-DoS case.
 CANNED = ('{"case_id":"m","category":"prompt_injection","owasp":["LLMxx"],"target_id":"evil",'
@@ -32,4 +33,5 @@ def test_dos_keeps_its_latency_budget() -> None:
     brief = {"category": "denial-of-service", "owasp": ["LLM10"], "target_id": "good",
              "route": "/v1/x", "input_field": "message"}
     case = RedTeamAgent().generate(brief, FakeModel())
-    assert case.oracle.latency_budget_ms == 1000    # DoS is exactly where latency is the signal
+    # DoS is exactly where latency is the signal, judged against the platform's budget, never the model's
+    assert case.oracle.latency_budget_ms == DOS_LATENCY_BUDGET_MS
