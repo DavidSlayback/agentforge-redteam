@@ -3,6 +3,14 @@
 Handoff into this repo's first working session. Read this, then `AGENTS.md`, then
 `docs/W3_ADVERSARIAL_PRIOR_ART_RESEARCH_2026-09-27.md`. Prepared 2026-09-28.
 
+> **Status note, 2026-10-01.** This file is the kickoff brief and is kept as written, apart from the
+> corrections flagged below. The current state is in `docs/PLAN.md` and the status table at the end
+> of `ARCHITECTURE.md`. Where the kickoff plan and the code differ: PyRIT, garak and spikee are **not**
+> wired (not in `pyproject.toml`, `uv.lock` or `src/`; the Red Team calls the attacker model
+> directly); the Judge has no EHR-write state-diff oracle (black-box, not built); the Documentation
+> agent is deterministic, not an LLM; the "unattended Hardening Drill" has no `drill` command; and no
+> peer integration was done.
+
 ## What this is
 
 A **multi-agent adversarial evaluation platform** that continuously red-teams the
@@ -80,10 +88,14 @@ design, auth failures, logging failures, SSRF).
 - **Language: Python** (uv, pydantic). Platform reaches the target over HTTP only.
 - **Judge:** deterministic oracles first (canaries, EHR-write state diffs, cross-patient
   checks, schema/citation checks); a narrow, different-family LLM judge only where no
-  oracle exists; human lane for clinical-harm calls.
+  oracle exists; human lane for clinical-harm calls. *(Built: canary, cross-patient and
+  authorization oracles, grounding, metadata, rate-limit, enumeration and contradiction checks,
+  and the rubric tier. Not built: EHR-write state diffs and the clinical-harm human lane.)*
 - **Tools:** import PyRIT as a library (converters, seed loaders, HTTP target, selected
   attacks); run garak and spikee as sidecars; keep our own finding store. Skip
   LLM-heavy frameworks in the inner loop. See the prior-art note for pinned versions.
+  *(As of 2026-10-01 this was planned, not done: none of the three tools is installed or called;
+  only "keep our own finding store" was built. See ADR 0005 and `ARCHITECTURE.md`.)*
 - **Attack techniques** come from the pinned tools at runtime and David's course
   presentation on adversarial techniques — not from assistant-generated catalogs.
 
