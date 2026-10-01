@@ -40,27 +40,41 @@ def _registry(tmp_path: Path) -> AuthorizationRegistry:
 
 def test_governor_halts_on_each_limit() -> None:
     g = Governor(Budget(max_campaigns=2, max_model_calls=999, max_no_signal=99))
-    g.record(outcome="tested", produced_finding=False, model_calls=0)
+    g.record(outcome="tested", produced_finding=False)
     assert not g.should_halt()
-    g.record(outcome="tested", produced_finding=False, model_calls=0)
+    g.record(outcome="tested", produced_finding=False)
     assert g.should_halt() and "campaign budget" in g.halt_reason()
 
     g2 = Governor(Budget(max_campaigns=99, max_model_calls=999, max_no_signal=2))
-    g2.record(outcome="tested", produced_finding=False, model_calls=0)
-    g2.record(outcome="tested", produced_finding=True, model_calls=0)   # a finding resets the streak
+    g2.record(outcome="tested", produced_finding=False)
+    g2.record(outcome="tested", produced_finding=True)   # a finding resets the streak
     assert not g2.should_halt()
 
 
 def test_only_tested_campaigns_count_toward_no_signal() -> None:
-    # Untested outcomes (skip / provider block / error) are neither signal nor its absence, so the
-    # no-signal streak counts only tested campaigns.
+    # Untested outcomes (skip / provider block / error / unreachable) are neither signal nor its
+    # absence, so the no-signal streak counts only tested campaigns.
     g = Governor(Budget(max_campaigns=99, max_model_calls=999, max_no_signal=2))
-    for outcome in ("skipped", "provider_blocked", "errored"):
-        g.record(outcome=outcome, produced_finding=False, model_calls=1)
-    assert g.no_signal == 0 and g.tested == 0 and not g.should_halt()   # three untested: no halt
-    g.record(outcome="tested", produced_finding=False, model_calls=1)
-    g.record(outcome="tested", produced_finding=False, model_calls=1)
+    for outcome in ("skipped", "provider_blocked", "errored", "unreachable"):
+        g.record(outcome=outcome, produced_finding=False)
+    assert g.no_signal == 0 and g.tested == 0 and not g.should_halt()   # all untested: no halt
+    g.record(outcome="tested", produced_finding=False)
+    g.record(outcome="tested", produced_finding=False)
     assert g.should_halt() and "no signal for 2 tested campaigns" in g.halt_reason()
+
+
+def test_call_budget_caps_and_reports_room() -> None:
+    # The model-call cap lives solely on CallBudget (the Governor no longer counts calls).
+    from redteam.agents.orchestrator.budget import CallBudget
+    from redteam.errors import BudgetExceeded
+
+    b = CallBudget(max_calls=2)
+    assert b.has_room
+    b.charge(); b.charge()
+    assert not b.has_room
+    with pytest.raises(BudgetExceeded):
+        b.charge()
+    assert CallBudget(max_calls=None).has_room   # no cap configured -> always room
 
 
 def test_candidates_favor_untested_categories(tmp_path: Path) -> None:
@@ -85,12 +99,6 @@ def test_candidates_favor_categories_with_open_findings(tmp_path: Path) -> None:
     assert cands[0].brief["category"] == "denial-of-service"   # exploit weight ranks it first
     assert cands[0].inputs["open_findings"] == 1
     store.close()
-
-
-def test_governor_model_call_halt() -> None:
-    g = Governor(Budget(max_campaigns=99, max_model_calls=5, max_no_signal=99))
-    g.record(outcome="tested", produced_finding=False, model_calls=6)
-    assert g.should_halt() and "model-call budget" in g.halt_reason()
 
 
 def test_jev_selector_requires_configuration(monkeypatch) -> None:
