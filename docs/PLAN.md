@@ -1199,6 +1199,10 @@ new rules — F-6ee held with 429s observed, AI-layer fixes held on clean 200s, 
 intentional uniform 400, mints reappeared. The false holds were historical (`bfbb1eb2`, early
 `da7451d1`) and superseded. Canonical store untouched (read-only queries; regeneration on a copy).
 
+**Refactor plans filed (GitLab, in order):** #3 one verdict path → #2 decode before matching →
+#4 orchestrator scheduling and cost accounting → #1 atomic persistence. Each lists its open owner
+decisions; they cover most of the deferred items below.
+
 **Deferred (from the same review, not in this slice):** orchestrator starvation/coverage crediting,
 budget checked only between campaigns, echo/canary matching on raw JSON escapes, non-atomic
 migrations, `cmd_campaign` exit code, dashboard "recent" ordering, token in curl repros, docs-vs-code
