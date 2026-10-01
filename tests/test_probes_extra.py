@@ -96,3 +96,12 @@ def test_contradiction_safe_on_single_value(tmp_path: Path) -> None:
     res = run_probe(contradiction_probe(ex, Judge(), _Minter(), _T(), "p"), store, reg)
     assert res.verdict.outcome is VerdictOutcome.FAIL
     store.close()
+
+
+def test_contradiction_inconclusive_on_an_error_status(tmp_path: Path) -> None:
+    # An error body has no patient_facts; that is no chart to check, not a reconciled chart.
+    reg = _reg(tmp_path); store = Store.open(tmp_path / "s.db")
+    ex = Executor(reg, lambda u, /, **k: _Resp(429, '{"error":"rate_limited"}'))
+    res = run_probe(contradiction_probe(ex, Judge(), _Minter(), _T(), "fixture-patient-001"), store, reg)
+    assert res.verdict.outcome is VerdictOutcome.INCONCLUSIVE
+    store.close()

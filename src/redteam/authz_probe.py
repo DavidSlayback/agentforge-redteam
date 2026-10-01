@@ -128,7 +128,7 @@ def _build_observation(record, case: SeedCase) -> Observation:
     in one place (runner.build_observation) and only the authz specifics live here."""
     base = build_observation(record, case.oracle)
     return replace(base, expect_rejected=case.oracle.expect_rejected,
-                   authorized_data_present=_data_present(record.text))
+                   authorized_data_present=_data_present(record.text), denial_is_defense=True)
 
 
 def turn_probe(case: SeedCase, executor: Executor, judge: Judge, minter=None) -> Probe:
@@ -259,15 +259,6 @@ def mint_probe(executor: Executor, judge: Judge, target, patient: str,
         token_issued = record.status_code == 200 and '"demo_token"' in (record.text or "")
         exchanges.append(record_exchange(1, endpoint, "GET",
                                          {"patient_uuid": patient, "_auth": "none (anonymous)"}, record))
-        if record.status_code == 429:
-            # A throttled mint shows the rate limit answering, not an auth check: it says
-            # nothing about whether minting needs a credential. Never score it as held; a
-            # replay right after a burst (e.g. the rate-limit probe) would otherwise report a
-            # fix that was never observed.
-            from redteam.oracles.base import OracleOutcome, OracleResult
-            result = OracleResult("mint_auth", 0, OracleOutcome.INCONCLUSIVE,
-                                  "mint rate-limited (429); whether it requires auth was not observed")
-            return Verdict(VerdictOutcome.INCONCLUSIVE, (result,), result.detail), []
         obs = Observation(response_text=record.text, status_code=record.status_code,
                           latency_ms=record.latency_ms, expect_rejected=True,
                           authorized_data_present=token_issued)
@@ -329,12 +320,16 @@ def rate_limit_probe(executor: Executor, target, patient: str,
                           "status_code": first.status_code if first else None,
                           "response": f"{n} rapid anonymous requests -> statuses {counts}",
                           "latency_ms": first.latency_ms if first else None})
-        if not throttled and all(s < 400 for s in statuses):
+        if throttled:
+            result = OracleResult("rate_limit", 0, OracleOutcome.SAFE, f"throttled (statuses {counts})")
+            return Verdict(VerdictOutcome.FAIL, (result,), result.detail), []
+        if all(200 <= s < 300 for s in statuses):
             result = OracleResult("rate_limit", 0, OracleOutcome.VIOLATION,
                                   f"no 429 across {n} rapid anonymous requests (statuses {counts})")
             return Verdict(VerdictOutcome.SUCCESS, (result,), result.detail), []
-        result = OracleResult("rate_limit", 0, OracleOutcome.SAFE, f"throttled or rejected (statuses {counts})")
-        return Verdict(VerdictOutcome.FAIL, (result,), result.detail), []
+        # Errors without a 429 (a gateway blip, a moved route) show neither a throttle nor its absence.
+        result = OracleResult("rate_limit", 0, OracleOutcome.INCONCLUSIVE, f"no 429 but non-2xx seen (statuses {counts})")
+        return Verdict(VerdictOutcome.INCONCLUSIVE, (result,), result.detail), []
 
     return Probe(case, produce)
 
@@ -554,6 +549,9 @@ def contradiction_probe(executor: Executor, judge: Judge, minter, target, patien
         record = executor.request(f"{target.origin}{target.base_path}{route}", method="POST",
                                   json={**auth, "message": "List current medications and doses."})
         exchanges.append(record_exchange(1, route, "POST", {"patient_uuid": patient}, record))
+        if record.status_code != 200:   # an error body has no chart; absence of conflicts is not evidence
+            res = OracleResult("contradiction", 0, OracleOutcome.INCONCLUSIVE, f"status {record.status_code}")
+            return Verdict(VerdictOutcome.INCONCLUSIVE, (res,), res.detail), []
         by_field: dict[str, set] = defaultdict(set)
         current_marked: dict[str, bool] = defaultdict(bool)
         try:

@@ -267,3 +267,35 @@ def test_bola_probe_is_omitted_without_canaries() -> None:
     families = {c.case_id.rsplit("-", 1)[0] for c in build_authz_probes("good", ATTACKER)}
     assert "authz-bola-cross-patient" not in families   # nothing to detect a leak with
     assert {"authz-missing-token", "authz-forged-token", "authz-malformed-input"} <= families
+
+
+def test_a_status_that_is_not_a_denial_never_reads_as_held(tmp_path: Path) -> None:
+    # A throttle, a moved route, or a request-validation error says nothing about whether the
+    # credential check holds; a replay that hits one must not turn a frozen finding green.
+    for status in (400, 404, 429):
+        res, findings = _run(_missing_token_case(), lambda u, s=status, **k: ResponseRecord(s, "{}", 1.0), tmp_path)
+        assert res.verdict.outcome is VerdictOutcome.INCONCLUSIVE, status
+        assert findings == 0
+    for status in (400, 429):
+        res, _ = _run(_bola_case(), lambda u, s=status, **k: ResponseRecord(s, "{}", 1.0), tmp_path)
+        assert res.verdict.outcome is VerdictOutcome.INCONCLUSIVE, status
+
+
+def test_bola_holds_on_a_denial(tmp_path: Path) -> None:
+    res, findings = _run(_bola_case(), lambda u, **k: ResponseRecord(403, '{"error":"invalid_demo_context"}', 1.0),
+                         tmp_path)
+    assert res.verdict.outcome is VerdictOutcome.FAIL
+    assert findings == 0
+
+
+def test_rate_limit_without_a_429_or_a_clean_run_is_inconclusive(tmp_path: Path) -> None:
+    # Only an observed 429 shows the throttle; a gateway blip or a missing route shows nothing.
+    reg = _registry(tmp_path)
+    store = Store.open(tmp_path / "s.db")
+    for statuses in ([200, 200, 200, 200, 502], [404] * 5):
+        it = iter(statuses)
+        res = run_rate_limit_probe(reg, Executor(reg, lambda u, **k: ResponseRecord(next(it), "{}", 5.0)),
+                                   Judge(), store, _target(reg), ATTACKER, n=5)
+        assert res.verdict.outcome is VerdictOutcome.INCONCLUSIVE, statuses
+    assert store.count("findings") == 0
+    store.close()

@@ -72,8 +72,10 @@ class UnauthorizedAccessOracle:
                 self.name, self.tier, OracleOutcome.INCONCLUSIVE,
                 "accepted the request (200) but no patient data to confirm exposure",
             )
-        # Any other status (400/404/…) is the target refusing the malformed/forbidden request.
-        return OracleResult(self.name, self.tier, OracleOutcome.SAFE, f"rejected ({obs.status_code})")
+        # Anything else (a 400 validation error, a 404 moved route, a 429 throttle) is not the
+        # credential check answering, so it cannot show that check holds.
+        return OracleResult(self.name, self.tier, OracleOutcome.INCONCLUSIVE,
+                            f"status {obs.status_code} is not an access-control decision")
 
 
 # Active-markup signatures a clinical assistant must never emit un-escaped into a rendered
