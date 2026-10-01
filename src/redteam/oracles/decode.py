@@ -84,7 +84,7 @@ def where(values: DecodedValues, matches: Callable[[str], bool]) -> str:
     return "across decoded values"
 
 
-def fold(text: str) -> str:
-    """Unicode compatibility normalization (NFKC) then casefolding: the form markers are matched
-    in, and the form echo stripping matches in, so the two can never disagree (owner decision 3)."""
+def normalize(text: str) -> str:
+    """Unicode compatibility normalization (NFKC) then casefolding: the one form every matching
+    check reads and echo stripping matches in, so they can never disagree (owner decision 3)."""
     return unicodedata.normalize("NFKC", text).casefold()

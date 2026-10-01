@@ -3,7 +3,7 @@ decision 7: stored history is not re-judged; this only checks it).
 
 Each frozen case's stored attempts are replayed offline: the stored response is served by a fake
 sender to the case's own probe (`reconstruct_probe`), and the Judge's verdict is compared under two
-views of the body: the current one (decoded values, echo stripping, folded markers) and the
+views of the body: the current one (decoded values, echo stripping, normalized matching) and the
 pre-decoding one (the raw body, no echo stripping on the probe path). Equal outcomes on every
 attempt mean the refactor changes no frozen case.
 
@@ -60,7 +60,7 @@ def _raw_view(monkeypatch: pytest.MonkeyPatch) -> None:
     strips nothing (the frozen cases all come from probes; see the module docstring)."""
     monkeypatch.setattr(runner, "decoded_values", lambda text: ((RAW_PATH, text),))
     monkeypatch.setattr(runner, "strip_echo", lambda text, echoes: text)
-    monkeypatch.setattr(runner, "strip_decoded_echo", lambda value, echoes: value)
+    monkeypatch.setattr(runner, "strip_normalized_echo", lambda value, echoes: value.casefold())
 
 
 def _rejudge(store_path: Path, tmp: Path) -> list[dict]:

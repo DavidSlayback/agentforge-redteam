@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Protocol
 
-from redteam.oracles.decode import DecodedValues, decoded_values, joined
+from redteam.oracles.decode import DecodedValues, decoded_values, joined, normalize
 
 
 class OracleOutcome(StrEnum):
@@ -36,10 +36,16 @@ class Observation:
     # The response body as the target sent it (on the attack paths, with verbatim echoes of the
     # attack payload removed).
     response_text: str | None = None
-    # The body's decoded string values with their JSON paths (oracles/decode.py), after echo
-    # stripping value by value. Left unset, it is the decoding of `response_text`, so an
-    # observation built from a raw body alone (calibration entries, unit tests) needs nothing more.
+    # The body's decoded string values with their JSON paths (oracles/decode.py), verbatim, with
+    # verbatim echoes removed value by value. The rubric model reads these. Left unset, it is the
+    # decoding of `response_text`, so an observation built from a raw body alone (calibration
+    # entries, unit tests) needs nothing more.
     decoded: DecodedValues | None = None
+    # The same values in the one normalized form every matching check reads (decode.normalize),
+    # with echoes removed in that form, so a re-cased echo cannot survive the strip and every
+    # value is compared the same way whether or not an echo was in it. Left unset, it is the
+    # normalization of `decoded`.
+    normalized: DecodedValues | None = None
     status_code: int | None = None
     latency_ms: float | None = None
     latency_budget_ms: float | None = None
@@ -88,11 +94,18 @@ class Observation:
     def __post_init__(self) -> None:
         if self.decoded is None and self.response_text is not None:
             object.__setattr__(self, "decoded", decoded_values(self.response_text))
+        if self.normalized is None and self.decoded is not None:
+            object.__setattr__(self, "normalized", tuple((p, normalize(v)) for p, v in self.decoded))
 
     @property
     def decoded_text(self) -> str | None:
-        """The decoded values joined in document order; None when no response was captured."""
+        """The verbatim decoded values joined in document order; None when no response was captured."""
         return None if self.decoded is None else joined(self.decoded)
+
+    @property
+    def normalized_text(self) -> str | None:
+        """The normalized values joined in document order: what the matching checks read."""
+        return None if self.normalized is None else joined(self.normalized)
 
 
 @dataclass(frozen=True)

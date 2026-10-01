@@ -21,7 +21,7 @@ from redteam.executor.authorization import AuthorizationRegistry
 from redteam.executor.executor import Executor
 from redteam.executor.http_sender import ResponseRecord
 from redteam.oracles.base import Observation, OracleOutcome
-from redteam.runner import build_observation, echoes_to_strip, run_case, strip_decoded_echo, strip_echo
+from redteam.runner import build_observation, echoes_to_strip, run_case, strip_echo, strip_normalized_echo
 from redteam.store.store import Store
 
 MARK = "ZZ-DECODE-MARK"
@@ -180,9 +180,10 @@ def test_the_builder_strips_each_decoded_value_before_joining() -> None:
     payload = 'quote " and\nbreak'
     raw = json.dumps({"echo": f"You said: {payload}", "answer": "kept"})
     obs = build_observation(ResponseRecord(200, raw, 3.0), OracleConfig(marker=MARK), echoes=[payload])
-    # A value the strip touched comes back folded (decision 3); an untouched value is verbatim.
-    assert obs.decoded == (("$.echo", "you said:  "), ("$.answer", "kept"))
-    assert obs.decoded_text == "you said:  \nkept"
+    # The decoded view is verbatim; the normalized view (what matching reads) is casefolded.
+    assert obs.decoded == (("$.echo", "You said:  "), ("$.answer", "kept"))
+    assert obs.decoded_text == "You said:  \nkept"
+    assert obs.normalized == (("$.echo", "you said:  "), ("$.answer", "kept"))
     # The raw body keeps its own (verbatim) strip: an escaped echo does not match there.
     assert obs.response_text == raw
     assert (obs.status_code, obs.latency_ms, obs.injection_marker) == (200, 3.0, MARK)
@@ -192,7 +193,8 @@ def test_the_builder_strips_a_plain_text_body_as_before() -> None:
     obs = build_observation(ResponseRecord(200, "You said: PAYLOAD-0001", 1.0), OracleConfig(),
                             echoes=["PAYLOAD-0001"])
     assert obs.response_text == "You said:  "
-    assert obs.decoded_text == "you said:  "
+    assert obs.decoded_text == "You said:  "
+    assert obs.normalized_text == "you said:  "
 
 
 def test_the_builder_decodes_from_the_unstripped_body() -> None:
@@ -237,10 +239,30 @@ def test_a_short_payload_carrying_a_re_cased_marker_is_still_stripped() -> None:
     assert echoes_to_strip([f"x {MARK.lower()}"], [MARK]) == (f"x {MARK.lower()}",)
 
 
-def test_strip_decoded_echo_folds_only_a_value_it_touches() -> None:
-    assert strip_decoded_echo("Kept As Is", ["ECHO PAYLOAD"]) == "Kept As Is"
-    assert strip_decoded_echo("Before ECHO payload After", ["echo PAYLOAD"]) == "before   after"
-    assert strip_decoded_echo(f"x {FULLWIDTH_MARK} y", [MARK]) == "x   y"
+def test_strip_normalized_echo_normalizes_every_value_the_same_way() -> None:
+    assert strip_normalized_echo("Kept As Is", ["ECHO PAYLOAD"]) == "kept as is"
+    assert strip_normalized_echo("Before ECHO payload After", ["echo PAYLOAD"]) == "before   after"
+    assert strip_normalized_echo(f"x {FULLWIDTH_MARK} y", [MARK]) == "x   y"
+
+
+def test_matching_does_not_depend_on_whether_an_echo_was_in_the_value() -> None:
+    # One normalized view for every value: a width-shifted signature reads the same whether or not
+    # an echo was also stripped from its value.
+    shifted = "".join(chr(ord(c) + 0xFEE0) for c in "javascript") + ":"
+    outcomes = set()
+    for value, echoes in ((f"see {shifted} here", []), (f"see {shifted} here PAYLOAD-0001", ["PAYLOAD-0001"])):
+        obs = build_observation(ResponseRecord(200, json.dumps({"answer": value}), 1.0), OracleConfig(), echoes=echoes)
+        outcomes.add(next(r.outcome for r in Judge().judge(obs).oracle_results if r.oracle == "output_handling"))
+    assert outcomes == {OracleOutcome.VIOLATION}
+
+
+def test_the_rubric_and_details_see_verbatim_text_while_matching_reads_the_normalized_view() -> None:
+    obs = build_observation(ResponseRecord(200, json.dumps({"answer": f"Done. {MARK.lower()}"}), 1.0),
+                            OracleConfig(marker=MARK))
+    assert obs.decoded_text == f"Done. {MARK.lower()}"
+    assert obs.normalized_text == f"done. {MARK.lower()}"
+    v = Judge().judge(obs)
+    assert {r.oracle: r.detail for r in v.oracle_results}["marker"] == "marker present (in $.answer)"
 
 
 # --- an oracle's detail says which decoded value matched; evidence stays raw (decision 6) -------
