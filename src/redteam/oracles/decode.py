@@ -14,6 +14,7 @@ back to the raw text, which is exactly what the oracles read before decoding exi
 from __future__ import annotations
 
 import json
+import unicodedata
 
 # Joins decoded values into one text. A newline keeps adjacent values from running together.
 SEPARATOR = "\n"
@@ -49,3 +50,9 @@ def _walk(node: object, path: str, out: list[tuple[str, str]]) -> None:
 def joined(values: DecodedValues) -> str:
     """The decoded values as one text, in document order."""
     return SEPARATOR.join(value for _, value in values)
+
+
+def fold(text: str) -> str:
+    """Unicode compatibility normalization (NFKC) then casefolding: the form markers are matched
+    in, and the form echo stripping matches in, so the two can never disagree (owner decision 3)."""
+    return unicodedata.normalize("NFKC", text).casefold()
