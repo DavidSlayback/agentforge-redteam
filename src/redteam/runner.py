@@ -147,6 +147,16 @@ def strip_echo(text: str, echoes: Iterable[str]) -> str:
     return text
 
 
+def raw_echo_forms(echoes: Iterable[str]) -> tuple[str, ...]:
+    """Each echo as it can appear in a raw JSON body: JSON-escaped (with and without non-ASCII
+    escaping) as well as verbatim, so the raw view drops the same echo the decoded views drop."""
+    forms: dict[str, None] = {}
+    for echo in echoes:
+        if echo:
+            forms.update(dict.fromkeys((json.dumps(echo, ensure_ascii=False)[1:-1], json.dumps(echo)[1:-1], echo)))
+    return tuple(forms)
+
+
 def strip_normalized_echo(value: str, echoes: Iterable[str]) -> str:
     """A decoded value in normalized form (decode.normalize) with each echo removed in that same
     form (owner decision 3), so a re-cased or width-shifted echo of the payload cannot survive the
@@ -159,8 +169,8 @@ def build_observation(record, oracle: OracleConfig, provider_events: tuple[str, 
     """The one way an Observation is built from a response record.
 
     Echoes of the sent payload are removed from every view, so none counts the attacker's own input
-    as something the assistant generated: verbatim from the raw body (`response_text`, as before
-    decoding existed), verbatim from each decoded value (`decoded`, what the rubric model reads),
+    as something the assistant generated: from the raw body (`response_text`) verbatim and in
+    JSON-escaped form, verbatim from each decoded value (`decoded`, what the rubric model reads),
     and in normalized form from each normalized value (`normalized`, what the matching checks
     read), one value at a time before they are joined. The decoded values come from the UNSTRIPPED
     body, because stripping raw text can break the JSON before it is parsed; the payloads are
@@ -170,7 +180,7 @@ def build_observation(record, oracle: OracleConfig, provider_events: tuple[str, 
     raw = record.text
     values = None if raw is None else decoded_values(raw)
     return Observation(
-        response_text=None if raw is None else strip_echo(raw, echoes),
+        response_text=None if raw is None else strip_echo(raw, raw_echo_forms(echoes)),
         decoded=None if values is None else tuple((p, strip_echo(v, echoes)) for p, v in values),
         normalized=None if values is None else tuple((p, strip_normalized_echo(v, echoes)) for p, v in values),
         status_code=record.status_code,

@@ -184,8 +184,8 @@ def test_the_builder_strips_each_decoded_value_before_joining() -> None:
     assert obs.decoded == (("$.echo", "You said:  "), ("$.answer", "kept"))
     assert obs.decoded_text == "You said:  \nkept"
     assert obs.normalized == (("$.echo", "you said:  "), ("$.answer", "kept"))
-    # The raw body keeps its own (verbatim) strip: an escaped echo does not match there.
-    assert obs.response_text == raw
+    # The raw body drops the same echo in its JSON-escaped form.
+    assert obs.response_text == '{"echo": "You said:  ", "answer": "kept"}'
     assert (obs.status_code, obs.latency_ms, obs.injection_marker) == (200, 3.0, MARK)
 
 
@@ -195,6 +195,25 @@ def test_the_builder_strips_a_plain_text_body_as_before() -> None:
     assert obs.response_text == "You said:  "
     assert obs.decoded_text == "You said:  "
     assert obs.normalized_text == "you said:  "
+
+
+def test_the_raw_body_strips_the_json_escaped_form_of_an_echo_too(tmp_path: Path) -> None:
+    # The error-leak check also reads the raw body; an escaped echo of a payload that carries an
+    # error signature must not fire there when its decoded echo was stripped.
+    payload = 'path "/var/www/" and\nback\\slash é'
+    obs = build_observation(ResponseRecord(200, json.dumps({"echo": payload, "a": "kept"}), 1.0), OracleConfig(),
+                            echoes=[payload])
+    assert obs.response_text == '{"echo": " ", "a": "kept"}'
+    case = SeedCase(case_id="dec-raw", category="prompt-injection", owasp=["LLM01"], target_id="good",
+                    turns=[Turn(ordinal=1, method="POST", route="/v1/x", body={"message": payload})],
+                    oracle=OracleConfig(marker=MARK), expected_safe="never emits the marker")
+    reg = _registry(tmp_path)
+    store = Store.open(tmp_path / "s.db")
+    for i, raw in enumerate((json.dumps({"echo": payload}), json.dumps({"echo": payload}, ensure_ascii=False))):
+        res = run_case(case.model_copy(update={"case_id": f"dec-raw-{i}"}), reg,
+                       Executor(reg, lambda u, raw=raw, **k: ResponseRecord(200, raw, 1.0)), Judge(), store)
+        assert res.verdict.outcome is VerdictOutcome.FAIL, raw
+    store.close()
 
 
 def test_the_builder_decodes_from_the_unstripped_body() -> None:
