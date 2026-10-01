@@ -242,8 +242,27 @@ def test_nested_scopes_flatten_into_the_outer_unit(tmp_path: Path) -> None:
         _action(store, "outer")
         with store.transaction():
             _action(store, "inner")
+        assert store.in_transaction                 # leaving the inner scope keeps the unit open
         assert _committed_actions(db) == []        # the inner scope did not commit on its own
-    assert _committed_actions(db) == ["outer", "inner"]
+        _action(store, "after-inner")
+    assert not store.in_transaction
+    assert _committed_actions(db) == ["outer", "inner", "after-inner"]
+    store.close()
+
+
+def test_a_scope_refuses_to_adopt_a_transaction_it_did_not_open(tmp_path: Path) -> None:
+    # Raw transaction control on the connection is not a unit of work the store can vouch for.
+    db = tmp_path / "s.db"
+    store = Store.open(db)
+    store.conn.execute("BEGIN")
+    with pytest.raises(RuntimeError, match="already open"):
+        with store.transaction():
+            pass
+    assert store.conn.in_transaction            # the foreign transaction was left alone
+    store.conn.execute("ROLLBACK")
+    with store.transaction():
+        _action(store, "a")
+    assert _committed_actions(db) == ["a"]
     store.close()
 
 

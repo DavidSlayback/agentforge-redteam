@@ -98,7 +98,7 @@ class Store:
 
     def __init__(self, conn: sqlite3.Connection) -> None:
         self.conn = conn
-        self._depth = 0          # open transaction scopes; >0 means writes wait for the outer COMMIT
+        self._in_scope = False   # a unit of work is open; nested scopes join it, writes wait for COMMIT
         self._aborted = False    # an inner scope raised: the outer unit must not commit
 
     @classmethod
@@ -176,7 +176,7 @@ class Store:
     @property
     def in_transaction(self) -> bool:
         """True while a transaction scope is open on this store."""
-        return self._depth > 0
+        return self._in_scope
 
     @contextmanager
     def transaction(self) -> Iterator["Store"]:
@@ -188,20 +188,17 @@ class Store:
         exception, and the outer scope rolls back and raises ``TransactionAborted`` instead
         of committing half a unit.
         """
-        if self._depth:
-            self._depth += 1
+        if self._in_scope:            # nested: join the outer unit; only the outermost commits
             try:
                 yield self
             except BaseException:
                 self._aborted = True
                 raise
-            finally:
-                self._depth -= 1
             return
         if self.conn.in_transaction:
             raise RuntimeError("a transaction is already open on this connection outside a store scope")
         self.conn.execute("BEGIN")
-        self._depth, self._aborted = 1, False
+        self._in_scope, self._aborted = True, False
         try:
             yield self
             if self._aborted:
@@ -212,10 +209,10 @@ class Store:
                 self.conn.execute("ROLLBACK")
             raise
         finally:
-            self._depth, self._aborted = 0, False
+            self._in_scope, self._aborted = False, False
 
     def _require_scope(self, what: str) -> None:
-        if not self._depth:
+        if not self._in_scope:
             raise UnscopedWrite(f"store.{what} outside a transaction scope; "
                                 "wrap the unit of work in `with store.transaction():`")
 
