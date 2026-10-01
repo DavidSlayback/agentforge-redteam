@@ -27,6 +27,27 @@ synthetic data only.
 > regression now replays the mint-exhausting rate-limit probe **last** so it cannot starve a sibling
 > probe's token mint into a false `INCONCLUSIVE` (see `docs/PLAN.md`).
 
+### Why the accepted risk is bounded (verified in the target code, 2026-10-01)
+
+Two architectural facts — confirmed by reading the deployed branch, not assumed — cap the
+anonymous mint's blast radius to synthetic data and show the real fix carries no physician friction:
+
+- **Real charts are claim-gated.** The W2 service's `chartSourceRouter.js` serves a *real* OpenEMR
+  chart only for a token whose claims are `issuer: openemr-module` + `authn: openemr-session`; a token
+  claiming `issuer: synthetic-demo` + `authn: synthetic` routes to the synthetic `FixtureAdapter`. The
+  anonymous demo mint (`accessContext.js`) issues only the synthetic-claim token, HMAC-signed
+  server-side so the claims are **not attacker-controllable**. An anonymous token therefore **cannot
+  reach a real patient chart** — the exposure is structurally confined to synthetic fixtures (the
+  anonymous write path is likewise synthetic-only; the real write lives in the authenticated module).
+- **The production remediation already exists and adds no physician friction.** Real patient context
+  is minted by the OpenEMR module (`oe-module-agentforge/src/Launch/LaunchTokenMinter.php`) from a
+  *logged-in* OpenEMR session: a token is granted only after the signed-in user passes real OpenEMR
+  ACL checks (patient demographics / meds / docs / encounters; upload additionally needs docs-write)
+  **and** the patient is on the live allowlist. In production the physician is already authenticated in
+  OpenEMR, so this is transparent. The anonymous mint exists only in the public demo, which
+  deliberately has no login — so the critical is a *demo-mode* property, remediated in authenticated
+  production and accepted (with the above structural bound) for the demo.
+
 ## Three distinct root causes
 
 Two AI-layer findings sit in the *reasoning/response* plane, separate from the authorization-plane
