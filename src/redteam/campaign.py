@@ -118,11 +118,15 @@ class CampaignSummary:
 
     def brief_outcome(self) -> str:
         """The scheduled brief's outcome class for the v1 Campaign contract and scheduling:
-        ``tested`` if a judged attempt was written (any verdict), else the untested class
-        (``provider_blocked`` | ``skipped`` | ``errored``). The Orchestrator schedules one brief
-        per campaign, so this summary describes that brief."""
+        ``tested`` if a judged attempt was written (any verdict), else one of the untested classes
+        (``provider_blocked`` | ``skipped`` | ``errored``) or ``budget_halted`` when the model-call
+        cap stopped the brief before any attempt was made. A budget halt *after* an attempt was
+        judged still counts as ``tested`` — the test happened and is persisted; only the campaign
+        stops. The Orchestrator schedules one brief per campaign, so this describes that brief."""
         if self.generated >= 1:
             return "tested"
+        if self.budget_halted:
+            return "budget_halted"   # cap hit before any attempt: no test, but not the brief's fault
         if self.outcomes.get("PROVIDER_BLOCK"):
             return "provider_blocked"
         if self.outcomes.get("SKIPPED"):

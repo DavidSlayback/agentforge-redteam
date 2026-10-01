@@ -98,6 +98,23 @@ def test_the_model_call_cap_is_enforced_before_each_call(tmp_path: Path) -> None
     store.close()
 
 
+def test_cap_hit_before_any_attempt_is_budget_halted_not_errored(tmp_path: Path) -> None:
+    # Item 2: when the cap stops a brief before any attempt is made, the outcome is budget_halted,
+    # distinct from an errored brief (no attempt written, not the brief's fault).
+    from redteam.agents.orchestrator.budget import CallBudget
+
+    reg = _registry(tmp_path)
+    store = Store.open(tmp_path / "s.db")
+    brief = {"category": "prompt-injection", "owasp": ["LLM01"], "target_id": "good", "route": "/v1/x"}
+    summary = run_campaign([brief], registry=reg, executor=Executor(reg, lambda u, **k: None),
+                           judge=Judge(), store=store, agent=RedTeamAgent(), model=FakeModel(),
+                           call_budget=CallBudget(max_calls=0))
+    assert summary.generated == 0 and summary.budget_halted is True
+    assert summary.brief_outcome() == "budget_halted"
+    assert summary.outcomes.get("ERROR", 0) == 0
+    store.close()
+
+
 @dataclass
 class _CountingRubric:
     available: bool = True
