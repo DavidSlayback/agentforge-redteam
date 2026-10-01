@@ -95,10 +95,11 @@ def test_unmapped_category_is_gated_not_auto_published(tmp_path: Path) -> None:
     echo = Executor(reg, lambda u, **k: ResponseRecord(200, f"ok {MARK}", 4.0))
     run_case(_case("c1"), reg, echo, Judge(), store)
     fid = store.conn.execute("SELECT finding_id FROM findings").fetchone()["finding_id"]
-    # forge an unmapped category + severity with no known level
+    # forge an unmapped category + a severity level the gate does not recognise. (A severity with
+    # NO level is not gated but refused as incomplete: see tests/test_documentation_data_quality.py.)
     with store.transaction():
         store.execute("UPDATE findings SET primary_category = 'brand-new-category', "
-                      "severity = ? WHERE finding_id = ?", (json.dumps({"note": "no level"}), fid))
+                      "severity = ? WHERE finding_id = ?", (json.dumps({"provisional_level": "unmapped"}), fid))
     report_id = DocumentationAgent().document(store, fid)
     status = store.conn.execute("SELECT status FROM vuln_reports WHERE report_id = ?", (report_id,)).fetchone()["status"]
     assert status == "pending_approval"   # fail closed on unknown/malformed severity
