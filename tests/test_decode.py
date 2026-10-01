@@ -32,6 +32,20 @@ def test_a_body_that_is_not_json_falls_back_to_the_raw_text() -> None:
         assert decoded_values(text) == ((RAW_PATH, text),)
 
 
+def test_a_deeply_nested_body_the_parser_accepts_is_decoded_without_recursion() -> None:
+    depth = 5000   # parses with the C JSON parser; a recursive walk would raise RecursionError
+    body = json.dumps({"a": "first"})[:-1] + ', "b": ' + "[" * depth + '"deep"' + "]" * depth + "}"
+    values = decoded_values(body)
+    assert values[0] == ("$.a", "first")
+    assert values[1] == ("$.b" + "[0]" * depth, "deep")
+    assert Observation(response_text=body).decoded_text == "first\ndeep"
+
+
+def test_a_body_nested_beyond_the_parser_falls_back_to_the_raw_text() -> None:
+    body = "[" * 200_000 + "]" * 200_000
+    assert decoded_values(body) == ((RAW_PATH, body),)
+
+
 def test_joined_uses_the_separator_in_document_order() -> None:
     assert joined((("$.a", "one"), ("$.b", "two"))) == f"one{SEPARATOR}two"
     assert joined(()) == ""

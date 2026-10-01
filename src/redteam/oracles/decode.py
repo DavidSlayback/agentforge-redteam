@@ -30,22 +30,38 @@ def decoded_values(text: str) -> DecodedValues:
     ``((RAW_PATH, text),)`` when ``text`` is not JSON."""
     try:
         data = json.loads(text)
-    except (ValueError, RecursionError):   # not JSON, or nested too deep to walk
+    except (ValueError, RecursionError):   # not JSON, or nested deeper than the parser accepts
         return ((RAW_PATH, text),)
+    return _string_values(data)
+
+
+# A path is built only for a value that is emitted: each stack entry carries a link
+# (segment, parent link) instead of a path string, so deep nesting costs no quadratic copying.
+_Link = tuple[str, "_Link"] | None
+
+
+def _string_values(root: object) -> DecodedValues:
+    """The string values under ``root`` with their paths, in document order. Iterative, so any
+    depth the JSON parser accepts is walked without recursion."""
     out: list[tuple[str, str]] = []
-    _walk(data, "$", out)
+    stack: list[tuple[object, _Link]] = [(root, None)]
+    while stack:
+        node, link = stack.pop()
+        if isinstance(node, str):
+            out.append((_path(link), node))
+        elif isinstance(node, dict):
+            stack.extend((value, (f".{key}", link)) for key, value in reversed(node.items()))
+        elif isinstance(node, list):
+            stack.extend((value, (f"[{i}]", link)) for i, value in reversed(list(enumerate(node))))
     return tuple(out)
 
 
-def _walk(node: object, path: str, out: list[tuple[str, str]]) -> None:
-    if isinstance(node, str):
-        out.append((path, node))
-    elif isinstance(node, dict):
-        for key, value in node.items():
-            _walk(value, f"{path}.{key}", out)
-    elif isinstance(node, list):
-        for i, value in enumerate(node):
-            _walk(value, f"{path}[{i}]", out)
+def _path(link: _Link) -> str:
+    segments: list[str] = []
+    while link is not None:
+        segment, link = link
+        segments.append(segment)
+    return "$" + "".join(reversed(segments))
 
 
 def joined(values: DecodedValues) -> str:
