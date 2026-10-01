@@ -1133,3 +1133,20 @@ listing them. I did **not** change gate semantics at submission time; (b) is ava
 
 **Human-only remaining:** approve the held critical/high reports (`redteam approve`), refreshed demo
 video, social post, AI interview, calibration `review_status` flip. (I cannot do these.)
+
+### 2026-10-01 addendum — origin binding (defense-in-depth) deployed
+
+Follow-up to the above, at David's direction. Before shipping it I verified the production path
+in the target code: real patient context is minted only by the OpenEMR module
+(`LaunchTokenMinter.php`) from a logged-in session passing real ACL checks + the live allowlist,
+and the W2 service (`chartSourceRouter.js`) serves a **real** chart only for
+`issuer=openemr-module` + `authn=openemr-session` tokens — the anonymous demo mint can only issue
+`synthetic-demo`/`synthetic` claims (HMAC-signed, not attacker-controllable), so **it cannot reach a
+real chart by construction**. Recorded in `docs/findings/README.md`.
+
+Cross-origin binding then added to the three anonymous mints and deployed: live build is now
+**`926805ce`** (= `d5e79bb3` + origin binding). A foreign `Origin` gets `403 mint_origin_not_allowed`
+(verified live); no-Origin / allowed-origin still mint (demo UI + harness unaffected). Regression
+`@ 926805ce` = held=5 reappeared=2 inconclusive=0, identical to `d5e79bb3`. This is belt-and-suspenders
+against cross-origin **browser** abuse only; a scripted client can omit/forge `Origin`, so F-831/F-24b
+remain risk-accepted. **Live build for the submission: `926805ce`.**
