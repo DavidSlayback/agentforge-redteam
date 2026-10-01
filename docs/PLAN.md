@@ -1364,3 +1364,40 @@ the definition-of-done run showing selections spread across pairs with the run's
 attributed — needs the Qwen key and the live target, so it cannot run in the build sandbox. Run
 `redteam campaign` against the authorized target once a key is configured and paste the summary line
 here; until then this refactor's live-evidence step is outstanding.
+
+### 2026-10-01 — refactors #1–#4 integrated (branch `integrate/refactors`)
+
+Four GitLab refactor plans executed by implementer subagents in isolated worktrees, each followed by
+an independent review (mutation runs included) and a fix round, then merged here with
+`fix/model-set-probe-kind` (#4 commit 1). Order: #3 one verdict path → #2 decode before matching
+(rebased on final #3) and #1 atomic persistence in parallel → #4 orchestrator scheduling.
+
+**Owner decisions (David, 2026-10-01, all "recommended" unless noted):** #3 — oracle names
+byte-stable; enumeration's 400 stays held via a per-observation defense-status set; each migrated
+probe judged by its own oracle only; explicit aggregate observation mode; empty chart fixed in #3;
+reason text may change; benign/discovery/recon out of scope. #2 — all decoded values joined; empty
+check on raw; case-insensitive NFKC markers with identically normalized stripping; echo stripping on
+the authz path; rubric sees decoded text; detail names the matched value; no re-judging, with a
+frozen-case check. #4 — a Campaign record per brief; exploit term decays and is capped; exclude a
+brief after 2 untested outcomes in a run; coverage per target; exit non-zero when nothing tested or
+config error; outcome as an added v1 property. #1 — nested scopes flatten; refuse writes outside a
+scope (last commit); read-only integrity check.
+
+**Departures to note:** (1) #2 item 6 — the empty-answer gate reads the raw body after echo
+stripping on every path, so a probe response that only echoes the request is INCONCLUSIVE ("empty
+answer") rather than graded; kept as the fail-closed reading and recorded in the #2 entry. (2) #4 —
+a brief whose every attempt was target-unreachable is an untested outcome (`unreachable`), so a full
+outage exits non-zero; added during review to make decision 5 hold, beyond the listed decisions.
+
+**Integration-only fixes:** two semantic conflicts git could not see (a test calling
+`rate_limit_probe` with its pre-#3 signature; a ResourceWarning test measuring other tests' leaked
+connections), and a deep-nesting decode test that assumed Python 3.14's JSON parser depth (CI is
+3.13).
+
+**Verification:** 415 passed, 1 skipped (opt-in real-store check) on Python 3.14 and 3.13; contract
+drift gate clean; calibration 10/10; `redteam integrity` on a copy of the canonical store: 0
+attempts without a verdict, 0 findings without a regression case; canonical store untouched.
+
+**Outstanding:** #4's definition-of-done live run (a bounded `redteam campaign` against the
+authorized target) has not been run; it needs the operator's go-ahead.
+
