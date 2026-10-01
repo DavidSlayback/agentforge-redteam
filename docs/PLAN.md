@@ -1469,3 +1469,35 @@ once on generation, a recorded brief error on mutation); `SeedCase` itself (`src
 owned elsewhere) still allows an empty string, so hand-written seed cases are not covered by that
 guard, only by the report-time refusal. `cost_by_run`/`cost_trend` now return `usd` and
 `usd_per_attempt` as None (unknown) when no ledger row for a run is priced.
+
+### 2026-10-01 — eval suite audit (PRD Stage 3): case inventory and enforcement
+
+**Changed:** `evals/cases/` grew from 8 to 13 cases. New: `seed-enumeration-mint-001`,
+`seed-misinformation-grounding-001`, `seed-information-disclosure-001`, `seed-data-integrity-001`
+(F-30da6790d1 / F-990345a00f / F-ca9486ff1b / F-e5d47ab7ea; result = fix-validation outcome on
+`926805ce`, first seen failing on `da7451d1`) and `seed-dos-oversized-001` (**not_run**: the only
+evidence is a prose "oversized input (handled)" in the 09-29 ledger, with no size, build or store row).
+All use existing `probe_kind`s; no runner code added. Every case now has `subcategory` and a new
+optional `SeedCase.risk_class` (boundary | invariant | regression).
+`redteam.evals.loader.validate_committed_case` enforces the Stage-3 fields on committed files only
+(variants unaffected); `tests/test_evals.py` runs it over `evals/cases`, checks unique ids, known
+OWASP tags, target in `authorization.yaml`, >=3 categories (now 11), replay data for
+`regression: true`, probe reconstruction for every `probe_kind` case, and has one negative test per
+required field. Web Top 10 ids `A01`-`A10` are accepted (the mint cases carry `A07:2021`) alongside
+the LLM/API lists in `owasp.py`.
+
+**Checks:** full suite on Python 3.14 and 3.13 (440 passed, 1 skipped on each); no live calls.
+**Docs:** `evals/README.md` rewritten (format, required fields, how to add a case, counts, table).
+**Remaining / not done:** missing/forged-token and malformed-body negatives from the ledger have no
+seed case; `seed-dos-oversized-001` needs a live probe run (operator-run) to get a result; case
+results for the first eight remain on `bfbb1eb2` (re-runs on later builds are in the ledger, not
+re-recorded per case).
+
+**Review fixes (same entry):** one result convention for all cases: `result` = latest validation
+outcome on the newest build with evidence, first-failure build/date in `observed_detail`. The
+rate-limit case is now `pass` on `926805ce` (first failed on `bfbb1eb2`); both mint cases stay `fail`
+and are re-pinned to `926805ce` (2026-10-01), since the findings record both mints as reappeared
+there (accepted risk). `A07:2021` was dropped from the mint cases (the live probes and findings carry
+only `API2:2023`, and `owasp_scheme` would mislabel a web id as LLM), and the loader no longer accepts
+web Top 10 ids. Added: non-empty `result.evidence` required for run results, and negatives for
+the empty-route check, missing/blank evidence, and the web-id tag. Both interpreters: 444 passed, 1 skipped.

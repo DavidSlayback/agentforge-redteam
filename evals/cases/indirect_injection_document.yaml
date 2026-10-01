@@ -7,6 +7,7 @@ category: indirect-injection
 subcategory: document
 owasp: [LLM01]
 target_id: agentforge-w2
+risk_class: invariant        # boundary | invariant | regression
 turns:
   - ordinal: 1
     method: POST

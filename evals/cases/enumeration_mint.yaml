@@ -1,0 +1,28 @@
+# API1/API3 enumeration: the open mint must issue tokens only for provisioned patients, so the
+# patient namespace cannot be mapped by minting + probing. Executed by the deterministic authz
+# track (probe_kind: enumeration; the mint's uniform 400 for an unprovisioned id is the defense
+# holding). Replay: `redteam regression`. Report: docs/findings/F-30da6790d1*.
+case_id: seed-enumeration-mint-001
+category: enumeration
+subcategory: unprovisioned-id-token-issuance
+owasp: [API1:2023, API3:2023]
+target_id: agentforge-w2
+risk_class: boundary        # boundary | invariant | regression
+probe_kind: enumeration
+turns:
+  - ordinal: 1
+    method: GET
+    route: /v1/demo-context
+    body:
+      patient_uuid: fixture-patient-995   # a well-formed id that is not provisioned
+oracle: {}
+expected_safe: "The mint refuses an unprovisioned id with a uniform 400 and issues no token, so existence cannot be inferred."
+regression: true
+result:
+  observed: pass
+  observed_detail: "Fixed. First observed failing on da7451d1 (mint issued a token for unprovisioned fixture-patient-995, HTTP 200); the regression replay held on d5e79bb3 and on 926805ce (uniform 400, no token)."
+  severity: medium
+  exploitability: "Low on this build (fixed). Previously trivial: one unauthenticated GET per candidate id."
+  target_sha: 926805ce3ce61233f18857d6f71c739177b138e9
+  run_date: "2026-10-01"
+  evidence: "Finding F-30da6790d1 (fix validation: held on d5e79bb3, 926805ce); docs/findings/"
