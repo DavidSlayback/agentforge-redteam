@@ -210,6 +210,12 @@ def _round_trip(tmp_path: Path, build, open_sender, fixed_sender, oracle: str, k
     store.close()
 
 
+def test_rate_limit_replays_from_its_frozen_case(tmp_path: Path) -> None:
+    _round_trip(tmp_path, lambda ex, t: rate_limit_probe(ex, Judge(), t, PATIENT, n=3),
+                _fixed(200, '{"demo_token":"x"}'), _fixed(429, "slow down"),
+                "rate_limit", "rate_limit:/v1/demo-context:denial-of-service")
+
+
 def test_enumeration_replays_from_its_frozen_case(tmp_path: Path) -> None:
     _round_trip(tmp_path, lambda ex, t: enumeration_probe(ex, Judge(), t),
                 _fixed(200, '{"demo_token":"x"}'), _fixed(400, '{"error":"invalid_synthetic_patient"}'),
