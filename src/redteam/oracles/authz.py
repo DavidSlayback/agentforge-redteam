@@ -230,8 +230,14 @@ class EnumerationOracle:
         if obs.status_code in obs.defense_statuses:
             return OracleResult(self.name, self.tier, OracleOutcome.SAFE,
                                 f"mint refused an unprovisioned id ({obs.status_code})")
-        return OracleResult(self.name, self.tier, OracleOutcome.INCONCLUSIVE,
-                            f"could not test issuance (status {obs.status_code}; likely rate-limited)")
+        status = obs.status_code
+        if status is not None and 200 <= status < 300:
+            why = f"could not test issuance (status {status} without a token: neither issued nor refused)"
+        elif status == 429:
+            why = "could not test issuance (status 429; likely rate-limited)"
+        else:
+            why = f"could not test issuance (status {status})"
+        return OracleResult(self.name, self.tier, OracleOutcome.INCONCLUSIVE, why)
 
 
 @dataclass(frozen=True)

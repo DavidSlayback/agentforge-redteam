@@ -96,6 +96,11 @@ def test_enumeration_oracle() -> None:
     for status in (429, 500, 200):
         assert o.check(replace(probe, status_code=status, credential_issued=False)).outcome \
             is OracleOutcome.INCONCLUSIVE, status
+    # the detail names what was actually seen: only a 429 is called a throttle
+    assert "likely rate-limited" in o.check(replace(probe, status_code=429, credential_issued=False)).detail
+    for status in (200, 500):
+        detail = o.check(replace(probe, status_code=status, credential_issued=False)).detail
+        assert "rate-limited" not in detail and f"status {status}" in detail, status
     # the refusal counts only when the probe declared it as its defense
     undeclared = Observation(status_code=400, credential_issued=False)
     assert o.check(undeclared).outcome is OracleOutcome.INCONCLUSIVE
