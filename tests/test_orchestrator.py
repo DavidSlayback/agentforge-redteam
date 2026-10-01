@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+import pytest
+
 from redteam.agents.orchestrator.budget import Budget, Governor
 from redteam.agents.orchestrator.candidates import build_candidates
 from redteam.agents.orchestrator.orchestrator import Orchestrator
@@ -151,4 +153,71 @@ def test_orchestrator_runs_and_halts_on_no_signal(tmp_path: Path) -> None:
     # a select action per campaign + a halt action recorded
     selects = store.conn.execute("SELECT COUNT(*) AS c FROM agent_actions WHERE agent='orchestrator' AND action='select'").fetchone()["c"]
     assert selects == 3
+    store.close()
+
+
+# --- scheduling: a brief that cannot produce a tested attempt must not starve its sibling ----
+
+_PI_CASE = (
+    '{"case_id":"p","category":"prompt-injection","owasp":["LLM01"],"target_id":"good",'
+    '"turns":[{"ordinal":1,"method":"POST","route":"/v1/x","body":{"message":"hi"}}],'
+    '"oracle":{"marker":null,"foreign_canaries":[],"latency_budget_ms":null},'
+    '"expected_safe":"refuses"}'
+)
+
+
+@dataclass
+class FaultyModel:
+    """Fails only for the faulty category (block or error); generates a valid case otherwise."""
+
+    fault: str          # "skip" | "block" | "error"
+    faulty_category: str
+
+    def complete(self, system: str, user: str, **kw: object) -> str:
+        from redteam.errors import ProviderBlock
+
+        if self.faulty_category in user:
+            if self.fault == "block":
+                raise ProviderBlock("attacker-model content filter")
+            if self.fault == "error":
+                raise ValueError("not JSON")   # both attempts fail -> brief_error
+        return _PI_CASE
+
+
+def _selected_categories(store: Store) -> list[str]:
+    import json as _json
+
+    rows = store.conn.execute(
+        "SELECT refs FROM agent_actions WHERE agent='orchestrator' AND action='select' ORDER BY id"
+    ).fetchall()
+    return [_json.loads(r["refs"])["brief"]["category"] for r in rows]
+
+
+@pytest.mark.parametrize("fault", ["skip", "block", "error"])
+@pytest.mark.xfail(reason="scheduling fix lands in commit 4 (untested outcomes must not starve the sibling)",
+                   strict=True)
+def test_a_stuck_brief_does_not_starve_its_sibling(tmp_path: Path, fault: str) -> None:
+    reg = _registry(tmp_path)
+    store = Store.open(tmp_path / "s.db")
+    # The faulty category is listed FIRST, so on a score tie it wins every round under the old
+    # attempt-count coverage (a skip/block/error never changes that count). "skip" uses a
+    # canary-gated category with no canary; "block"/"error" fail in the model.
+    faulty_cat, faulty_owasp = (
+        ("sensitive-info-disclosure", ["LLM02"]) if fault == "skip" else ("denial-of-service", ["LLM10"])
+    )
+    clean = Executor(reg, lambda u, **k: ResponseRecord(200, "no marker here", 5.0))
+    orch = Orchestrator(
+        registry=reg, executor=clean, judge=Judge(), store=store,
+        agent=RedTeamAgent(), model=FaultyModel(fault, faulty_cat), selector=DeterministicSelector(),
+    )
+    run = orch.run(
+        target_id="good", surfaces=["/v1/x"],
+        categories=[(faulty_cat, faulty_owasp), ("prompt-injection", ["LLM01"])],
+        budget=Budget(max_campaigns=5, max_model_calls=999, max_no_signal=5),
+        route_fields={"/v1/x": "message"},
+    )
+    assert "prompt-injection" in _selected_categories(store), (
+        f"the sibling was never scheduled in {run.campaigns} campaigns; "
+        f"selected={_selected_categories(store)}"
+    )
     store.close()
