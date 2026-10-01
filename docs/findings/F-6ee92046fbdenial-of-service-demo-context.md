@@ -59,6 +59,7 @@ uv run redteam regression --target agentforge-w2 --sha <git_sha from /health>
 - `da7451d1c9bb2c32bd0625840d28103fa13d4529` — held (2026-09-30)
 - `d5e79bb37c48fccb1322c7c8b8bcae2626e076cb` — held (2026-10-01)
 - `d5e79bb37c48fccb1322c7c8b8bcae2626e076cb` — held (2026-10-01)
+- `926805ce3ce61233f18857d6f71c739177b138e9` — held (2026-10-01)
 
 ## References
 - Verdicts: ver-7e3f9aa308b8, ver-7effed04498e, ver-01318d0af56c, ver-bc5235422c88, ver-c66d0370044e (platform store; `uv run redteam evidence <attempt_id>` dumps the raw exchange, first attempt `att-728b25f521db`)
