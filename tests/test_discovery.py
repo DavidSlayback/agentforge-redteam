@@ -48,13 +48,14 @@ class _FakeJudge:
 
 
 def _seed_attempt(store: Store, attempt_id: str, sha: str, response: str) -> None:
-    store.insert("attempts", {"attempt_id": attempt_id, "target_id": "t", "target_sha": sha,
-                              "started_at": "2026-09-30T00:00:00+00:00"})
-    store.insert("evidence", {"evidence_id": "ev-" + attempt_id, "attempt_id": attempt_id,
-                              "exchanges": json.dumps([{"ordinal": 1, "route": "/v1/x", "method": "POST",
-                                                        "request": {"message": "q"}, "status_code": 200,
-                                                        "response": response}]),
-                              "created_at": "2026-09-30T00:00:00+00:00"})
+    with store.transaction():
+        store.insert("attempts", {"attempt_id": attempt_id, "target_id": "t", "target_sha": sha,
+                                  "started_at": "2026-09-30T00:00:00+00:00"})
+        store.insert("evidence", {"evidence_id": "ev-" + attempt_id, "attempt_id": attempt_id,
+                                  "exchanges": json.dumps([{"ordinal": 1, "route": "/v1/x", "method": "POST",
+                                                            "request": {"message": "q"}, "status_code": 200,
+                                                            "response": response}]),
+                                  "created_at": "2026-09-30T00:00:00+00:00"})
 
 
 def test_pass_logs_high_confidence_candidates_only(tmp_path: Path) -> None:

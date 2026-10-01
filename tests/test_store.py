@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from redteam.store.store import MIGRATIONS_DIR, MigrationError, Store, TransactionAborted
+from redteam.store.store import MIGRATIONS_DIR, MigrationError, Store, TransactionAborted, UnscopedWrite
 
 EXPECTED_TABLES = {
     "schema_version", "campaigns", "attack_specs", "attempts", "verdicts",
@@ -133,7 +133,8 @@ def test_an_older_store_with_rows_migrates_forward_without_loss(tmp_path: Path) 
         shutil.copy(p, old / p.name)
     store = Store.open(db, migrations_dir=old)
     assert store.schema_version() == 4
-    store.insert("attack_specs", {"spec_id": "s1", "category": "prompt-injection", "created_at": "2026-10-01"})
+    with store.transaction():
+        store.insert("attack_specs", {"spec_id": "s1", "category": "prompt-injection", "created_at": "2026-10-01"})
     store.close()
 
     store = Store.open(db)
@@ -159,11 +160,17 @@ def _committed_actions(db: Path) -> list[str]:
         other.close()
 
 
-def test_a_bare_insert_commits_on_its_own(tmp_path: Path) -> None:
+def test_a_write_outside_a_scope_is_refused(tmp_path: Path) -> None:
+    # Every writer must declare its unit of work; a bare write is a design error, not a commit.
     db = tmp_path / "s.db"
     store = Store.open(db)
-    _action(store, "a")
-    assert not store.in_transaction
+    with pytest.raises(UnscopedWrite, match="transaction"):
+        _action(store, "a")
+    with pytest.raises(UnscopedWrite):
+        store.execute("UPDATE agent_actions SET reason = 'x'")
+    assert _committed_actions(db) == []
+    with store.transaction():
+        _action(store, "a")
     assert _committed_actions(db) == ["a"]
     store.close()
 

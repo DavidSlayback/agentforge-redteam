@@ -11,11 +11,12 @@ from redteam.store.store import Store
 
 
 def _seed(store: Store) -> None:
-    for cid, vc in [("cand-1", "grounding"), ("cand-2", "grounding"), ("cand-3", "mint")]:
-        store.insert("discovery_candidates", {
-            "candidate_id": cid, "target_sha": "s", "vuln_class": vc,
-            "severity": "medium", "confidence": 0.9, "why": "x", "route": "/r",
-            "status": "new", "created_at": "2026-09-30"})
+    with store.transaction():
+        for cid, vc in [("cand-1", "grounding"), ("cand-2", "grounding"), ("cand-3", "mint")]:
+            store.insert("discovery_candidates", {
+                "candidate_id": cid, "target_sha": "s", "vuln_class": vc,
+                "severity": "medium", "confidence": 0.9, "why": "x", "route": "/r",
+                "status": "new", "created_at": "2026-09-30"})
 
 
 def test_triage_by_class_sets_all(tmp_path: Path) -> None:

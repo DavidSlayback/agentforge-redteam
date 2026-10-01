@@ -17,7 +17,8 @@ the same on every supported Python version.
   discovery pass; one benign run) runs inside ``with store.transaction():`` and commits once at
   the end, or rolls back entirely if an exception escapes. Nested scopes flatten into the
   outermost one; if an inner scope raises, the whole unit rolls back with ``TransactionAborted``
-  even if the exception was caught. Write ``insert``/``execute`` calls inside a scope commit with it.
+  even if the exception was caught. ``insert``/``execute`` outside a scope raise ``UnscopedWrite``:
+  every writer declares its unit of work, and nothing commits row by row.
 * Units are written after the network or model calls that produce them where possible, so no
   write lock is held during I/O. Cost metering is its own unit and refuses to join another one.
 * ``Store.open_readonly`` + ``integrity()`` (``redteam integrity``) report half-written units
@@ -45,6 +46,11 @@ _TXN_CONTROL = re.compile(r"(BEGIN|COMMIT|END|ROLLBACK|SAVEPOINT|RELEASE)\b", re
 
 class MigrationError(RuntimeError):
     """A migration file failed and was rolled back; the store is still at the previous version."""
+
+
+class UnscopedWrite(RuntimeError):
+    """A write was attempted outside ``with store.transaction():``. Every writer must declare
+    its unit of work; nothing commits row by row."""
 
 
 class TransactionAborted(RuntimeError):
@@ -208,17 +214,24 @@ class Store:
         finally:
             self._depth, self._aborted = 0, False
 
+    def _require_scope(self, what: str) -> None:
+        if not self._depth:
+            raise UnscopedWrite(f"store.{what} outside a transaction scope; "
+                                "wrap the unit of work in `with store.transaction():`")
+
     def insert(self, table: str, row: dict[str, object]) -> None:
-        """Insert one row. Inside a transaction scope it commits with the scope; outside one it
-        commits on its own (autocommit). `table` and column names come from platform code,
-        never user input, so the interpolation here is not an injection surface."""
+        """Insert one row; it commits with the enclosing transaction scope (required).
+        `table` and column names come from platform code, never user input, so the
+        interpolation here is not an injection surface."""
+        self._require_scope("insert")
         columns = ", ".join(row)
         placeholders = ", ".join("?" for _ in row)
         self.conn.execute(f"INSERT INTO {table} ({columns}) VALUES ({placeholders})", tuple(row.values()))
 
     def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
-        """Run one write statement (an UPDATE, or an INSERT that ``insert`` cannot express).
-        Same commit rule as ``insert``. Reads use ``conn.execute`` directly."""
+        """Run one write statement (an UPDATE, or an INSERT that ``insert`` cannot express)
+        inside the enclosing transaction scope (required). Reads use ``conn.execute`` directly."""
+        self._require_scope("execute")
         return self.conn.execute(sql, params)
 
     def count(self, table: str) -> int:

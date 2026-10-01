@@ -55,7 +55,7 @@ Units: a judged attempt (spec, attempt, evidence, verdict, actions, plus finding
 regression freezing, in `runner.finalize`); a regression replay of one case with its
 `last_result`; a report with its audit action; a recon SHA-change trigger with its baseline; a
 discovery pass; a triage; a benign run. Nested scopes flatten, and an inner failure dooms the
-whole unit. Each migration applies atomically with its `schema_version` row; a failed one rolls
+whole unit. A store write outside a scope raises `UnscopedWrite`. Each migration applies atomically with its `schema_version` row; a failed one rolls
 back and names the file. `redteam integrity` reports existing half-written units read-only.
 Concurrency (WAL, multi-process writers, busy timeouts) is out of scope.
 

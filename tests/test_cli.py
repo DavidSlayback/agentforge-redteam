@@ -84,5 +84,6 @@ def test_a_readonly_store_refuses_writes(tmp_path: Path) -> None:
     _half_written_store(db)
     store = Store.open_readonly(db)
     with pytest.raises(sqlite3.OperationalError, match="readonly"):
-        store.insert("agent_actions", {"ts": "2026-10-01", "agent": "x", "action": "y"})
+        with store.transaction():
+            store.insert("agent_actions", {"ts": "2026-10-01", "agent": "x", "action": "y"})
     store.close()
