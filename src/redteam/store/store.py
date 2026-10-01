@@ -18,16 +18,21 @@ the same on every supported Python version.
   the end, or rolls back entirely if an exception escapes. Nested scopes flatten into the
   outermost one; if an inner scope raises, the whole unit rolls back with ``TransactionAborted``
   even if the exception was caught. ``insert``/``execute`` outside a scope raise ``UnscopedWrite``:
-  every writer declares its unit of work, and nothing commits row by row.
+  every writer declares its unit of work, and nothing commits row by row. The rule also holds at
+  the connection: a sqlite3 authorizer refuses INSERT/UPDATE/DELETE (and DDL) on ``store.conn``
+  whenever no scope or migration is running, so raw ``conn.execute`` writes cannot bypass it.
 * Units are written after the network or model calls that produce them where possible, so no
   write lock is held during I/O. Cost metering is its own unit and refuses to join another one.
 * ``Store.open_readonly`` + ``integrity()`` (``redteam integrity``) report half-written units
   left by older code: attempts without a verdict and findings without a frozen regression case.
-  That check never writes.
+  That check never writes; on a hot rollback journal (a crash mid-unit) it raises ``HotJournal``
+  rather than recover it, since only a normal open may roll the journal back.
+* ``record_action`` is the one-line unit for a single ``agent_actions`` audit row.
 """
 
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
 from collections.abc import Iterator
@@ -53,9 +58,24 @@ class UnscopedWrite(RuntimeError):
     its unit of work; nothing commits row by row."""
 
 
+class HotJournal(RuntimeError):
+    """A read-only open found an uncommitted rollback journal from an interrupted write. Only a
+    normal (writable) open can roll it back; a read-only check must not, so it stops here."""
+
+
 class TransactionAborted(RuntimeError):
     """An inner transaction scope failed, so the enclosing unit of work was rolled back even
     though the exception was caught before the outer scope ended."""
+
+
+_WRITE_ACTIONS = frozenset({sqlite3.SQLITE_INSERT, sqlite3.SQLITE_UPDATE, sqlite3.SQLITE_DELETE})
+
+
+def _deny_unscoped_writes(action: int, *_: object) -> int:
+    """sqlite3 authorizer installed whenever no unit of work is open: reads pass, writes (incl.
+    DDL, which inserts into sqlite_master) are refused at prepare time. Setting or clearing an
+    authorizer expires cached statements, so one prepared inside a scope is re-checked here."""
+    return sqlite3.SQLITE_DENY if action in _WRITE_ACTIONS else sqlite3.SQLITE_OK
 
 
 def _utcnow() -> str:
@@ -98,8 +118,9 @@ class Store:
 
     def __init__(self, conn: sqlite3.Connection) -> None:
         self.conn = conn
-        self._depth = 0          # open transaction scopes; >0 means writes wait for the outer COMMIT
-        self._aborted = False    # an inner scope raised: the outer unit must not commit
+        self._in_scope = False   # a unit of work is open; nested scopes join it, writes wait for COMMIT
+        self._aborted: BaseException | None = None   # an inner scope raised: the unit must not commit
+        self._guarded = False    # writes outside a scope are refused at the connection (Store.open)
 
     @classmethod
     def open(cls, path: str | Path, *, migrations_dir: Path = MIGRATIONS_DIR) -> "Store":
@@ -114,6 +135,8 @@ class Store:
         except BaseException:
             conn.close()
             raise
+        store._guarded = True
+        conn.set_authorizer(_deny_unscoped_writes)
         return store
 
     @classmethod
@@ -125,10 +148,18 @@ class Store:
         return cls(conn)
 
     def integrity(self) -> IntegrityReport:
-        """Report half-written units (read-only queries). A missing verdict is never silent."""
-        attempts = [r["attempt_id"] for r in self.conn.execute(
-            "SELECT a.attempt_id FROM attempts a WHERE NOT EXISTS "
-            "(SELECT 1 FROM verdicts v WHERE v.attempt_id = a.attempt_id) ORDER BY a.started_at")]
+        """Report half-written units (read-only queries). A missing verdict is never silent.
+        Raises ``HotJournal`` if a read-only connection meets a journal it may not roll back."""
+        try:
+            attempts = [r["attempt_id"] for r in self.conn.execute(
+                "SELECT a.attempt_id FROM attempts a WHERE NOT EXISTS "
+                "(SELECT 1 FROM verdicts v WHERE v.attempt_id = a.attempt_id) ORDER BY a.started_at")]
+        except sqlite3.OperationalError as exc:
+            if getattr(exc, "sqlite_errorname", "") == "SQLITE_READONLY_ROLLBACK":
+                raise HotJournal("the store has an uncommitted rollback journal from an interrupted write; "
+                                 "open it normally once (any write-capable redteam command) so SQLite "
+                                 "rolls it back, then re-run the check") from exc
+            raise
         findings = [r["finding_id"] for r in self.conn.execute(
             "SELECT f.finding_id FROM findings f WHERE NOT EXISTS "
             "(SELECT 1 FROM regression_cases r WHERE r.finding_id = f.finding_id) ORDER BY f.finding_id")]
@@ -147,8 +178,12 @@ class Store:
         """Apply each pending migration atomically: its statements and its version row commit
         together, or the whole file rolls back (SQLite DDL is transactional) and
         ``MigrationError`` names the file. The store then reopens at the previous version."""
+        with self._writes_open():
+            return self._apply_migrations(Path(migrations_dir))
+
+    def _apply_migrations(self, migrations_dir: Path) -> int:
         current = self.schema_version()
-        for path in sorted(Path(migrations_dir).glob("*.sql")):
+        for path in sorted(migrations_dir.glob("*.sql")):
             match = _VERSION_RE.match(path.name)
             if match is None:
                 continue
@@ -173,10 +208,22 @@ class Store:
                 raise
         return self.schema_version()
 
+    @contextmanager
+    def _writes_open(self) -> Iterator[None]:
+        """Lift the connection's write guard for the store's own transaction (a scope or a
+        migration), and put it back afterwards whatever happens."""
+        if self._guarded:
+            self.conn.set_authorizer(None)
+        try:
+            yield
+        finally:
+            if self._guarded:
+                self.conn.set_authorizer(_deny_unscoped_writes)
+
     @property
     def in_transaction(self) -> bool:
         """True while a transaction scope is open on this store."""
-        return self._depth > 0
+        return self._in_scope
 
     @contextmanager
     def transaction(self) -> Iterator["Store"]:
@@ -188,34 +235,33 @@ class Store:
         exception, and the outer scope rolls back and raises ``TransactionAborted`` instead
         of committing half a unit.
         """
-        if self._depth:
-            self._depth += 1
+        if self._in_scope:            # nested: join the outer unit; only the outermost commits
             try:
                 yield self
-            except BaseException:
-                self._aborted = True
+            except BaseException as exc:
+                self._aborted = self._aborted or exc   # keep the first failure as the cause
                 raise
-            finally:
-                self._depth -= 1
             return
         if self.conn.in_transaction:
             raise RuntimeError("a transaction is already open on this connection outside a store scope")
-        self.conn.execute("BEGIN")
-        self._depth, self._aborted = 1, False
-        try:
-            yield self
-            if self._aborted:
-                raise TransactionAborted("an inner transaction scope failed; the unit was rolled back")
-            self.conn.execute("COMMIT")
-        except BaseException:
-            if self.conn.in_transaction:
-                self.conn.execute("ROLLBACK")
-            raise
-        finally:
-            self._depth, self._aborted = 0, False
+        with self._writes_open():
+            self.conn.execute("BEGIN")
+            self._in_scope, self._aborted = True, None
+            try:
+                yield self
+                if self._aborted is not None:
+                    raise TransactionAborted(
+                        "an inner transaction scope failed; the unit was rolled back") from self._aborted
+                self.conn.execute("COMMIT")
+            except BaseException:
+                if self.conn.in_transaction:
+                    self.conn.execute("ROLLBACK")
+                raise
+            finally:
+                self._in_scope, self._aborted = False, None
 
     def _require_scope(self, what: str) -> None:
-        if not self._depth:
+        if not self._in_scope:
             raise UnscopedWrite(f"store.{what} outside a transaction scope; "
                                 "wrap the unit of work in `with store.transaction():`")
 
@@ -227,6 +273,15 @@ class Store:
         columns = ", ".join(row)
         placeholders = ", ".join("?" for _ in row)
         self.conn.execute(f"INSERT INTO {table} ({columns}) VALUES ({placeholders})", tuple(row.values()))
+
+    def record_action(self, agent: str, action: str, refs: dict | None = None,
+                      reason: str | None = None) -> None:
+        """Append one ``agent_actions`` audit row. Its own unit of work, or part of the unit
+        already open (scopes flatten)."""
+        with self.transaction():
+            self.insert("agent_actions", {"ts": _utcnow(), "agent": agent, "action": action,
+                                          "refs": json.dumps(refs) if refs is not None else None,
+                                          "reason": reason})
 
     def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
         """Run one write statement (an UPDATE, or an INSERT that ``insert`` cannot express)

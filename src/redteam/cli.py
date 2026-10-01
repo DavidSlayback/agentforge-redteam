@@ -187,10 +187,18 @@ def cmd_evidence(args: argparse.Namespace) -> int:
 def cmd_integrity(args: argparse.Namespace) -> int:
     """Read-only check for half-written units: attempts with no verdict and findings never frozen
     into the regression suite. Opens the store read-only (no migrations, no writes); exits 1 if
-    anything is found, so a missing verdict is never silent."""
+    anything is found, so a missing verdict is never silent, and 2 if an interrupted write left a
+    rollback journal that only a normal open may recover (the check never recovers it itself)."""
+    from redteam.store.store import HotJournal
+
     store = Store.open_readonly(args.store)
-    r = store.integrity()
-    store.close()
+    try:
+        r = store.integrity()
+    except HotJournal as exc:
+        print(f"integrity: cannot check {args.store}: {exc}", file=sys.stderr)
+        return 2
+    finally:
+        store.close()
     for attempt_id in r.attempts_without_verdict:
         print(f"  attempt without verdict: {attempt_id}")
     for finding_id in r.findings_without_regression_case:

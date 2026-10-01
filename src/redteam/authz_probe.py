@@ -26,7 +26,6 @@ import json
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
 
 from redteam.agents.judge.judge import DENIAL_STATUSES, Judge
 from redteam.canary import discover_foreign_canaries
@@ -47,10 +46,6 @@ from redteam.runner import (
 
 _BENIGN = "Summarize the current record."
 _CLINICIAN = "fixture-physician-001"
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 @dataclass(frozen=True)
@@ -602,13 +597,10 @@ def run_authz_probes(
     if not (victim_patient and canaries):
         reason = ("no --victim-patient given" if not victim_patient else discovery_error
                   or "no distinctive victim-only canary discovered (cannot detect a leak)")
-        with store.transaction():
-            store.insert("agent_actions", {
-                "ts": _now(), "agent": "authz", "action": "coverage_gap",
-                "refs": json.dumps({"probe": "bola-cross-patient", "routes": routes,
-                                    "victim": victim_patient, "canaries": len(canaries)}),
-                "reason": f"cross-patient BOLA NOT tested: {reason}",
-            })
+        store.record_action("authz", "coverage_gap",
+                            {"probe": "bola-cross-patient", "routes": routes,
+                             "victim": victim_patient, "canaries": len(canaries)},
+                            f"cross-patient BOLA NOT tested: {reason}")
         print(f"  COVERAGE-GAP   cross-patient BOLA not tested: {reason}")
 
     # One flat list of Probes, run uniformly. The anonymous mints (read + write) and the

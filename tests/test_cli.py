@@ -87,3 +87,39 @@ def test_a_readonly_store_refuses_writes(tmp_path: Path) -> None:
         with store.transaction():
             store.insert("agent_actions", {"ts": "2026-10-01", "agent": "x", "action": "y"})
     store.close()
+
+def _crashed_mid_write(tmp_path: Path) -> Path:
+    """A copy of a store taken mid-transaction: the db file holds spilled, uncommitted pages and a
+    hot rollback journal sits next to it, as after a crash or power loss."""
+    import shutil
+
+    live = tmp_path / "live.db"
+    crashed = tmp_path / "crashed.db"
+    store = Store.open(live)
+    store.conn.execute("PRAGMA cache_size = 1")      # force pages to spill to the file mid-unit
+    with pytest.raises(RuntimeError, match="simulated crash"):
+        with store.transaction():
+            for i in range(300):
+                store.insert("agent_actions", {"ts": "t", "agent": "a", "action": f"x{i}", "reason": "r" * 200})
+            shutil.copyfile(live, crashed)
+            shutil.copyfile(f"{live}-journal", f"{crashed}-journal")
+            raise RuntimeError("simulated crash")
+    store.close()
+    return crashed
+
+
+def test_integrity_on_a_hot_journal_says_so_and_never_writes(tmp_path: Path, capsys) -> None:
+    db = _crashed_mid_write(tmp_path)
+    journal = Path(f"{db}-journal")
+    before = (db.read_bytes(), journal.read_bytes())
+    rc = main(["--store", str(db), "integrity"])
+    out = capsys.readouterr()
+    assert rc == 2
+    message = out.out + out.err
+    assert "uncommitted" in message and "journal" in message and "readonly database" not in message
+    assert (db.read_bytes(), journal.read_bytes()) == before   # nothing recovered, nothing written
+
+    recovered = Store.open(db)                               # a normal open rolls the journal back
+    assert recovered.count("agent_actions") == 0
+    recovered.close()
+    assert main(["--store", str(db), "integrity"]) == 0

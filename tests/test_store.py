@@ -48,21 +48,14 @@ def test_dedup_key_is_unique(tmp_path: Path) -> None:
     import sqlite3
 
     store = Store.open(tmp_path / "s.db")
-    row = ("f1", "t", "new", "2026-09-28")
-    store.conn.execute(
-        "INSERT INTO findings(finding_id, title, dedup_key, status, updated_at) VALUES (?,?,?,?,?)",
-        ("f1", row[1], "oracle:sink:component", row[2], row[3]),
-    )
-    store.conn.commit()
-    try:
-        store.conn.execute(
-            "INSERT INTO findings(finding_id, title, dedup_key, status, updated_at) VALUES (?,?,?,?,?)",
-            ("f2", "t2", "oracle:sink:component", "new", "2026-09-28"),
-        )
-        raised = False
-    except sqlite3.IntegrityError:
-        raised = True
-    assert raised, "duplicate dedup_key was accepted; findings would double-count"
+    with store.transaction():
+        store.insert("findings", {"finding_id": "f1", "title": "t", "dedup_key": "oracle:sink:component",
+                                  "status": "new", "updated_at": "2026-09-28"})
+    with pytest.raises(sqlite3.IntegrityError):  # else findings would double-count
+        with store.transaction():
+            store.insert("findings", {"finding_id": "f2", "title": "t2", "dedup_key": "oracle:sink:component",
+                                      "status": "new", "updated_at": "2026-09-28"})
+    assert store.count("findings") == 1
     store.close()
 
 
@@ -102,6 +95,39 @@ def test_failed_migration_rolls_back_and_the_store_reopens(tmp_path: Path) -> No
     store = Store.open(db, migrations_dir=mig)
     assert store.schema_version() == 9 and "probe" in _columns(store, "findings")
     store.close()
+
+
+def test_migrate_on_an_open_store_rolls_a_failed_file_back(tmp_path: Path) -> None:
+    # Called directly (not via open), so the rollback itself is what keeps the store consistent:
+    # the same connection must see no half-applied column and no open transaction.
+    store = Store.open(tmp_path / "s.db")
+    mig = _migrations_with(tmp_path, "0009_two_statements.sql",
+                           "ALTER TABLE findings ADD COLUMN probe TEXT;\n"
+                           "ALTER TABLE no_such_table ADD COLUMN probe TEXT;\n")
+    with pytest.raises(MigrationError, match="0009_two_statements.sql"):
+        store.migrate(mig)
+    assert not store.conn.in_transaction
+    assert store.schema_version() == 8 and "probe" not in _columns(store, "findings")
+    with store.transaction():                     # still usable for ordinary work
+        store.insert("agent_actions", {"ts": "2026-10-01", "agent": "test", "action": "after"})
+    store.close()
+
+
+def test_a_failed_open_closes_its_connection(tmp_path: Path) -> None:
+    import gc
+    import warnings
+
+    mig = _migrations_with(tmp_path, "0009_bad.sql", "ALTER TABLE no_such_table ADD COLUMN probe TEXT;\n")
+    gc.collect()   # collect connections leaked by earlier tests first, so only this open is measured
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        try:
+            Store.open(tmp_path / "s.db", migrations_dir=mig)
+        except MigrationError:
+            pass
+        gc.collect()                              # an unclosed sqlite3 connection warns when collected
+    leaked = [w for w in caught if issubclass(w.category, ResourceWarning) and "sqlite" in str(w.message).lower()]
+    assert leaked == []
 
 
 def test_a_migration_may_not_control_the_transaction(tmp_path: Path) -> None:
@@ -210,15 +236,34 @@ def test_nested_scopes_flatten_into_the_outer_unit(tmp_path: Path) -> None:
         _action(store, "outer")
         with store.transaction():
             _action(store, "inner")
+        assert store.in_transaction                 # leaving the inner scope keeps the unit open
         assert _committed_actions(db) == []        # the inner scope did not commit on its own
-    assert _committed_actions(db) == ["outer", "inner"]
+        _action(store, "after-inner")
+    assert not store.in_transaction
+    assert _committed_actions(db) == ["outer", "inner", "after-inner"]
+    store.close()
+
+
+def test_a_scope_refuses_to_adopt_a_transaction_it_did_not_open(tmp_path: Path) -> None:
+    # Raw transaction control on the connection is not a unit of work the store can vouch for.
+    db = tmp_path / "s.db"
+    store = Store.open(db)
+    store.conn.execute("BEGIN")
+    with pytest.raises(RuntimeError, match="already open"):
+        with store.transaction():
+            pass
+    assert store.conn.in_transaction            # the foreign transaction was left alone
+    store.conn.execute("ROLLBACK")
+    with store.transaction():
+        _action(store, "a")
+    assert _committed_actions(db) == ["a"]
     store.close()
 
 
 def test_a_failed_inner_scope_dooms_the_outer_unit_even_if_caught(tmp_path: Path) -> None:
     db = tmp_path / "s.db"
     store = Store.open(db)
-    with pytest.raises(TransactionAborted):
+    with pytest.raises(TransactionAborted) as aborted:
         with store.transaction():
             _action(store, "outer")
             try:
@@ -228,4 +273,47 @@ def test_a_failed_inner_scope_dooms_the_outer_unit_even_if_caught(tmp_path: Path
             except ValueError:
                 pass                              # swallowing it must not commit half a unit
     assert _committed_actions(db) == []
+    cause = aborted.value.__cause__               # the swallowed failure stays visible
+    assert isinstance(cause, ValueError) and str(cause) == "inner failure"
+    store.close()
+
+def test_raw_connection_writes_outside_a_scope_are_refused(tmp_path: Path) -> None:
+    # The rule is enforced at the connection, so going around store.insert/execute does not
+    # reopen the row-by-row autocommit path.
+    import sqlite3
+
+    db = tmp_path / "s.db"
+    store = Store.open(db)
+    for sql in ("INSERT INTO agent_actions(ts, agent, action) VALUES ('t', 'raw', 'x')",
+                "UPDATE agent_actions SET reason = 'x'",
+                "DELETE FROM agent_actions",
+                "CREATE TABLE sneaky (x)"):
+        with pytest.raises(sqlite3.DatabaseError, match="not authorized"):
+            store.conn.execute(sql)
+    with pytest.raises(sqlite3.DatabaseError, match="not authorized"):
+        store.conn.executescript("INSERT INTO agent_actions(ts, agent, action) VALUES ('t', 'raw', 'y');")
+
+    # A statement prepared inside a scope cannot be replayed from the statement cache outside one.
+    insert = "INSERT INTO agent_actions(ts, agent, action) VALUES (?, ?, ?)"
+    with store.transaction():
+        store.conn.execute(insert, ("t", "raw", "in-scope"))
+    with pytest.raises(sqlite3.DatabaseError, match="not authorized"):
+        store.conn.execute(insert, ("t", "raw", "outside"))
+
+    assert store.conn.execute("SELECT COUNT(*) AS c FROM agent_actions").fetchone()["c"] == 1   # reads are fine
+    assert _committed_actions(db) == ["in-scope"]
+    store.close()
+
+def test_record_action_is_its_own_unit_or_joins_the_open_one(tmp_path: Path) -> None:
+    db = tmp_path / "s.db"
+    store = Store.open(db)
+    store.record_action("test", "alone", {"k": 1}, "why")          # commits on its own
+    row = store.conn.execute("SELECT agent, action, refs, reason, ts FROM agent_actions").fetchone()
+    assert (row["agent"], row["action"], row["refs"], row["reason"]) == ("test", "alone", '{"k": 1}', "why")
+    assert row["ts"]
+    with pytest.raises(ValueError):
+        with store.transaction():
+            store.record_action("test", "joined")
+            raise ValueError("unit fails")
+    assert _committed_actions(db) == ["alone"]                     # rolled back with its unit
     store.close()
