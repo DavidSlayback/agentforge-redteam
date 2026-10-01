@@ -80,6 +80,24 @@ def test_every_model_call_is_metered_even_when_it_fails(tmp_path: Path) -> None:
     store.close()
 
 
+def test_the_model_call_cap_is_enforced_before_each_call(tmp_path: Path) -> None:
+    # The cap is checked before every metered call, not only between campaigns, so total calls
+    # never exceed it even when a single brief's retries would overshoot.
+    from redteam.agents.orchestrator.budget import CallBudget
+
+    reg = _registry(tmp_path)
+    store = Store.open(tmp_path / "s.db")
+    model = ProseModel()                                     # each generate burns its retry (2 calls)
+    brief = {"category": "prompt-injection", "owasp": ["LLM01"], "target_id": "good", "route": "/v1/x"}
+    budget = CallBudget(max_calls=3)
+    summary = run_campaign([brief, brief, brief], registry=reg, executor=Executor(reg, lambda u, **k: None),
+                           judge=Judge(), store=store, agent=RedTeamAgent(), model=model, call_budget=budget)
+    assert budget.used == 3                                  # charged up to, never past, the cap
+    assert queries.cost_summary(store)["calls"] == 3         # every made call logged; none beyond the cap
+    assert summary.budget_halted is True
+    store.close()
+
+
 @dataclass
 class _CountingRubric:
     available: bool = True

@@ -10,6 +10,25 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from redteam.errors import BudgetExceeded
+
+
+@dataclass
+class CallBudget:
+    """The model-call cap, checked before every metered call rather than only between campaigns,
+    so a single campaign's generation retry, mutation and rubric can never overshoot it. One
+    instance spans a whole run, so ``used`` is also the run's own call count (cost attribution).
+    """
+
+    max_calls: int | None
+    used: int = 0
+
+    def charge(self) -> None:
+        """Account for one metered call about to be made; raise before the cap is exceeded."""
+        if self.max_calls is not None and self.used >= self.max_calls:
+            raise BudgetExceeded(f"model-call budget reached ({self.used}/{self.max_calls})")
+        self.used += 1
+
 
 @dataclass(frozen=True)
 class Budget:

@@ -16,8 +16,9 @@ from datetime import datetime, timezone
 from redteam.agents.judge.judge import Judge, Rubric, VerdictOutcome
 from redteam.agents.redteam.agent import RedTeamAgent
 from redteam.agents.redteam.model import ModelClient
+from redteam.agents.orchestrator.budget import CallBudget
 from redteam.dispatch import dispatch as _dispatch
-from redteam.errors import ProviderBlock
+from redteam.errors import BudgetExceeded, ProviderBlock
 from redteam.evals.case import AuthContext
 from redteam.executor.authorization import AuthorizationRegistry
 from redteam.executor.executor import Executor
@@ -70,14 +71,18 @@ def _record(store, action: str, brief: dict, reason: str, campaign_id: str | Non
 @dataclass
 class _MeteredModel:
     """Records each attacker-model call in the cost ledger before making it, so a retry, a
-    reply that fails to parse, or a provider block all count against --max-model-calls."""
+    reply that fails to parse, or a provider block all count against --max-model-calls. The cap
+    is checked *before* the call: a call that would exceed it is never logged or made."""
 
     model: ModelClient
     store: object
     campaign_id: str
     kind: str
+    budget: CallBudget | None = None
 
     def complete(self, system: str, user: str, **kw) -> str:
+        if self.budget is not None:
+            self.budget.charge()   # raises BudgetExceeded before the cap is passed
         _log_call(self.store, self.campaign_id, self.kind)
         return self.model.complete(system, user, **kw)
 
@@ -89,12 +94,15 @@ class _MeteredRubric:
     rubric: Rubric
     store: object
     campaign_id: str
+    budget: CallBudget | None = None
 
     @property
     def available(self) -> bool:
         return self.rubric.available
 
     def evaluate(self, obs):
+        if self.budget is not None:
+            self.budget.charge()
         _log_call(self.store, self.campaign_id, "rubric")
         return self.rubric.evaluate(obs)
 
@@ -106,6 +114,7 @@ class CampaignSummary:
     variants: int = 0
     outcomes: Counter = field(default_factory=Counter)
     results: list[RunResult] = field(default_factory=list)
+    budget_halted: bool = False   # the model-call cap was reached; the campaign stopped cleanly
 
     def brief_outcome(self) -> str:
         """The scheduled brief's outcome class for the v1 Campaign contract and scheduling:
@@ -135,13 +144,14 @@ def run_campaign(
     minter=None,
     canaries: list[str] | None = None,
     target_sha: str | None = None,
+    call_budget: CallBudget | None = None,
 ) -> CampaignSummary:
     summary = CampaignSummary(campaign_id=campaign_id)
     _ensure_campaign(store, campaign_id, briefs)   # the specs below reference campaigns(campaign_id)
-    generation = _MeteredModel(model, store, campaign_id, "generation")
-    mutation = _MeteredModel(model, store, campaign_id, "mutation")
+    generation = _MeteredModel(model, store, campaign_id, "generation", call_budget)
+    mutation = _MeteredModel(model, store, campaign_id, "mutation", call_budget)
     if judge.rubric is not None:
-        judge = replace(judge, rubric=_MeteredRubric(judge.rubric, store, campaign_id))
+        judge = replace(judge, rubric=_MeteredRubric(judge.rubric, store, campaign_id, call_budget))
     for brief in briefs:
         try:
             # Authorization categories are model-free deterministic probes that need a
@@ -188,6 +198,12 @@ def run_campaign(
                 summary.outcomes[str(last.verdict.outcome)] += 1
                 summary.results.append(last)
                 parent, muts = variant, muts + 1
+        except BudgetExceeded as exc:
+            # The model-call cap was reached mid-brief: stop the whole campaign cleanly rather
+            # than record this as a brief error. No attempt was written for this brief.
+            summary.budget_halted = True
+            _record(store, "budget_halt", brief, str(exc), campaign_id=campaign_id)
+            break
         except ProviderBlock as exc:
             # The attacker model's own content filter is a distinct, typed outcome — not a
             # generic error and never evidence about the target (role-review T3.8).

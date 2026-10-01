@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 _EXCLUDE_AFTER_UNTESTED = 2
 
 from redteam.agents.judge.judge import Judge
-from redteam.agents.orchestrator.budget import Budget, Governor
+from redteam.agents.orchestrator.budget import Budget, CallBudget, Governor
 from redteam.agents.orchestrator.candidates import build_candidates
 from redteam.agents.orchestrator.selector import DeterministicSelector, Selector
 from redteam.agents.redteam.agent import RedTeamAgent
@@ -102,6 +102,7 @@ class Orchestrator:
     ) -> OrchestratorRun:
         gov = Governor(budget)
         run = OrchestratorRun(run_id=uuid.uuid4().hex[:8])
+        call_budget = CallBudget(budget.max_model_calls)   # spans the run; caps every metered call
         findings_start = self.store.count("findings")
         seq = 0
         excluded: set[tuple[str, str]] = set()   # briefs retired this run after repeated untested
@@ -136,7 +137,7 @@ class Orchestrator:
                 [chosen.brief], registry=self.registry, executor=self.executor, judge=self.judge,
                 store=self.store, agent=self.agent, model=self.model, minter=self.minter,
                 campaign_id=campaign_id, max_mutations=1, canaries=canaries,
-                target_sha=target_sha,
+                target_sha=target_sha, call_budget=call_budget,
             )
             outcome = summary.brief_outcome()
             self._finish_campaign(campaign_id, outcome)
@@ -156,6 +157,9 @@ class Orchestrator:
             gov.record(outcome=outcome, produced_finding=produced, model_calls=calls_delta)
             run.decisions.append({"brief": chosen.brief, "outcome": outcome,
                                   "outcomes": dict(summary.outcomes), "new_finding": produced})
+            if summary.budget_halted:
+                run.halt_reason = f"model-call budget reached ({call_budget.used}/{call_budget.max_calls})"
+                break
 
         run.campaigns = gov.campaigns
         run.findings_opened = self.store.count("findings") - findings_start
