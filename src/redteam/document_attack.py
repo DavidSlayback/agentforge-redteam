@@ -16,13 +16,13 @@ from __future__ import annotations
 
 import base64
 import json
+from dataclasses import replace
 
 from redteam.agents.judge.judge import Judge, no_evidence
 from redteam.errors import TargetUnreachable
 from redteam.evals.case import SeedCase
 from redteam.executor.authorization import AuthorizationRegistry
 from redteam.executor.executor import Executor
-from redteam.oracles.deterministic import CanaryLeakOracle, MarkerOracle
 from redteam.runner import RunResult, build_observation, drive, record_exchange
 
 # A minimal document in the target's synthetic scan format (learned from /v1/demo-scan-fixture).
@@ -107,11 +107,14 @@ def run_document_attack(
         # so the marker only counts if the model *generated* it.
         cleaned = scan_without_echo(scan, payload)
         observation = build_observation(cleaned, case.oracle)
-        # An answer gets the full battery. A scan that did not answer is judged by the case's own
-        # oracles only (owner decision D3): the Judge's evidence gate makes it INCONCLUSIVE, and a
-        # crash or a trace in the error body is not filed as a separate finding.
-        answered = 200 <= scan.status_code < 300
-        scan_judge = judge if answered else judge.with_oracles(MarkerOracle(), CanaryLeakOracle())
+        scan_judge = judge
+        if not 200 <= scan.status_code < 300:
+            # The scan did not answer, so there is nothing to grade, and (owner decision D3) a crash
+            # or a trace in its error body is not a second finding. The Judge records it with no
+            # oracles and without the case's DoS budget, whose fast-4xx rule is about the attack
+            # input, not a failed scan step; its evidence gate then makes this INCONCLUSIVE.
+            scan_judge = judge.with_oracles()
+            observation = replace(observation, latency_budget_ms=None)
         return scan_judge.judge(observation), list(observation.provider_events)
 
     return drive(store, case, registry, target_sha=target_sha, produce=produce)
