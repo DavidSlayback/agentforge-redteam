@@ -26,16 +26,25 @@ existing artifacts; each row links to the authoritative source rather than resta
 
 ## 3. Dependency inventory
 
-- Pinned in `pyproject.toml` + locked in `uv.lock` (reproducible via `uv sync --frozen`). Runtime
-  core: pydantic ≥2.13, httpx ≥0.28, pyyaml ≥6; plus jsonschema ≥4.26, datamodel-code-generator
-  0.83.0, pytest ≥9.1 (dev/tooling) and typesafe-sdk ≥0.7.2 (optional Jev). See `pyproject.toml` for
-  exact grouping. No target code is vendored (black-box HTTP only).
+- Declared in `pyproject.toml`, locked in `uv.lock` (reproducible via `uv sync --frozen`), Python
+  `>=3.13,<3.15`. Runtime: pydantic 2.13.5 (`>=2.13.5`), httpx 0.28.1 (`>=0.28`), pyyaml 6.0.3
+  (`>=6.0`). Dev group: jsonschema 4.26.0, datamodel-code-generator 0.83.0 (pinned `==`), pytest 9.1.1.
+  Optional `jev` group: typesafe-sdk 0.7.2. The target's own route schemas are vendored as a snapshot
+  in `vendor/agentforge-schemas/` (`vendor/PROVENANCE.md`), not target code. **PyRIT, garak and spikee
+  are not dependencies** (they are named in earlier planning documents).
 
 ## 4. Platform self-scan / self-checks
 
-- **Contract drift gate:** CI regenerates contracts and runs the schema tests, failing on drift.
-- **Regression full-scan SLO:** `tests/test_slo.py` asserts hot queries are index-backed and a full
-  replay stays under bound (E12), in CI.
+- **Contract drift gate:** `.gitlab-ci.yml` regenerates the *target's* route contracts
+  (`tools/generate_contracts.py`) and fails on drift, then runs the full suite, which includes the
+  inter-agent schema tests. **The pipeline has no runner, so no pipeline has executed;** the same
+  commands are run locally.
+- **Regression full-scan SLO:** `tests/test_slo.py` asserts hot queries are index-backed and a stub
+  replay stays under 5 s (E12). Run locally; not verified in CI for the same reason. Measured
+  overhead is in `docs/PERF.md`.
+- **Platform vulnerability scan: `not done`.** No dependency or code scan (for example `pip-audit`
+  or a SAST run) has been run on the platform itself; the self-checks here are the test suite and
+  the review rounds in `docs/PLAN.md`. An ATO reviewer should treat this item as open.
 - **Harness integrity:** the platform's own review loop (docs/PLAN.md 2026-09-30 review rounds)
   confirmed no false-finding / fake-pass path; the discovery tier emits candidates, never findings.
 - **Fail-closed posture:** missing evidence → INCONCLUSIVE (never a pass); provider blocks and
@@ -43,9 +52,13 @@ existing artifacts; each row links to the authoritative source rather than resta
 
 ## 5. Test evidence
 
-- `uv run pytest -q` = **225 passing** (unit, contract, eval-suite, oracle, regression, SLO,
-  data-quality, redaction). Offline (no target, no keys). Live runs are recorded in the store with
-  the target SHA; observability via `redteam report` / `dashboard.html`.
+- `uv run pytest -q` = **415 passed, 1 skipped** on the 2026-10-01 base commit (Python 3.14.7; the
+  integration record also reports 3.13), covering unit, contract, eval-suite, oracle, regression, SLO,
+  data-quality, redaction, atomic-persistence fault injection and frozen-case checks. The skip is the
+  opt-in real-store check. Offline (no target, no keys). Live runs are recorded in the store with the
+  target SHA (172 attempts, 7 findings); observability via `redteam report` / `dashboard.html`. Judge
+  calibration: `redteam calibrate` agrees on 10 of 10 deterministic entries (`NOT VALIDATED` until a
+  human reviews the labels).
 
 ## 6. Sample incident / postmortem
 
