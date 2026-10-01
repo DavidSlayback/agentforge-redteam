@@ -1614,3 +1614,62 @@ README (command list). Test count and any new migration or schema version: ARCHI
 **Status labels.** Implemented and verified: the document set above. Inferred: worker-pool speedup, 100K
 storage and query projections beyond the synthetic run. Deferred: USD figures (owner), consumer-side
 contract tests, a live load test, the platform self-scan. Blocked: nothing.
+
+### 2026-10-01 — reconciliation of the docs with the merged code, and an independent spot check (completion record)
+
+Markdown only (plus one sentence in `docs/architecture.html`); nothing under `src/`, `tests/`, `evals/cases/`
+or `contracts/v1/`; no `.env`, no `var/` write, no live call, no model call, nothing pushed. The store was
+read through a `mode=ro` copy in the scratchpad. Reviewer was not the author of the documents.
+
+**Reconciled (items from the list above).** `regression` needs no attacker key (README Configuration,
+DEMO_SCRIPT prereq 4, HARNESS_SPEC; item 8 of the audit record above is historical and no longer true).
+Newest-first `agent_trace` and cost-per-run, cost trend, resilience over time: README, ARCHITECTURE,
+KEY_METRICS. Typed errors: `JudgeTimeout` and `RegressionDetected` are raised, `NoFindingsInWindow` is
+`RESERVED` (ARCHITECTURE status table, INTEGRATION_PACKET section 4, ADR 0006, HARNESS_SPEC,
+contracts/README). Documentation `DataQualityError` refusals: DATA_MODEL E9, ARCHITECTURE. `--max-mutations`:
+README, ARCHITECTURE, HARNESS_SPEC CLI list, PERF appendix B, COST_ANALYSIS section 3. Evals Stage-3
+enforcement: confirmed `evals/README.md` already matches (13 cases, 11 categories, 9 OWASP tags, verified).
+Test count is now **496 passed, 1 skipped** (Python 3.13); `tests/test_contracts.py` is still 15 passed;
+schema is still **v9** (no new migration). Calibration README no longer says "no entries" (12 entries,
+10 deterministic and 2 rubric, unreviewed). `contracts/README.md` lists all six `outcome` values the code emits
+(`CampaignSummary.brief_outcome`); the contract JSON does not constrain `outcome` and is not wrong.
+`AGENTS.md`, `docs/architecture.html` and ADRs 0001 to 0003 no longer say PyRIT, garak or spikee are in use
+(verified absent from `pyproject.toml`, `uv.lock`, `src/`, `tests/`, `scripts/`, `tools/`); the rules in
+AGENTS.md are unchanged. `scripts/bench.py --out docs/PERF.md` hazard: the warning was already at the top of
+`docs/PERF.md`.
+
+**Spot checks (about 40 claims; store, git and code).** Held: 172 attempts, 172 verdicts, 7 findings and
+statuses, 43 cost rows (26 generation, 17 mutation, tokens and usd all NULL), 33 LLM-origin attempts (22 and
+11 mutations), 60 deterministic selections and 0 Jev, 40 of 47 brief errors are read timeouts, 12
+rubric-carrying verdicts, 3 pending and 4 published reports, 97 of 163 evidence rows with a `demo_token`,
+regression last read 5 held and 2 reappeared on `926805ce`, per-category verdict counts quoted in
+THREAT_MODEL (BOLA 14 FAIL; broken-auth 41/29; prompt-injection 12; indirect 10; excessive agency 10 with
+9 and 1 by build; DoS 16 FAIL and 5 SUCCESS), the `F-ca9486ff1b` trace (attempt, evidence, verdict,
+finding, regression case, report, replay and fix-validation ids and timestamps; audit ids 280, 281, 370,
+377, 378; ledger ids 40 and 41; 1 of 172 attempts campaign-linked), commit ids `575af16`, `f1dd5fe`, `8f34d2c`,
+rubric and campaign metering before the call, `--max-model-calls` default 200, discovery `--limit` 25, the
+offline appendix B script (re-run: 25.0 ms per campaign), COST_ANALYSIS has no USD figure and its
+`OWNER TO SUPPLY` table is intact.
+**Failed and fixed:** (1) PERF M3 table: anonymous mint was 29 exchanges at 134 ms (store: 30 at 132 ms);
+AI routes were 39 (store: 44, median 4.4 s); 14 source-document-context exchanges were missing, so the rows
+did not sum to 178 (now they do). The same "about 39" in COST_ANALYSIS row 6 corrected. (2) COST_ANALYSIS
+"33 returned a reviewer error" for discovery has no source in the store (only "no candidates from 29
+reviewed"); restated as the first pass's 29 per ATO_PACKET with the caveat. (3) `evals/README.md` says
+`seed-dos-oversized-001` is `not_run`, but the store holds 5 `dos-oversized-*` attempts (FAIL, defense held;
+2 on `bfbb1eb2`, 3 on `da7451d1`); README row corrected, case file not touched.
+
+**Follow-ups (outside this scope, not done).**
+- `evals/cases/dos_oversized_input.yaml`: update `result` to `pass` with the real build and evidence from the
+  store (the case file is stale; it must go through the loader's evidence rule).
+- `tests/test_contracts.py::test_campaign_conforms` still builds its sample from four of the six outcomes.
+- `scripts/bench.py`: refuse or default away from `--out docs/PERF.md`; promote the PERF appendix scripts
+  into `scripts/`.
+- `JudgeTimeout` and `RegressionDetected` are raised and tested, but no run on the live store has exercised
+  either; the Documentation refusals have not been run on the live store since the merge. Status:
+  `wired, tested, not observed live`.
+- Still `not done`: consumer-side contract tests, error serialization into the `error` schema, the platform
+  self-scan, a live load test, PyRIT/garak/spikee integration.
+
+**Owner-only gaps (unchanged).** Every USD figure and token average in `docs/COST_ANALYSIS.md` section 2;
+human review of the calibration labels (`review_status`); thresholds for over-refusal, kappa and fix-holds;
+peer integration; Fix status was last read on `926805ce` (the target reported `31f3722a` later).
