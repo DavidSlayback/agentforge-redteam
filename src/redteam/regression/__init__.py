@@ -10,6 +10,7 @@ oracle must re-fire on the same seed for a reappearance to be called.
 
 from __future__ import annotations
 
+import json
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -23,6 +24,22 @@ from redteam.store.store import Store
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+# Probe kinds that deliberately spend the mint's per-client rate-limit window (the rate-limit
+# and DoS probes prove the F-6ee control by hammering the mint). Replayed before a
+# mint-dependent probe, they starve its token mint, so that sibling is scored INCONCLUSIVE —
+# a false "could not verify" on a fix that actually holds. They must replay LAST.
+_MINT_EXHAUSTING_KINDS = frozenset({"rate_limit", "dos"})
+
+
+def _mint_exhausting(case_json: str | None) -> bool:
+    """True if the frozen case is a mint-rate-limit-exhausting probe (replay it after the
+    mint-dependent probes so it cannot starve their token mint). Unparseable/absent -> False."""
+    try:
+        return bool(case_json) and json.loads(case_json).get("probe_kind") in _MINT_EXHAUSTING_KINDS
+    except (ValueError, TypeError):
+        return False
 
 
 def freeze(store: Store, finding_id: str, case: SeedCase) -> str:
@@ -100,6 +117,9 @@ def replay(
     rows = store.conn.execute(
         "SELECT case_id, case_json, last_result, last_sha FROM regression_cases"
     ).fetchall()
+    # Stable sort: mint-exhausting probes (rate-limit/DoS) replay last so they do not starve
+    # the token mint of mint-dependent siblings and score them a false INCONCLUSIVE.
+    rows = sorted(rows, key=lambda r: _mint_exhausting(r["case_json"]))
     for row in rows:
         if row["case_json"] is None:
             # A case frozen before migration 0003 cannot be replayed — surface it as a

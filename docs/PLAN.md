@@ -7,15 +7,22 @@ against the authorized Clinical Co-Pilot target, converts confirmed exploits int
 regression harness, documents findings professionally, and proves fixes hold without
 raising over-refusal — every claim tied to a target SHA and a reproducible run.
 
-## Status (latest — 2026-09-30)
+## Status (latest — 2026-10-01)
 
-**Current state (read the 2026-09-30 sections at the end for detail):** 5 findings across two
-planes — authorization (F-831/F-24b anonymous mints, F-6ee no-rate-limit) and AI/reasoning
-(F-990345a00f grounding/LLM09, F-ca9486ff1b metadata-disclosure/LLM02). **F-6ee is fixed**
-(429 fires); **F-831/F-24b are fixed by a config flag (`AGENTFORGE_DEMO_ACCESS=key`, verified on
-build `40cfbdff`) but risk-accepted in `open` mode for W2 grading** on the current build `da7451d1`.
-Judge calibration is **measured** (κ=1.00, pending a human review flip). A discovery tier + poller
-were added. `uv run pytest` green.
+**Current state (read the 2026-10-01 section at the end for detail):** 7 findings across two
+planes — authorization (F-831/F-24b anonymous mints, F-6ee no-rate-limit, F-30da enumeration) and
+AI/reasoning (F-990345a00f grounding/LLM09, F-ca9486ff1b metadata-disclosure/LLM02, F-e5d
+data-integrity/LLM09). **Remediation deployed to the live target on build
+`d5e79bb37c48fccb1322c7c8b8bcae2626e076cb` (2026-10-01) and validated by the platform's own
+regression harness: held=5, reappeared=2, inconclusive=0.** The **five fixable findings are fixed +
+validated** (F-6ee rate limit, F-990 grounding, F-ca9486ff1b disclosure, F-30da enumeration, F-e5d
+data-integrity) — none required the rejected key gate. The **two critical anonymous mints
+(F-831/F-24b) are permanently risk-accepted** (owner decision: the `AGENTFORGE_DEMO_ACCESS=key` gate
+degrades physician experience) with compensating controls deployed (rate limit, `aud` check, 300 s
+TTL, token↔patient binding, provisioned-only issuance, mint audit log). Fix disposition:
+[docs/findings/README.md](findings/README.md); remediation record in the target repo:
+`agentforge-week1/docs/agentforge/REMEDIATION_W3.md`. Judge calibration is **measured** (κ=1.00,
+pending a human review flip). `uv run pytest` green.
 
 _Superseded snapshot (2026-09-29 evening): "3 findings, not yet fixed" — kept below for history; see
 the 2026-09-30 sections for the current 5-finding, two-plane state._ The paragraph below is the
@@ -1078,3 +1085,51 @@ same-patient internal id ×4; authorized-data-as-leak ×5; our-own-rate-limit-pr
 read-briefing-scope-is-the-briefing ×1). **No eighth vulnerability class** surfaced — a meaningful
 bound on what open-ended discovery finds on this target. Full record: `docs/DISCOVERY_TRIAGE.md`.
 `redteam candidates --status new` is now empty.
+
+## 2026-10-01 — remediation deployed to the live target + validated
+
+A background remediation agent worked in the target repo (`agentforge-week1`), took its own
+durable notes (`docs/agentforge/REMEDIATION_W3.md`), and handed back. The platform then
+independently validated the result — the full find → fix → **show-you-fixed-it** arc.
+
+**What was deployed.** Branch `agentforge/w3-remediation` (tip
+`d5e79bb37c48fccb1322c7c8b8bcae2626e076cb`), shipped to the Vultr VM via
+`deploy/vultr/deploy.sh` with `AGENTFORGE_DEPLOY_ALLOW_UNMERGED=1`. Per owner instruction the
+branch was **not** merged to `main` (the deliverable stays on the branch); the `week1-final` /
+`w2-final` tags were left untouched. `/health` now reports the new SHA (confirmed by the deploy
+script's own health loop and an independent curl).
+
+**Validation — `redteam regression @ d5e79bb3`: held=5 reappeared=2 inconclusive=0 (ATTENTION).**
+
+| Finding | Verdict | Disposition |
+|---|---|---|
+| F-6ee rate limit | held | fixed |
+| F-990 grounding (LLM09) | held | fixed (off-condition → `qualification.required`) |
+| F-ca9486ff1b disclosure (API3/LLM02) | held | fixed on `/v1/follow-up-evidence` |
+| F-30da enumeration (API1/API3) | held | fixed (provisioned-only, uniform 400) |
+| F-e5d data-integrity (LLM09) | held | fixed (`current` marker) |
+| F-831 anon read mint | reappeared | **risk-accepted** (no key gate) |
+| F-24b anon write mint | reappeared | **risk-accepted** (no key gate) |
+
+Each of the four AI-layer / enumeration fixes was additionally confirmed by an **isolated
+same-seed replay** (`FAIL` = exploit no longer reproduces), because the batch run had first
+scored them `INCONCLUSIVE`.
+
+**Harness-fidelity fix (this repo).** Root cause of those initial inconclusives: the regression
+replayed the mint-exhausting rate-limit probe (F-6ee, which hammers the mint to prove the 429
+control) *before* the mint-dependent probes, starving their token mint → false `INCONCLUSIVE`.
+`replay` now sorts mint-exhausting probes (`probe_kind ∈ {rate_limit, dos}`) **last**
+(`regression/__init__.py`), with unit tests in `tests/test_regression.py`. Re-run after the fix:
+`held=5 reappeared=2 inconclusive=0` — accurate.
+
+**Risk-accepted recorded.** F-831/F-24b `status` set to `risk-accepted` in the store (audited in
+`agent_actions`), so generated reports/dashboard show the disposition rather than a bare `new`.
+
+**Open decision for David (not taken unilaterally).** The regression gate stays ATTENTION (exit 1)
+because two exploitable criticals are live — even though they're risk-accepted. Options: (a) **keep
+it honest** — the gate keeps flagging live criticals every run (recommended; current behavior); or
+(b) teach the gate to exclude `risk-accepted` findings from the pass/fail (go green) while still
+listing them. I did **not** change gate semantics at submission time; (b) is available on request.
+
+**Human-only remaining:** approve the held critical/high reports (`redteam approve`), refreshed demo
+video, social post, AI interview, calibration `review_status` flip. (I cannot do these.)

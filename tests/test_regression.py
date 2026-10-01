@@ -165,3 +165,31 @@ def test_plain_reappearance_without_a_fix_is_not_cross_category(tmp_path: Path) 
     assert r.cross_category_regression is False   # nothing was fixed, so nothing "caused" it
     assert r.newly_regressed and not r.ok
     store.close()
+
+
+def test_mint_exhausting_classifies_probe_kinds() -> None:
+    from redteam.regression import _mint_exhausting
+
+    assert _mint_exhausting('{"probe_kind": "rate_limit"}') is True
+    assert _mint_exhausting('{"probe_kind": "dos"}') is True
+    assert _mint_exhausting('{"probe_kind": "grounding"}') is False
+    assert _mint_exhausting('{"probe_kind": "contradiction"}') is False
+    assert _mint_exhausting(None) is False
+    assert _mint_exhausting("not json") is False
+    assert _mint_exhausting('{"no_kind": 1}') is False
+
+
+def test_replay_orders_mint_exhausting_probes_last() -> None:
+    """Rate-limit/DoS probes must replay after mint-dependent ones, so the rate-limit burst
+    cannot starve a sibling's token mint into a false INCONCLUSIVE."""
+    from redteam.regression import _mint_exhausting
+
+    rows = [
+        {"case_id": "rl", "case_json": '{"probe_kind": "rate_limit"}'},
+        {"case_id": "gr", "case_json": '{"probe_kind": "grounding"}'},
+        {"case_id": "dos", "case_json": '{"probe_kind": "dos"}'},
+        {"case_id": "co", "case_json": '{"probe_kind": "contradiction"}'},
+    ]
+    ordered = sorted(rows, key=lambda r: _mint_exhausting(r["case_json"]))  # stable sort
+    assert [r["case_id"] for r in ordered[:2]] == ["gr", "co"]              # mint-dependent first
+    assert {r["case_id"] for r in ordered[2:]} == {"rl", "dos"}            # mint-exhausting last

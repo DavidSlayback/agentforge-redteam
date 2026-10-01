@@ -48,7 +48,7 @@ uv run redteam regression --target agentforge-w2 --sha <git_sha from /health>
 4. Add a target-side test that fails if N rapid anonymous requests all succeed.
 
 ## Status
-- **Finding status:** `new`
+- **Finding status:** `fixed`
 - **Report R-6ee92046fb:** `published`
 - **Observed on builds:** `live-2026-09-29` (2026-09-29), `refactor-smoke` (2026-09-29), `refactor23-smoke` (2026-09-29), `bfbb1eb20716a032918067937154f8d6b5001b87` (2026-09-29) (non-hex values are run labels recorded before `/health` git SHAs were passed, not target commits)
 
@@ -56,6 +56,9 @@ uv run redteam regression --target agentforge-w2 --sha <git_sha from /health>
 - `da7451d1c9bb2c32bd0625840d28103fa13d4529` — held (2026-09-29)
 - `da7451d1c9bb2c32bd0625840d28103fa13d4529` — held (2026-09-30)
 - `da7451d1c9bb2c32bd0625840d28103fa13d4529` — held (2026-09-30)
+- `da7451d1c9bb2c32bd0625840d28103fa13d4529` — held (2026-09-30)
+- `d5e79bb37c48fccb1322c7c8b8bcae2626e076cb` — held (2026-10-01)
+- `d5e79bb37c48fccb1322c7c8b8bcae2626e076cb` — held (2026-10-01)
 
 ## References
 - Verdicts: ver-7e3f9aa308b8, ver-7effed04498e, ver-01318d0af56c, ver-bc5235422c88, ver-c66d0370044e (platform store; `uv run redteam evidence <attempt_id>` dumps the raw exchange, first attempt `att-728b25f521db`)
