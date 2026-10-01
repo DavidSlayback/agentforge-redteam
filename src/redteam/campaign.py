@@ -116,19 +116,21 @@ class CampaignSummary:
     campaign_id: str
     generated: int = 0
     variants: int = 0
+    reachable: int = 0            # attempts (incl. variants) that reached the target (a real exchange)
     outcomes: Counter = field(default_factory=Counter)
     results: list[RunResult] = field(default_factory=list)
     budget_halted: bool = False   # the model-call cap was reached; the campaign stopped cleanly
 
     def brief_outcome(self) -> str:
         """The scheduled brief's outcome class for the v1 Campaign contract and scheduling:
-        ``tested`` if a judged attempt was written (any verdict), else one of the untested classes
-        (``provider_blocked`` | ``skipped`` | ``errored``) or ``budget_halted`` when the model-call
-        cap stopped the brief before any attempt was made. A budget halt *after* an attempt was
-        judged still counts as ``tested`` — the test happened and is persisted; only the campaign
-        stops. The Orchestrator schedules one brief per campaign, so this describes that brief."""
+        ``tested`` if a judged attempt reached the target (any verdict); ``unreachable`` if every
+        attempt made failed to reach it (an outage is not a test — it must not count as signal);
+        else one of the untested classes (``provider_blocked`` | ``skipped`` | ``errored``) or
+        ``budget_halted`` when the model-call cap stopped the brief before any attempt was made. A
+        budget halt *after* an attempt was judged still counts as ``tested`` — the test happened
+        and is persisted. The Orchestrator schedules one brief per campaign, so this describes it."""
         if self.generated >= 1:
-            return "tested"
+            return "tested" if self.reachable else "unreachable"
         if self.budget_halted:
             return "budget_halted"   # cap hit before any attempt: no test, but not the brief's fault
         if self.outcomes.get("PROVIDER_BLOCK"):
@@ -194,6 +196,7 @@ def run_campaign(
             result = _dispatch(case, registry, executor, judge, store, minter, target_sha=target_sha,
                                campaign_id=campaign_id)
             summary.generated += 1
+            summary.reachable += 0 if result.unreachable else 1
             summary.outcomes[str(result.verdict.outcome)] += 1
             summary.results.append(result)
 
@@ -203,6 +206,7 @@ def run_campaign(
                 last = _dispatch(variant, registry, executor, judge, store, minter, target_sha=target_sha,
                                  campaign_id=campaign_id)
                 summary.variants += 1
+                summary.reachable += 0 if last.unreachable else 1
                 summary.outcomes[str(last.verdict.outcome)] += 1
                 summary.results.append(last)
                 parent, muts = variant, muts + 1

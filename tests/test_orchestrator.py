@@ -169,6 +169,31 @@ def test_orchestrator_runs_and_halts_on_no_signal(tmp_path: Path) -> None:
     store.close()
 
 
+def test_a_full_outage_run_tests_nothing(tmp_path: Path) -> None:
+    # Item 4: when the target is unreachable for every attempt, the run tests nothing (so it exits
+    # non-zero under decision 5) and never halts on "no signal" (that would imply it tested).
+    from redteam.errors import TargetUnreachable
+
+    def _down(url, **kw):
+        raise TargetUnreachable("connection refused")
+
+    reg = _registry(tmp_path)
+    store = Store.open(tmp_path / "s.db")
+    orch = Orchestrator(registry=reg, executor=Executor(reg, _down), judge=Judge(), store=store,
+                        agent=RedTeamAgent(), model=FakeModel(), selector=DeterministicSelector())
+    run = orch.run(
+        target_id="good", surfaces=["/v1/x"], categories=[("prompt-injection", ["LLM01"])],
+        budget=Budget(max_campaigns=9, max_model_calls=999, max_no_signal=3),
+        route_fields={"/v1/x": "message"},
+    )
+    assert run.tested == 0
+    assert "no signal" not in run.halt_reason           # an outage is not "tested and found nothing"
+    assert run.halt_reason == "nothing runnable"        # retired after two unreachable outcomes
+    outcomes = {r["outcome"] for r in store.conn.execute("SELECT outcome FROM campaigns")}
+    assert outcomes == {"unreachable"}
+    store.close()
+
+
 @dataclass
 class BlockAllModel:
     def complete(self, system: str, user: str, **kw: object) -> str:

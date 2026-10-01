@@ -123,6 +123,24 @@ class _CountingRubric:
         return Verdict(VerdictOutcome.FAIL, (), "rubric: fine")
 
 
+def test_an_all_unreachable_brief_is_untested_not_tested(tmp_path: Path) -> None:
+    # Item 4: every attempt failed to reach the target (an outage), so the brief is `unreachable`
+    # (an untested class), never `tested` — an outage must not halt "no signal" and exit 0.
+    from redteam.errors import TargetUnreachable
+
+    def _down(url, **kw):
+        raise TargetUnreachable("connection refused")
+
+    reg = _registry(tmp_path)
+    store = Store.open(tmp_path / "s.db")
+    brief = {"category": "prompt-injection", "owasp": ["LLM01"], "target_id": "good", "route": "/v1/x"}
+    summary = run_campaign([brief], registry=reg, executor=Executor(reg, _down), judge=Judge(),
+                           store=store, agent=RedTeamAgent(), model=FakeModel(), max_mutations=1)
+    assert summary.generated >= 1 and summary.reachable == 0
+    assert summary.brief_outcome() == "unreachable"
+    store.close()
+
+
 def test_a_rubric_cap_hit_degrades_to_inconclusive_and_keeps_the_exchange(tmp_path: Path) -> None:
     # Item 3: the generation uses the only budgeted call; when the rubric would be the next call,
     # it degrades to INCONCLUSIVE (the Judge's own fallback) so the target exchange that already
