@@ -18,6 +18,7 @@ from redteam.authz_probe import (
     dos_probe,
     enumeration_probe,
     grounding_probe,
+    rate_limit_probe,
     run_probe,
     run_rate_limit_probe,
     _OFF_CONDITION_QUERIES,
@@ -53,6 +54,11 @@ def _persisted(store: Store, attempt_id: str) -> tuple[str, dict[str, str]]:
     row = store.conn.execute("SELECT outcome, oracle_results FROM verdicts WHERE attempt_id = ?",
                              (attempt_id,)).fetchone()
     return row["outcome"], {r["oracle"]: r["outcome"] for r in json.loads(row["oracle_results"])}
+
+
+def _detail(store: Store, attempt_id: str, oracle: str) -> str:
+    row = store.conn.execute("SELECT oracle_results FROM verdicts WHERE attempt_id = ?", (attempt_id,)).fetchone()
+    return next(r["detail"] for r in json.loads(row["oracle_results"]) if r["oracle"] == oracle)
 
 
 def _dedup_keys(store: Store) -> list[str]:
@@ -275,3 +281,28 @@ def test_only_the_judge_package_and_the_oracles_build_verdicts() -> None:
         if hits:
             offenders[str(path.relative_to(_SRC))] = hits
     assert offenders == {}, f"build verdicts through the Judge or judge.no_evidence: {offenders}"
+
+
+# ---- a set-aside result keeps the probe oracle's own detail ----------------------------------
+
+def test_non_answer_paths_keep_the_oracle_detail(tmp_path: Path) -> None:
+    # On a response that is not an answer the Judge records the oracle as not applicable, but
+    # the stored detail must still say what the oracle saw (e.g. the throttle on a 429).
+    reg = _registry(tmp_path)
+    store = Store.open(tmp_path / "s.db")
+    target = reg.by_id("good")
+    cases = [
+        (enumeration_probe(Executor(reg, _fixed(429, "slow down")), Judge(), target),
+         "enumeration", "status 429; likely rate-limited"),
+        (contradiction_probe(Executor(reg, _fixed(429, "slow down")), Judge(), _Minter(), target, PATIENT),
+         "contradiction", "status 429"),
+        (rate_limit_probe(Executor(reg, _fixed(404, "{}")), Judge(), target, PATIENT, n=3),
+         "rate_limit", "no 429 but non-2xx seen"),
+        (rate_limit_probe(Executor(reg, _fixed(200, "{}")), Judge(), target, PATIENT, n=0),
+         "rate_limit", "no requests sent"),
+    ]
+    for probe, oracle, expected in cases:
+        res = run_probe(probe, store, reg)
+        assert _persisted(store, res.attempt_id) == ("INCONCLUSIVE", {oracle: "not_applicable"}), oracle
+        assert expected in _detail(store, res.attempt_id, oracle), oracle
+    store.close()

@@ -84,10 +84,12 @@ def _no_answer_in_burst(obs: Observation) -> str | None:
 
 def _set_aside(r: OracleResult) -> OracleResult:
     """An answer-grading result on a non-answer, recorded as not applicable so nothing
-    downstream (finding classification, reports, mutation prompts) reads it as a hit."""
+    downstream (finding classification, reports, mutation prompts) reads it as a hit. The
+    oracle's own detail is kept, so the record still says what it saw (e.g. the throttle)."""
     if r.oracle in _TRANSPORT_ORACLES or r.outcome is OracleOutcome.NOT_APPLICABLE:
         return r
-    return OracleResult(r.oracle, r.tier, OracleOutcome.NOT_APPLICABLE, f"set aside (not an answer): {r.outcome}")
+    detail = f"set aside (not an answer): {r.outcome}"
+    return OracleResult(r.oracle, r.tier, OracleOutcome.NOT_APPLICABLE, f"{detail}: {r.detail}" if r.detail else detail)
 
 
 @dataclass(frozen=True)
