@@ -159,6 +159,8 @@ class RedTeamAgent:
             "category": brief["category"],
             "owasp": list(brief["owasp"]),
             "auth": None,
+            "probe_kind": None,   # dispatch routing and suite membership are the platform's
+            "regression": False,
             "oracle": case.oracle.model_copy(update=oracle_update),
         })
         return _bind_marker(_shape_to_field(case, brief), marker)
@@ -211,6 +213,8 @@ class RedTeamAgent:
             "category": parent.category,
             "owasp": list(parent.owasp),
             "auth": parent.auth,
+            "probe_kind": None,
+            "regression": False,
             "oracle": parent.oracle,
         })
         return _bind_marker(child, parent.oracle.marker)

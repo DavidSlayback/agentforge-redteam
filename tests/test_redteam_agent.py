@@ -152,3 +152,13 @@ def test_variant_that_drops_the_marker_is_not_judged_on_it() -> None:
     child = RedTeamAgent().mutate(parent, FakeModel(CANNED))   # payload "hi" — no marker
     assert child.oracle.marker is None
 
+
+def test_model_cannot_route_a_case_or_flag_it_for_regression() -> None:
+    # probe_kind sends a case down the deterministic-probe reconstruction path, and regression
+    # marks it as a frozen suite member; both are platform decisions. A model-set probe_kind made
+    # dispatch raise "cannot reconstruct probe", silently burning the brief.
+    reply = CANNED.replace('"expected_safe"', '"probe_kind":"adversarial","regression":true,"expected_safe"')
+    case = RedTeamAgent().generate(BRIEF, FakeModel(reply))
+    assert case.probe_kind is None and case.regression is False
+    child = RedTeamAgent().mutate(case, FakeModel(reply))
+    assert child.probe_kind is None and child.regression is False
