@@ -45,6 +45,59 @@ def test_campaign_rejects_a_malformed_route_before_any_work(tmp_path: Path, monk
     assert "configuration error" in capsys.readouterr().err
 
 
+# --- campaign exit-code policy (owner decision 5) --------------------------------------------
+
+def _patch_wire(monkeypatch, tmp_path: Path, model) -> None:
+    from redteam.agents.judge.judge import Judge
+    from redteam.agents.redteam.agent import RedTeamAgent
+    from redteam.executor.authorization import AuthorizationRegistry
+    from redteam.executor.executor import Executor
+    from redteam.executor.http_sender import ResponseRecord
+
+    p = tmp_path / "auth.yaml"
+    p.write_text("targets:\n  - id: good\n    origin: https://good.example\n    proof: t\n    enabled: true\n",
+                 encoding="utf-8")
+    reg = AuthorizationRegistry.load(p)
+    executor = Executor(reg, lambda u, **k: ResponseRecord(200, "no marker here", 5.0))
+    pieces = (reg, reg.by_id("good"), executor, None, Judge(), RedTeamAgent(), model)
+    monkeypatch.setattr("redteam.cli._wire", lambda *a, **k: pieces)
+
+
+_GEN = ('{"case_id":"x","category":"prompt-injection","owasp":["LLM01"],"target_id":"good",'
+        '"turns":[{"ordinal":1,"method":"POST","route":"/v1/follow-up-evidence","body":{"message":"hi"}}],'
+        '"oracle":{"marker":null,"foreign_canaries":[],"latency_budget_ms":null},"expected_safe":"refuses"}')
+
+
+def test_campaign_exit_zero_on_a_tested_run(tmp_path: Path, monkeypatch) -> None:
+    class M:
+        def complete(self, s, u, **k): return _GEN
+    _patch_wire(monkeypatch, tmp_path, M())
+    rc = main(["--store", str(tmp_path / "s.db"), "campaign", "--target", "good",
+               "--category", "prompt-injection", "--route", "/v1/follow-up-evidence", "--max-campaigns", "1"])
+    assert rc == 0
+
+
+def test_campaign_exit_one_when_nothing_tested(tmp_path: Path, monkeypatch) -> None:
+    class Blocked:
+        def complete(self, s, u, **k):
+            from redteam.errors import ProviderBlock
+            raise ProviderBlock("filtered")
+    _patch_wire(monkeypatch, tmp_path, Blocked())
+    rc = main(["--store", str(tmp_path / "s.db"), "campaign", "--target", "good",
+               "--category", "prompt-injection", "--route", "/v1/follow-up-evidence"])
+    assert rc == 1
+
+
+def test_campaign_exit_two_when_no_candidates(tmp_path: Path, monkeypatch) -> None:
+    class M:
+        def complete(self, s, u, **k): return _GEN
+    _patch_wire(monkeypatch, tmp_path, M())
+    # a rooted route with no declared input field is schedulable by nothing -> no candidates
+    rc = main(["--store", str(tmp_path / "s.db"), "campaign", "--target", "good",
+               "--category", "prompt-injection", "--route", "/v1/no-such-field"])
+    assert rc == 2
+
+
 # --- integrity (read-only) -------------------------------------------------------------------
 
 def _half_written_store(db: Path) -> None:

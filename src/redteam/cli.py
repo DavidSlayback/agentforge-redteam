@@ -444,9 +444,17 @@ def cmd_campaign(args: argparse.Namespace) -> int:
                    budget=Budget(**budget_kwargs),
                    patient_uuid=args.patient, route_fields=_ROUTE_FIELDS, canaries=canaries or None,
                    target_sha=args.target_sha)
-    print(f"campaign done: campaigns={run.campaigns} findings_opened={run.findings_opened} "
-          f"halt={run.halt_reason!r}")
+    print(f"campaign done: campaigns={run.campaigns} tested={run.tested} "
+          f"findings_opened={run.findings_opened} model_calls={run.model_calls} halt={run.halt_reason!r}")
     store.close()
+    # Owner exit-code policy: a configuration error (no runnable candidates) is exit 2; a run that
+    # tested nothing is exit 1; a working run is exit 0 even if individual briefs errored.
+    if run.halt_reason == "no candidates":
+        print("campaign: no runnable candidates (configuration error)", file=sys.stderr)
+        return 2
+    if run.tested == 0:
+        print("campaign: no brief was actually tested", file=sys.stderr)
+        return 1
     return 0
 
 
