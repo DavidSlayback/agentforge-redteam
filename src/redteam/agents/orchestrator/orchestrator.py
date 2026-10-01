@@ -14,10 +14,6 @@ from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-# After this many untested outcomes (skip / provider block / error) in one run, a brief is
-# retired for the rest of the run so it cannot keep winning the top slot (owner decision 3).
-_EXCLUDE_AFTER_UNTESTED = 2
-
 from redteam.agents.judge.judge import Judge
 from redteam.agents.orchestrator.budget import Budget, CallBudget, Governor
 from redteam.agents.orchestrator.candidates import build_candidates
@@ -28,6 +24,13 @@ from redteam.campaign import run_campaign
 from redteam.executor.authorization import AuthorizationRegistry
 from redteam.executor.executor import Executor
 from redteam.store.store import Store
+
+# After this many untested outcomes (skip / provider block / error / unreachable) in one run, a
+# brief is retired for the rest of the run so it cannot keep winning the top slot (decision 3).
+_EXCLUDE_AFTER_UNTESTED = 2
+# Brief outcomes that mean "no test happened" (penalised within the run and counted toward
+# retirement). `tested` is signal; `budget_halted` just stops the run and is neither.
+_UNTESTED_OUTCOMES = frozenset({"skipped", "provider_blocked", "errored", "unreachable"})
 
 
 def _now() -> str:
@@ -69,17 +72,23 @@ class Orchestrator:
             (campaign_id,)).fetchone()
         return int(r["c"])
 
-    def _campaign_calls(self, campaign_id: str) -> int:
+    def _run_findings(self, campaign_ids: list[str]) -> int:
+        if not campaign_ids:
+            return 0
+        placeholders = ",".join("?" * len(campaign_ids))
         r = self.store.conn.execute(
-            "SELECT COALESCE(SUM(calls), 0) AS c FROM cost_ledger WHERE campaign_id = ?",
-            (campaign_id,)).fetchone()
+            f"SELECT COUNT(*) AS c FROM agent_actions WHERE action = 'finding' "
+            f"AND campaign_id IN ({placeholders})", campaign_ids).fetchone()
         return int(r["c"])
 
-    def _run_findings(self, campaign_ids: list[str]) -> int:
-        return sum(self._campaign_findings(cid) for cid in campaign_ids)
-
     def _run_calls(self, campaign_ids: list[str]) -> int:
-        return sum(self._campaign_calls(cid) for cid in campaign_ids)
+        if not campaign_ids:
+            return 0
+        placeholders = ",".join("?" * len(campaign_ids))
+        r = self.store.conn.execute(
+            f"SELECT COALESCE(SUM(calls), 0) AS c FROM cost_ledger "
+            f"WHERE campaign_id IN ({placeholders})", campaign_ids).fetchone()
+        return int(r["c"])
 
     def _begin_campaign(self, campaign_id: str, brief: dict, budget: Budget, meta: dict,
                         target_sha: str | None) -> None:
@@ -126,12 +135,13 @@ class Orchestrator:
         call_budget = CallBudget(budget.max_model_calls)   # spans the run; caps every metered call
         seq = 0
         excluded: set[tuple[str, str]] = set()   # briefs retired this run after repeated untested
-        untested_streak: Counter = Counter()
+        untested_counts: Counter = Counter()     # per (category, route), THIS run only
         offered_any = False
 
-        while not gov.should_halt():
+        while not gov.should_halt() and call_budget.has_room:
             candidates = build_candidates(self.store, target_id, surfaces, categories, patient_uuid,
-                                          route_fields, excluded=excluded, canaries=canaries)
+                                          route_fields, excluded=excluded, canaries=canaries,
+                                          untested_in_run=dict(untested_counts))
             if not candidates:
                 # No runnable brief at all is a configuration problem ("no candidates"); losing the
                 # last one to repeated untested outcomes mid-run is a distinct, recorded halt.
@@ -161,19 +171,20 @@ class Orchestrator:
             self._finish_campaign(campaign_id, outcome)
             if outcome == "tested":
                 run.tested += 1
-            else:
+            elif outcome in _UNTESTED_OUTCOMES:
                 pair = (chosen.brief["category"], chosen.brief["route"])
-                untested_streak[pair] += 1
-                if untested_streak[pair] >= _EXCLUDE_AFTER_UNTESTED and pair not in excluded:
+                untested_counts[pair] += 1
+                if untested_counts[pair] >= _EXCLUDE_AFTER_UNTESTED and pair not in excluded:
                     excluded.add(pair)
                     self._record("exclude_brief", {"brief": chosen.brief},
-                                 f"retired for this run after {untested_streak[pair]} untested outcomes "
+                                 f"retired for this run after {untested_counts[pair]} untested outcomes "
                                  f"(last: {outcome})", campaign_id=campaign_id)
-            # Signal and cost are attributed to THIS campaign's id, not a global table delta, so
-            # a finding or ledger row from an overlapping run is never miscounted here (commit 9).
+            # outcome == "budget_halted": no test, but not the brief's fault — neither penalised
+            # nor retired; the run stops below.
+            # Signal is attributed to THIS campaign's id, not a global table delta, so a finding
+            # from an overlapping run is never miscounted here (commit 9).
             produced = self._campaign_findings(campaign_id) > 0
-            gov.record(outcome=outcome, produced_finding=produced,
-                       model_calls=self._campaign_calls(campaign_id))
+            gov.record(outcome=outcome, produced_finding=produced)
             run.decisions.append({"brief": chosen.brief, "outcome": outcome,
                                   "outcomes": dict(summary.outcomes), "new_finding": produced})
             if summary.budget_halted:
@@ -183,6 +194,10 @@ class Orchestrator:
         run.campaigns = gov.campaigns
         run.findings_opened = self._run_findings(run.campaign_ids)
         run.model_calls = self._run_calls(run.campaign_ids)
+        if not run.halt_reason and not call_budget.has_room:
+            # The cap was reached exactly between campaigns (no mid-brief halt), so the loop guard
+            # stopped us before starting a doomed campaign — report it as the model-call budget.
+            run.halt_reason = f"model-call budget reached ({call_budget.used}/{call_budget.max_calls})"
         run.halt_reason = run.halt_reason or gov.halt_reason() or "unknown"
         self._record(
             "halt",

@@ -260,13 +260,17 @@ now **under-claimed** several capabilities:
   computed from **Campaign records** the scheduler writes (one per scheduled brief), scoped to the
   target id and keyed on the brief's own route — regression replays, the deterministic battery and
   eval runs no longer count. Each brief records an outcome (tested / skipped / provider_blocked /
-  errored); untested outcomes carry a separate penalty and a brief is retired for the run after two
-  of them, so a stuck brief cannot starve its sibling. The exploit term decays with tries since the
-  category's last finding and is capped below an untried pair. The no-signal halt counts only tested
-  campaigns (a run that tested nothing halts "nothing runnable"); the model-call cap is now checked
-  **before every metered call**, not only between campaigns. Signal and cost are attributed to the
-  run's own campaign ids, not global table deltas. The `campaign` command validates routes up front
-  and follows the owner exit-code policy (2 config error, 1 nothing tested, 0 otherwise).
+  errored / unreachable / budget_halted); the untested outcomes carry a **run-scoped** penalty (it
+  never persists to a later run) and a brief is retired for the run after two of them, so a stuck
+  brief cannot starve its sibling. The exploit term decays with tries since the category's last
+  finding and is capped below an untried pair. The no-signal halt counts only tested campaigns, so a
+  run that tested nothing (ran out of runnable briefs, or a full outage) exits non-zero whatever its
+  halt reason. The model-call cap is owned by a single run-spanning `CallBudget`, checked **before
+  every metered call** (not only between campaigns); a rubric call that would exceed it degrades to
+  INCONCLUSIVE so a target exchange already made is never lost. Signal and cost are attributed to the
+  run's own campaign ids, not global table deltas. The `campaign` command validates routes against
+  the declared route map up front and follows the owner exit-code policy (2 config error, 1 nothing
+  tested, 0 otherwise).
 - **Regression — auto-trigger + cross-category flagging: DONE; CI gate: not done.** Faithful
   per-probe replay (`probe_kind` reconstruction), reappearance detection, **cross-category
   regression flagging** (`RegressionReport.cross_category_regression`), and SHA-change auto-trigger

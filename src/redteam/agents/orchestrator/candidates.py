@@ -16,8 +16,11 @@ from redteam.store.store import Store
 
 _EXPLORE_WEIGHT = 1.0    # favor (category, route) pairs tested few times
 _EXPLOIT_WEIGHT = 0.5    # favor categories with open findings
-_UNTESTED_PENALTY = 0.5  # demote a pair whose campaigns could not be tested (skip/block/error),
-                         # so a stuck brief stops winning without being counted as covered
+_UNTESTED_PENALTY = 0.5  # demote a pair whose campaigns could not be tested (skip/block/error)
+                         # THIS RUN, so the next pick moves on; the penalty is run-scoped and never
+                         # persists (a pair that timed out in one run is not suppressed in the next,
+                         # owner decision 3 — "for the rest of the RUN"). The within-run exclusion
+                         # after `_EXCLUDE_AFTER_UNTESTED` retirements is the hard stop.
 # The exploit term is capped strictly below the exploration gap between an untried pair
 # (explore 1.0) and a once-tested pair (explore 0.5), so a category with open findings can never
 # out-rank a pair that has never been tried (owner decision 2). It also decays with the tested
@@ -59,23 +62,21 @@ def _tries_since_last_finding(store: Store, target_id: str) -> dict[str, int]:
             for cat, ts in last.items()}
 
 
-def _campaign_coverage(store: Store, target_id: str) -> dict[tuple[str, str], dict[str, int]]:
-    """Tested/untested campaign counts per (category, route), from Campaign rows only.
+def _tested_by_pair(store: Store, target_id: str) -> dict[tuple[str, str], int]:
+    """Tested-campaign count per (category, route), from Campaign rows only.
 
     Coverage is the scheduled brief, not the attempt: only campaigns the Orchestrator ran write a
     Campaign row, so regression replays, the deterministic battery and eval runs never move a
     pair's score (they write attempts, not campaigns). Scoped to the target id, not the build
     (owner decision 4), and keyed on the brief's route (the ``surface`` column), so a route the
     model happened to pick for a generated case can no longer be credited (role-review T3.7).
+    Only ``tested`` counts: an untested outcome from a past run must not suppress a pair forever
+    (owner decision 3 scopes that to the run; see ``_UNTESTED_PENALTY`` / the Orchestrator).
     """
-    q = ("SELECT json_extract(categories, '$[0]') AS cat, surface AS route, outcome, COUNT(*) AS c "
-         "FROM campaigns WHERE target_id = ? AND outcome IS NOT NULL "
-         "GROUP BY cat, route, outcome")
-    cov: dict[tuple[str, str], dict[str, int]] = {}
-    for r in store.conn.execute(q, (target_id,)):
-        bucket = cov.setdefault((r["cat"], r["route"]), {"tested": 0, "untested": 0})
-        bucket["tested" if r["outcome"] == "tested" else "untested"] += r["c"]
-    return cov
+    q = ("SELECT json_extract(categories, '$[0]') AS cat, surface AS route, COUNT(*) AS c "
+         "FROM campaigns WHERE target_id = ? AND outcome = 'tested' "
+         "GROUP BY cat, route")
+    return {(r["cat"], r["route"]): r["c"] for r in store.conn.execute(q, (target_id,))}
 
 
 def build_candidates(
@@ -87,28 +88,29 @@ def build_candidates(
     route_fields: dict[str, str] | None = None,
     excluded: set[tuple[str, str]] | None = None,
     canaries: list[str] | None = None,
+    untested_in_run: dict[tuple[str, str], int] | None = None,
 ) -> list[Candidate]:
     """One candidate per (category, surface), highest score first. `route_fields` maps a
     route to the request field that carries the attack payload (schema-aware shaping).
 
-    Coverage is scored per (category, route) from campaign-made records only (see
-    `_campaign_coverage`). A pair's tested campaigns lower its exploration weight; its untested
-    campaigns (skip/block/error) apply a separate penalty so a stuck brief stops winning without
-    being counted as covered. Deterministic-only categories (authz) are excluded because the
-    campaign refuses them — proposing one would burn a campaign on a guaranteed SKIP. `excluded`
-    is the set of (category, route) pairs the current run has retired after repeated untested
-    outcomes (owner decision 3); they are not offered again.
+    Exploration weight comes from the pair's tested campaigns only (see `_tested_by_pair`), so a
+    past run's skip/block/error never suppresses a pair again. Untested outcomes are handled
+    strictly within the run: `untested_in_run` (counts seen so far in THIS run) applies a penalty
+    that nudges the next pick to a sibling, and `excluded` holds pairs the run has retired after
+    repeated untested outcomes (owner decision 3). Deterministic-only categories (authz) are
+    excluded because the campaign refuses them — proposing one would burn a campaign on a
+    guaranteed SKIP.
 
-    Unrunnable briefs are filtered before ranking (commit 5), so the campaign never spends a slot
-    on a guaranteed non-test: a canary-gated category with no canary discovered (it would SKIP),
-    and a route with no declared input field (not schedulable — the model can no longer pick the
-    route, so a payload cannot reach the AI).
+    Unrunnable briefs are filtered before ranking: a canary-gated category with no canary
+    discovered (it would SKIP), and a route with no declared input field (not schedulable — the
+    model can no longer pick the route, so a payload cannot reach the AI).
     """
-    cov = _campaign_coverage(store, target_id)
+    tested_by_pair = _tested_by_pair(store, target_id)
     open_by_cat = _open_findings_by_category(store)
     tries_since = _tries_since_last_finding(store, target_id)
     route_fields = route_fields or {}
     excluded = excluded or set()
+    untested_in_run = untested_in_run or {}
 
     candidates: list[Candidate] = []
     for category, owasp in categories:
@@ -122,8 +124,8 @@ def build_candidates(
                 continue   # no declared input field -> a payload cannot reach the AI here
             if (category, route) in excluded:
                 continue   # retired for the rest of this run (repeated untested outcomes)
-            counts = cov.get((category, route), {"tested": 0, "untested": 0})
-            tested, untested = counts["tested"], counts["untested"]
+            tested = tested_by_pair.get((category, route), 0)
+            untested = untested_in_run.get((category, route), 0)   # this run only
             exploit = 0.0
             if open_f:
                 exploit = min(_EXPLOIT_WEIGHT * open_f / (1 + tries_since.get(category, 0)), _EXPLOIT_CAP)

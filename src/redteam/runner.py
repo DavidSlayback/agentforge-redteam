@@ -196,6 +196,7 @@ def build_observation(record, oracle: OracleConfig, provider_events: tuple[str, 
 class RunResult:
     attempt_id: str
     verdict: Verdict
+    unreachable: bool = False   # the target could not be reached, so no real exchange occurred
 
 
 def run_case(
@@ -223,7 +224,7 @@ def run_case(
 
 def finalize(store, case: SeedCase, target, exchanges: list[dict], verdict: Verdict,
              provider_events: list[str], target_sha: str | None = None,
-             campaign_id: str | None = None) -> RunResult:
+             campaign_id: str | None = None, unreachable: bool = False) -> RunResult:
     """Persist a judged attempt (spec, attempt, verdict, action) and promote/freeze on a
     confirmed exploit. Shared by run_case and the document-attack flow so lineage, dedup,
     finding promotion, and regression freezing are identical."""
@@ -303,7 +304,7 @@ def finalize(store, case: SeedCase, target, exchanges: list[dict], verdict: Verd
             })
             if is_new:
                 regression.freeze(store, finding_id, case)
-    return RunResult(attempt_id=attempt_id, verdict=verdict)
+    return RunResult(attempt_id=attempt_id, verdict=verdict, unreachable=unreachable)
 
 
 def drive(store, case: SeedCase, registry: AuthorizationRegistry, *, target_sha: str | None = None,
@@ -327,5 +328,6 @@ def drive(store, case: SeedCase, registry: AuthorizationRegistry, *, target_sha:
     except TargetUnreachable as exc:
         verdict = no_evidence(f"target unreachable: {exc}")
         provider_events = ["target_unreachable"]
+    unreachable = "target_unreachable" in provider_events
     return finalize(store, case, target, exchanges, verdict, provider_events, target_sha=target_sha,
-                    campaign_id=campaign_id)
+                    campaign_id=campaign_id, unreachable=unreachable)
