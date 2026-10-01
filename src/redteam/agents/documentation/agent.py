@@ -383,8 +383,8 @@ class DocumentationAgent:
         A build is an immutable artifact, so the exploit succeeding on it ONCE (a fresh hunt or a
         replay, in any order) means that build is not fixed: ``reappeared``. Otherwise a clean
         replay FAIL is ``held``, and anything else is ``inconclusive``, never a pass. Listed are
-        builds that were replayed or first seen after validation began; the build it was found on
-        and builds merely re-hunted before any replay are sightings, not fix attempts. Returns
+        builds that were replayed or seen by a hunt after validation began; the build it was found
+        on and builds seen only before any replay are sightings, not fix attempts. Returns
         ``[{sha, at, result}]`` in order of each build's first event; ``at`` is its latest event.
         """
         fresh = [{"sha": s["sha"], "at": s["at"] or "", "outcome": "SUCCESS"}

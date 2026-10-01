@@ -98,3 +98,21 @@ def test_rubric_calls_are_metered(tmp_path: Path) -> None:
     kinds = dict(store.conn.execute("SELECT kind, SUM(calls) FROM cost_ledger GROUP BY kind").fetchall())
     assert kinds == {"generation": 1, "mutation": 1, "rubric": 2}
     store.close()
+
+
+@dataclass
+class BlockedModel:
+    def complete(self, system: str, user: str, **kw: object) -> str:
+        from redteam.errors import ProviderBlock
+        raise ProviderBlock("content filter")
+
+
+def test_a_blocked_call_is_still_metered(tmp_path: Path) -> None:
+    reg = _registry(tmp_path)
+    store = Store.open(tmp_path / "s.db")
+    brief = {"category": "prompt-injection", "owasp": ["LLM01"], "target_id": "good", "route": "/v1/x"}
+    summary = run_campaign([brief], registry=reg, executor=Executor(reg, lambda u, **k: None), judge=Judge(),
+                           store=store, agent=RedTeamAgent(), model=BlockedModel())
+    assert summary.outcomes["PROVIDER_BLOCK"] == 1
+    assert queries.cost_summary(store)["calls"] == 1
+    store.close()

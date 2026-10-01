@@ -34,11 +34,13 @@ def _read_fact_values(executor: Executor, minter, target: Target, patient_uuid: 
     try:
         if record.status_code != 200:
             raise ValueError(f"status {record.status_code}")
-        data = json.loads(record.text)
-    except ValueError as exc:
+        facts = json.loads(record.text or "").get("patient_facts")
+        if not isinstance(facts, list) or not facts:
+            raise ValueError("no patient_facts in the response")
+    except (ValueError, AttributeError) as exc:
         raise TargetUnreachable(f"canary discovery: could not read the {role} patient's chart ({exc})") from exc
     values: set[str] = set()
-    for fact in data.get("patient_facts", []):
+    for fact in facts:
         value = fact.get("value")
         # Only distinctive values make safe canaries: a short/common one (a date, "pain")
         # could appear in the acting session by coincidence and false-flag a leak.

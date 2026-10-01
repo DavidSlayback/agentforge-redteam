@@ -7,8 +7,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from redteam.agents.judge.judge import Judge, Verdict, VerdictOutcome
-from redteam.authz_probe import (Probe, build_authz_probes, run_authz_case, run_mint_auth_probe,
-                                 run_probe, run_rate_limit_probe)
+from redteam.authz_probe import (
+    Probe,
+    build_authz_probes,
+    run_authz_case,
+    run_mint_auth_probe,
+    run_probe,
+    run_rate_limit_probe,
+)
 from redteam.executor.authorization import AuthorizationRegistry
 from redteam.executor.executor import Executor
 from redteam.executor.http_sender import ResponseRecord
@@ -294,7 +300,7 @@ def test_rate_limit_without_a_429_or_a_clean_run_is_inconclusive(tmp_path: Path)
     store = Store.open(tmp_path / "s.db")
     for statuses in ([200, 200, 200, 200, 502], [404] * 5):
         it = iter(statuses)
-        res = run_rate_limit_probe(reg, Executor(reg, lambda u, **k: ResponseRecord(next(it), "{}", 5.0)),
+        res = run_rate_limit_probe(reg, Executor(reg, lambda u, it=it, **k: ResponseRecord(next(it), "{}", 5.0)),
                                    Judge(), store, _target(reg), ATTACKER, n=5)
         assert res.verdict.outcome is VerdictOutcome.INCONCLUSIVE, statuses
     assert store.count("findings") == 0
@@ -321,4 +327,19 @@ def test_battery_records_an_unreadable_chart_as_a_coverage_gap(tmp_path: Path) -
     gap = store.conn.execute("SELECT reason FROM agent_actions WHERE action = 'coverage_gap'").fetchone()
     assert gap is not None and "could not read the acting patient" in gap["reason"]
     assert results and store.count("attempts") == len(results)   # the rest of the battery still ran
+    store.close()
+
+
+def test_bola_401_is_our_expired_token_not_the_scope_check(tmp_path: Path) -> None:
+    # BOLA carries a live attacker token; a 401 means that token failed, so scope was never tested.
+    res, _ = _run(_bola_case(), lambda u, **k: ResponseRecord(401, '{"error":"expired"}', 1.0), tmp_path)
+    assert res.verdict.outcome is VerdictOutcome.INCONCLUSIVE
+
+
+def test_rate_limit_with_no_requests_is_not_a_finding(tmp_path: Path) -> None:
+    reg = _registry(tmp_path)
+    store = Store.open(tmp_path / "s.db")
+    res = run_rate_limit_probe(reg, Executor(reg, lambda u, **k: ResponseRecord(200, "{}", 1.0)),
+                               Judge(), store, _target(reg), ATTACKER, n=0)
+    assert res.verdict.outcome is VerdictOutcome.INCONCLUSIVE
     store.close()

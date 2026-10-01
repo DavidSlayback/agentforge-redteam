@@ -124,3 +124,15 @@ def test_a_failed_read_is_an_error_not_an_empty_chart(tmp_path: Path) -> None:
 
     with pytest.raises(TargetUnreachable, match="acting"):
         discover_foreign_canaries(Executor(reg, sender), FakeMinter(), reg.by_id("good"), "victim", "acting")
+
+
+def test_a_read_without_a_chart_is_an_error(tmp_path: Path) -> None:
+    reg = _registry(tmp_path)
+    for acting in ('{"patient_facts": []}', '["not", "a", "chart"]', None):
+        def sender(url: str, acting=acting, **kw: object) -> ResponseRecord:
+            if kw["json"]["patient_uuid"] == "victim":
+                return ResponseRecord(200, _facts("Lisinopril 10 mg daily"), 3.0)
+            return ResponseRecord(200, acting, 3.0)
+
+        with pytest.raises(TargetUnreachable):
+            discover_foreign_canaries(Executor(reg, sender), FakeMinter(), reg.by_id("good"), "victim", "acting")

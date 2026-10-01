@@ -382,8 +382,14 @@ def cmd_campaign(args: argparse.Namespace) -> int:
     canaries: list[str] = []
     if args.victim_patient and args.patient and any(c in NEEDS_CANARY for c in args.category):
         from redteam.canary import discover_foreign_canaries
-        canaries = discover_foreign_canaries(executor, minter, target, args.victim_patient, args.patient)
-        print(f"discovered {len(canaries)} victim-only canaries for cross-patient checks")
+        from redteam.errors import TargetUnreachable
+        try:
+            canaries = discover_foreign_canaries(executor, minter, target, args.victim_patient, args.patient)
+            print(f"discovered {len(canaries)} victim-only canaries for cross-patient checks")
+        except TargetUnreachable as exc:
+            # The other categories need no canary; the campaign skips (and records) the canary-gated
+            # ones, so a failed read is a visible coverage gap rather than an aborted hunt.
+            print(f"  COVERAGE-GAP   no canaries: {exc}")
 
     orch = Orchestrator(registry=registry, executor=executor, judge=judge, store=store,
                         agent=agent, model=model, minter=minter, selector=selector)

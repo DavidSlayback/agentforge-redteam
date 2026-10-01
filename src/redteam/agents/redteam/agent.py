@@ -148,7 +148,7 @@ class RedTeamAgent:
         # Judge consults the rubric tier (T3.2). Latency is a DoS signal only, against the
         # platform's budget, so a normal-but-slow AI response is never a false positive elsewhere.
         is_dos = brief["category"] == "denial-of-service"
-        oracle_update: dict = {"foreign_canaries": [],
+        oracle_update: dict = {"foreign_canaries": [], "expect_rejected": False,
                                "latency_budget_ms": DOS_LATENCY_BUDGET_MS if is_dos else None}
         # The platform owns identity and taxonomy — never the model's chosen values (a
         # model-picked target_id misses the registry; a model-picked category/owasp corrupts

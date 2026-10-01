@@ -153,8 +153,12 @@ def test_status_is_honest_before_and_after_a_fix_replay(tmp_path: Path) -> None:
 
 # ---- fix status = the latest observation on each build, whatever produced it ---------------
 
-VULN = lambda u, **k: ResponseRecord(200, MINT_OK, 2.0)            # noqa: E731
-FIXED = lambda u, **k: ResponseRecord(403, '{"error":"forbidden"}', 2.0)  # noqa: E731
+def VULN(url, **kw) -> ResponseRecord:     # the anonymous mint still issues a token
+    return ResponseRecord(200, MINT_OK, 2.0)
+
+
+def FIXED(url, **kw) -> ResponseRecord:    # the mint requires auth
+    return ResponseRecord(403, '{"error":"forbidden"}', 2.0)
 
 
 def _fix_status(store, reg, fid) -> tuple[dict, str]:
@@ -232,4 +236,15 @@ def test_hunts_before_any_validation_are_not_fix_attempts(tmp_path: Path) -> Non
     fixval, md = _fix_status(store, reg, fid)
     assert "`build-c` — held" in md and "`build-b`" not in md   # pre-validation hunt, not a fix attempt
     assert fixval["sha"] == "build-d" and fixval["result"] == "reappeared"
+    store.close()
+
+
+def test_a_later_inconclusive_replay_is_not_held_and_the_origin_build_is_not_a_fix(tmp_path: Path) -> None:
+    reg, store, fid = _mint_finding(tmp_path)
+    replay(store, reg, Executor(reg, FIXED), Judge(), "build-a")           # origin build: a sighting
+    replay(store, reg, Executor(reg, FIXED), Judge(), "build-b")
+    replay(store, reg, Executor(reg, lambda u, **k: ResponseRecord(429, "{}", 2.0)), Judge(), "build-b")
+    fixval, md = _fix_status(store, reg, fid)
+    assert "`build-a`" not in md
+    assert fixval["sha"] == "build-b" and fixval["result"] == "inconclusive"
     store.close()

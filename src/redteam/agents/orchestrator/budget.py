@@ -1,6 +1,6 @@
 """The budget governor — halts when cost accrues without signal (PRD).
 
-Cost is counted in **model calls** (generation + mutation), not USD: the Qwen key bills in
+Cost is counted in **model calls** (generation + mutation + rubric), not USD: the Qwen key bills in
 tokens/credits, not dollars, so a dollar cap would be fiction. The governor tracks campaigns
 run, model calls spent, and a no-signal streak (campaigns since the last new finding), and
 stops on the first limit reached. A halt is a normal, recorded outcome, not a failure.
