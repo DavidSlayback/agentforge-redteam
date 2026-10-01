@@ -22,13 +22,20 @@ class Budget:
 class Governor:
     budget: Budget
     campaigns: int = 0
+    tested: int = 0
     model_calls: int = 0
     no_signal: int = 0
 
-    def record(self, *, produced_finding: bool, model_calls: int) -> None:
+    def record(self, *, outcome: str, produced_finding: bool, model_calls: int) -> None:
+        """Account for one finished campaign. Only a *tested* campaign moves the no-signal
+        streak: an untested outcome (skip / provider block / error) was never a test, so it is
+        neither signal nor an absence of signal, and a run that halts on no-signal really did test
+        and find nothing. The campaign and model-call budgets still count every campaign's work."""
         self.campaigns += 1
         self.model_calls += model_calls
-        self.no_signal = 0 if produced_finding else self.no_signal + 1
+        if outcome == "tested":
+            self.tested += 1
+            self.no_signal = 0 if produced_finding else self.no_signal + 1
 
     def halt_reason(self) -> str | None:
         if self.campaigns >= self.budget.max_campaigns:
@@ -36,7 +43,8 @@ class Governor:
         if self.model_calls >= self.budget.max_model_calls:
             return f"model-call budget reached ({self.model_calls}/{self.budget.max_model_calls})"
         if self.no_signal >= self.budget.max_no_signal:
-            return f"no signal for {self.no_signal} campaigns (limit {self.budget.max_no_signal})"
+            return (f"no signal for {self.no_signal} tested campaigns "
+                    f"(limit {self.budget.max_no_signal})")
         return None
 
     def should_halt(self) -> bool:

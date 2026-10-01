@@ -106,13 +106,17 @@ class Orchestrator:
         seq = 0
         excluded: set[tuple[str, str]] = set()   # briefs retired this run after repeated untested
         untested_streak: Counter = Counter()
+        offered_any = False
 
         while not gov.should_halt():
             candidates = build_candidates(self.store, target_id, surfaces, categories, patient_uuid,
                                           route_fields, excluded=excluded, canaries=canaries)
             if not candidates:
-                run.halt_reason = "no candidates"
+                # No runnable brief at all is a configuration problem ("no candidates"); losing the
+                # last one to repeated untested outcomes mid-run is a distinct, recorded halt.
+                run.halt_reason = "nothing runnable" if offered_any else "no candidates"
                 break
+            offered_any = True
             chosen, meta = self.selector.select(candidates)
             seq += 1
             campaign_id = f"orch-{run.run_id}-{seq}"   # unique per run+brief; cost rows attributable
@@ -149,7 +153,7 @@ class Orchestrator:
             produced = self.store.count("findings") > before_findings
             # Cost is real model calls from the ledger (generation + mutation + rubric).
             calls_delta = cost_summary(self.store)["calls"] - before_calls
-            gov.record(produced_finding=produced, model_calls=calls_delta)
+            gov.record(outcome=outcome, produced_finding=produced, model_calls=calls_delta)
             run.decisions.append({"brief": chosen.brief, "outcome": outcome,
                                   "outcomes": dict(summary.outcomes), "new_finding": produced})
 

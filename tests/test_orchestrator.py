@@ -40,15 +40,27 @@ def _registry(tmp_path: Path) -> AuthorizationRegistry:
 
 def test_governor_halts_on_each_limit() -> None:
     g = Governor(Budget(max_campaigns=2, max_model_calls=999, max_no_signal=99))
-    g.record(produced_finding=False, model_calls=0)
+    g.record(outcome="tested", produced_finding=False, model_calls=0)
     assert not g.should_halt()
-    g.record(produced_finding=False, model_calls=0)
+    g.record(outcome="tested", produced_finding=False, model_calls=0)
     assert g.should_halt() and "campaign budget" in g.halt_reason()
 
     g2 = Governor(Budget(max_campaigns=99, max_model_calls=999, max_no_signal=2))
-    g2.record(produced_finding=False, model_calls=0)
-    g2.record(produced_finding=True, model_calls=0)   # a finding resets the streak
+    g2.record(outcome="tested", produced_finding=False, model_calls=0)
+    g2.record(outcome="tested", produced_finding=True, model_calls=0)   # a finding resets the streak
     assert not g2.should_halt()
+
+
+def test_only_tested_campaigns_count_toward_no_signal() -> None:
+    # Untested outcomes (skip / provider block / error) are neither signal nor its absence, so the
+    # no-signal streak counts only tested campaigns.
+    g = Governor(Budget(max_campaigns=99, max_model_calls=999, max_no_signal=2))
+    for outcome in ("skipped", "provider_blocked", "errored"):
+        g.record(outcome=outcome, produced_finding=False, model_calls=1)
+    assert g.no_signal == 0 and g.tested == 0 and not g.should_halt()   # three untested: no halt
+    g.record(outcome="tested", produced_finding=False, model_calls=1)
+    g.record(outcome="tested", produced_finding=False, model_calls=1)
+    assert g.should_halt() and "no signal for 2 tested campaigns" in g.halt_reason()
 
 
 def test_candidates_favor_untested_categories(tmp_path: Path) -> None:
@@ -77,7 +89,7 @@ def test_candidates_favor_categories_with_open_findings(tmp_path: Path) -> None:
 
 def test_governor_model_call_halt() -> None:
     g = Governor(Budget(max_campaigns=99, max_model_calls=5, max_no_signal=99))
-    g.record(produced_finding=False, model_calls=6)
+    g.record(outcome="tested", produced_finding=False, model_calls=6)
     assert g.should_halt() and "model-call budget" in g.halt_reason()
 
 
@@ -148,12 +160,39 @@ def test_orchestrator_runs_and_halts_on_no_signal(tmp_path: Path) -> None:
         budget=Budget(max_campaigns=99, max_model_calls=999, max_no_signal=3),
         route_fields={"/v1/x": "message"},
     )
-    assert run.campaigns == 3                 # halted after 3 no-signal campaigns
+    assert run.campaigns == 3 and run.tested == 3   # halted after 3 tested, findingless campaigns
     assert run.findings_opened == 0
-    assert "no signal" in run.halt_reason
+    assert "no signal for 3 tested campaigns" in run.halt_reason
     # a select action per campaign + a halt action recorded
     selects = store.conn.execute("SELECT COUNT(*) AS c FROM agent_actions WHERE agent='orchestrator' AND action='select'").fetchone()["c"]
     assert selects == 3
+    store.close()
+
+
+@dataclass
+class BlockAllModel:
+    def complete(self, system: str, user: str, **kw: object) -> str:
+        from redteam.errors import ProviderBlock
+        raise ProviderBlock("attacker-model content filter")
+
+
+def test_run_with_nothing_runnable_halts_distinctly(tmp_path: Path) -> None:
+    # Commit 7: the only brief is provider-blocked every campaign, so it is retired after two
+    # untested outcomes and the run halts "nothing runnable" -- distinct from a no-signal halt,
+    # and the no-signal streak never advanced because nothing was tested.
+    reg = _registry(tmp_path)
+    store = Store.open(tmp_path / "s.db")
+    clean = Executor(reg, lambda u, **k: ResponseRecord(200, "no marker here", 5.0))
+    orch = Orchestrator(registry=reg, executor=clean, judge=Judge(), store=store,
+                        agent=RedTeamAgent(), model=BlockAllModel(), selector=DeterministicSelector())
+    run = orch.run(
+        target_id="good", surfaces=["/v1/x"],
+        categories=[("prompt-injection", ["LLM01"])],
+        budget=Budget(max_campaigns=9, max_model_calls=999, max_no_signal=3),
+        route_fields={"/v1/x": "message"},
+    )
+    assert run.halt_reason == "nothing runnable"
+    assert run.tested == 0 and run.campaigns == 2   # retired after two untested outcomes
     store.close()
 
 
