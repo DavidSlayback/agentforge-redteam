@@ -212,6 +212,41 @@ def test_each_scheduled_brief_gets_a_campaign_record_with_its_outcome(tmp_path: 
     store.close()
 
 
+def _campaign_row(cid: str, target: str, route: str, category: str, outcome: str) -> dict:
+    import json as _json
+    return {"campaign_id": cid, "target_id": target, "surface": route,
+            "categories": _json.dumps([category]), "status": "done", "outcome": outcome,
+            "created_at": "2026-10-01T00:00:00+00:00"}
+
+
+def test_coverage_counts_only_this_targets_campaign_records(tmp_path: Path) -> None:
+    # Commit 4: coverage comes from Campaign rows (campaign-made), scoped to the target, keyed on
+    # the brief's route. Regression replays / battery probes / eval runs write attempts, not
+    # campaigns, so they must not move the score; nor may another target's campaigns.
+    store = Store.open(tmp_path / "s.db")
+    cats = [("prompt-injection", ["LLM01"])]
+    rf = {"/v1/x": "message"}
+    assert build_candidates(store, "good", ["/v1/x"], cats, route_fields=rf)[0].score == 1.0
+    with store.transaction():
+        # a replay/battery/eval: an attempt+spec on this pair, but no Campaign row
+        store.insert("attack_specs", {"spec_id": "s1", "category": "prompt-injection",
+                                      "target_route": "/v1/x", "created_at": "2026-10-01"})
+        store.insert("attempts", {"attempt_id": "a1", "spec_id": "s1", "target_id": "good",
+                                  "started_at": "2026-10-01"})
+        # a tested campaign on the SAME pair but a DIFFERENT target
+        store.insert("campaigns", _campaign_row("other-1", "other", "/v1/x", "prompt-injection", "tested"))
+    assert build_candidates(store, "good", ["/v1/x"], cats, route_fields=rf)[0].score == 1.0
+    # a tested campaign on THIS target+pair lowers the exploration weight
+    with store.transaction():
+        store.insert("campaigns", _campaign_row("good-1", "good", "/v1/x", "prompt-injection", "tested"))
+    assert build_candidates(store, "good", ["/v1/x"], cats, route_fields=rf)[0].score == 0.5
+    # an untested campaign penalizes the pair separately from a tested one
+    with store.transaction():
+        store.insert("campaigns", _campaign_row("good-2", "good", "/v1/x", "prompt-injection", "skipped"))
+    assert build_candidates(store, "good", ["/v1/x"], cats, route_fields=rf)[0].score == 0.0
+    store.close()
+
+
 def _selected_categories(store: Store) -> list[str]:
     import json as _json
 
@@ -222,8 +257,6 @@ def _selected_categories(store: Store) -> list[str]:
 
 
 @pytest.mark.parametrize("fault", ["skip", "block", "error"])
-@pytest.mark.xfail(reason="scheduling fix lands in commit 4 (untested outcomes must not starve the sibling)",
-                   strict=True)
 def test_a_stuck_brief_does_not_starve_its_sibling(tmp_path: Path, fault: str) -> None:
     reg = _registry(tmp_path)
     store = Store.open(tmp_path / "s.db")

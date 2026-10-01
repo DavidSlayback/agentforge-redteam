@@ -10,8 +10,13 @@ from __future__ import annotations
 
 import json
 import uuid
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+
+# After this many untested outcomes (skip / provider block / error) in one run, a brief is
+# retired for the rest of the run so it cannot keep winning the top slot (owner decision 3).
+_EXCLUDE_AFTER_UNTESTED = 2
 
 from redteam.agents.judge.judge import Judge
 from redteam.agents.orchestrator.budget import Budget, Governor
@@ -99,9 +104,12 @@ class Orchestrator:
         run = OrchestratorRun(run_id=uuid.uuid4().hex[:8])
         findings_start = self.store.count("findings")
         seq = 0
+        excluded: set[tuple[str, str]] = set()   # briefs retired this run after repeated untested
+        untested_streak: Counter = Counter()
 
         while not gov.should_halt():
-            candidates = build_candidates(self.store, target_id, surfaces, categories, patient_uuid, route_fields)
+            candidates = build_candidates(self.store, target_id, surfaces, categories, patient_uuid,
+                                          route_fields, excluded=excluded)
             if not candidates:
                 run.halt_reason = "no candidates"
                 break
@@ -130,6 +138,14 @@ class Orchestrator:
             self._finish_campaign(campaign_id, outcome)
             if outcome == "tested":
                 run.tested += 1
+            else:
+                pair = (chosen.brief["category"], chosen.brief["route"])
+                untested_streak[pair] += 1
+                if untested_streak[pair] >= _EXCLUDE_AFTER_UNTESTED and pair not in excluded:
+                    excluded.add(pair)
+                    self._record("exclude_brief", {"brief": chosen.brief},
+                                 f"retired for this run after {untested_streak[pair]} untested outcomes "
+                                 f"(last: {outcome})", campaign_id=campaign_id)
             produced = self.store.count("findings") > before_findings
             # Cost is real model calls from the ledger (generation + mutation + rubric).
             calls_delta = cost_summary(self.store)["calls"] - before_calls
