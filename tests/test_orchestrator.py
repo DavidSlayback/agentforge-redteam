@@ -322,10 +322,29 @@ def test_coverage_counts_only_this_targets_campaign_records(tmp_path: Path) -> N
     with store.transaction():
         store.insert("campaigns", _campaign_row("good-1", "good", "/v1/x", "prompt-injection", "tested"))
     assert build_candidates(store, "good", ["/v1/x"], cats, route_fields=rf)[0].score == 0.5
-    # an untested campaign penalizes the pair separately from a tested one
+    store.close()
+
+
+def test_past_untested_outcomes_do_not_suppress_a_pair_in_a_later_run(tmp_path: Path) -> None:
+    # Item 1: the untested penalty is run-scoped, never persisted. A pair that was skipped/errored
+    # in past runs must not score below a tested pair; only the CURRENT run's untested count (via
+    # `untested_in_run`) applies a penalty.
+    store = Store.open(tmp_path / "s.db")
+    cats = [("prompt-injection", ["LLM01"]), ("denial-of-service", ["LLM10"])]
+    rf = {"/v1/x": "message"}
     with store.transaction():
-        store.insert("campaigns", _campaign_row("good-2", "good", "/v1/x", "prompt-injection", "skipped"))
-    assert build_candidates(store, "good", ["/v1/x"], cats, route_fields=rf)[0].score == 0.0
+        # PI was untested twice in prior runs; DoS was tested once
+        store.insert("campaigns", _campaign_row("r1-1", "good", "/v1/x", "prompt-injection", "errored"))
+        store.insert("campaigns", _campaign_row("r1-2", "good", "/v1/x", "prompt-injection", "skipped"))
+        store.insert("campaigns", _campaign_row("r2-1", "good", "/v1/x", "denial-of-service", "tested"))
+    by_cat = {c.brief["category"]: c.score for c in build_candidates(store, "good", ["/v1/x"], cats, route_fields=rf)}
+    assert by_cat["prompt-injection"] == 1.0    # past untested does NOT suppress it
+    assert by_cat["denial-of-service"] == 0.5    # a real tested campaign does lower exploration
+    # within a run, the penalty applies via untested_in_run
+    penalised = {c.brief["category"]: c.score for c in build_candidates(
+        store, "good", ["/v1/x"], cats, route_fields=rf,
+        untested_in_run={("prompt-injection", "/v1/x"): 1})}
+    assert penalised["prompt-injection"] == 0.5   # 1.0 - 0.5 penalty, this run only
     store.close()
 
 

@@ -14,10 +14,6 @@ from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-# After this many untested outcomes (skip / provider block / error) in one run, a brief is
-# retired for the rest of the run so it cannot keep winning the top slot (owner decision 3).
-_EXCLUDE_AFTER_UNTESTED = 2
-
 from redteam.agents.judge.judge import Judge
 from redteam.agents.orchestrator.budget import Budget, CallBudget, Governor
 from redteam.agents.orchestrator.candidates import build_candidates
@@ -28,6 +24,13 @@ from redteam.campaign import run_campaign
 from redteam.executor.authorization import AuthorizationRegistry
 from redteam.executor.executor import Executor
 from redteam.store.store import Store
+
+# After this many untested outcomes (skip / provider block / error / unreachable) in one run, a
+# brief is retired for the rest of the run so it cannot keep winning the top slot (decision 3).
+_EXCLUDE_AFTER_UNTESTED = 2
+# Brief outcomes that mean "no test happened" (penalised within the run and counted toward
+# retirement). `tested` is signal; `budget_halted` just stops the run and is neither.
+_UNTESTED_OUTCOMES = frozenset({"skipped", "provider_blocked", "errored", "unreachable"})
 
 
 def _now() -> str:
@@ -126,12 +129,13 @@ class Orchestrator:
         call_budget = CallBudget(budget.max_model_calls)   # spans the run; caps every metered call
         seq = 0
         excluded: set[tuple[str, str]] = set()   # briefs retired this run after repeated untested
-        untested_streak: Counter = Counter()
+        untested_counts: Counter = Counter()     # per (category, route), THIS run only
         offered_any = False
 
         while not gov.should_halt():
             candidates = build_candidates(self.store, target_id, surfaces, categories, patient_uuid,
-                                          route_fields, excluded=excluded, canaries=canaries)
+                                          route_fields, excluded=excluded, canaries=canaries,
+                                          untested_in_run=dict(untested_counts))
             if not candidates:
                 # No runnable brief at all is a configuration problem ("no candidates"); losing the
                 # last one to repeated untested outcomes mid-run is a distinct, recorded halt.
@@ -161,14 +165,16 @@ class Orchestrator:
             self._finish_campaign(campaign_id, outcome)
             if outcome == "tested":
                 run.tested += 1
-            else:
+            elif outcome in _UNTESTED_OUTCOMES:
                 pair = (chosen.brief["category"], chosen.brief["route"])
-                untested_streak[pair] += 1
-                if untested_streak[pair] >= _EXCLUDE_AFTER_UNTESTED and pair not in excluded:
+                untested_counts[pair] += 1
+                if untested_counts[pair] >= _EXCLUDE_AFTER_UNTESTED and pair not in excluded:
                     excluded.add(pair)
                     self._record("exclude_brief", {"brief": chosen.brief},
-                                 f"retired for this run after {untested_streak[pair]} untested outcomes "
+                                 f"retired for this run after {untested_counts[pair]} untested outcomes "
                                  f"(last: {outcome})", campaign_id=campaign_id)
+            # outcome == "budget_halted": no test, but not the brief's fault — neither penalised
+            # nor retired; the run stops below.
             # Signal and cost are attributed to THIS campaign's id, not a global table delta, so
             # a finding or ledger row from an overlapping run is never miscounted here (commit 9).
             produced = self._campaign_findings(campaign_id) > 0
