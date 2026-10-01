@@ -1,5 +1,13 @@
 # Handoff — offensive / content work
 
+> **Historical (written 2026-09-28/29); status as of 2026-10-01.** Task 1 (authenticated
+> prompt-injection campaign) was run: its attempts all held. Task 2 (cross-patient exfiltration) has
+> only one model-driven attempt in the store; the deterministic BOLA probes carry the evidence.
+> Task 3 (the demo-context finding) is done: F-831d4df407 and six more findings are in
+> `docs/findings/`. Task 4 (browser / conversational surface, stored-XSS render check) is **not
+> done**. Prefer `README.md` for current commands, and note `redteam campaign` now validates
+> `--route` against the declared route map and exits non-zero when nothing was tested.
+
 For David or an unfiltered model. The **harness is built and live-verified**; these tasks
 need attack *content*, which the safety classifier stops this assistant from authoring
 (see memory `claude-safety-blocks-w3`). Everything below runs against the **one authorized

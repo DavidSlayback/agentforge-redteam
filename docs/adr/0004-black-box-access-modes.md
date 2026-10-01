@@ -41,3 +41,12 @@ obtained, and treat the token as one mode among several.
 We do not attempt to steal or ride a real clinician's live session, and we do not implement
 credential theft. The `token-manipulation` mode operates only on synthetic tokens for the
 authorized synthetic target.
+
+## Implementation status (2026-10-01)
+
+Built: `synthetic-token` (`TokenMinter`), `unauthenticated` (a case with `auth=None`, used by the
+missing-token and anonymous-mint probes), and `indirect` (the document-attack path). Only part of
+`token-manipulation` exists: missing, forged and cross-patient tokens are probed (24 `403` results in
+the store). **Not built:** scope escalation (a read token on a write route), expiry and replay probes,
+and tests of whether the request-body `clinician_uuid` is bound to the token; `THREAT_MODEL.md` lists
+these as untested identity classes. No eval case carries an access-mode tag.

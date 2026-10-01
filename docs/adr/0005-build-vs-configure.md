@@ -35,3 +35,12 @@ sidecars — see `docs/PLAN.md` settled decisions). The reasons, per candidate:
 - Judge independence and honest verdicts — the properties a configured scanner cannot guarantee —
   are structural here (deterministic oracles first; non-Qwen rubric; candidates-not-verdicts for the
   discovery tier).
+
+## Implementation status (2026-10-01)
+
+The decision to build the core stands and is what was built. The "use existing offensive tools as
+pinned libraries or sidecars at runtime" half was **not realized**: PyRIT, garak and spikee do not
+appear in `pyproject.toml`, `uv.lock` or `src/`, and the Red Team agent calls the attacker model's
+OpenAI-compatible endpoint directly. Reaching for them remains the documented option if prebuilt
+probe coverage is wanted; until then the tool matrix above is a build-versus-configure *rationale*,
+not a description of what runs.

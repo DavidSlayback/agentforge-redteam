@@ -19,7 +19,9 @@ the clinician.
 - **Workflow:** receive a vuln report → fix → the regression suite replays the frozen case
   on the new build → `held` (fix holds) or `reappeared` (regression).
 - **Needs:** a fix that holds across *mutations* of the attack, not just the exact string,
-  and evidence the fix didn't raise over-refusal.
+  and evidence the fix didn't raise over-refusal. *Today the platform replays the exact frozen
+  case (a mutated-variant replay is not built), and over-refusal was measured once, on one build
+  (`KEY_METRICS.md` #3, #4).*
 
 ### 3. Engineering leadership / hospital CISO (the decider)
 Decides whether to trust the Co-Pilot in production and the platform to guard it.
@@ -35,7 +37,8 @@ Decides whether to trust the Co-Pilot in production and the platform to guard it
   The Red Team agent mutates attacks and the Orchestrator prioritizes from live state.
 - **Findings must be reproduced on every change.** A vulnerability fixed once and never
   re-tested reappears under a slightly different variant. The regression harness replays
-  every confirmed exploit against every new build automatically.
+  every confirmed exploit against every new build. `redteam poll` does this on a SHA change and is
+  cron-friendly; nothing schedules it for you yet, so today it runs when an operator runs it.
 - **The cost of a miss is high and the volume is large.** A single cross-patient PHI leak
   is a reportable event. Continuous testing at scale is only economical with cheap,
   deterministic oracles and a low-cost attacker model — not a human running prompts.
@@ -45,6 +48,10 @@ Decides whether to trust the Co-Pilot in production and the platform to guard it
 
 ## Where a human stays in the loop
 
-Publishing critical/high reports, reviewing inconclusive and clinical-harm verdicts, and
-changing the authorization registry are human decisions (Q6/Q15). The platform never
-proposes or applies fixes to the target — it only recommends remediation in report text.
+Publishing critical/high reports and changing the authorization registry are human decisions
+(Q6/Q15), enforced in the code: the approval gate fails closed, and the registry is a git-tracked
+file only a human edits. Triage of `INCONCLUSIVE` verdicts and of discovery candidates is also
+human, but there is no review queue: inconclusive verdicts are counted in `redteam report` and
+candidates are listed by `redteam candidates`. A clinical-harm review lane is not built. The
+platform never proposes or applies fixes to the target — it only recommends remediation in report
+text.
