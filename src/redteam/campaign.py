@@ -98,7 +98,11 @@ class _MeteredRubric:
 
     @property
     def available(self) -> bool:
-        return self.rubric.available
+        # When the model-call budget is exhausted the rubric reports unavailable, so the Judge
+        # falls back to its own INCONCLUSIVE instead of the rubric raising mid-dispatch. The target
+        # exchange that already happened is then still persisted — a cap hit never loses it. The
+        # campaign stops cleanly on the next metered call (review item 3).
+        return self.rubric.available and (self.budget is None or self.budget.has_room)
 
     def evaluate(self, obs):
         if self.budget is not None:

@@ -123,6 +123,26 @@ class _CountingRubric:
         return Verdict(VerdictOutcome.FAIL, (), "rubric: fine")
 
 
+def test_a_rubric_cap_hit_degrades_to_inconclusive_and_keeps_the_exchange(tmp_path: Path) -> None:
+    # Item 3: the generation uses the only budgeted call; when the rubric would be the next call,
+    # it degrades to INCONCLUSIVE (the Judge's own fallback) so the target exchange that already
+    # happened is persisted, instead of raising inside produce and losing it.
+    from redteam.agents.orchestrator.budget import CallBudget
+
+    reg = _registry(tmp_path)
+    store = Store.open(tmp_path / "s.db")
+    brief = {"category": "excessive-agency", "owasp": ["LLM06"], "target_id": "good", "route": "/v1/x"}
+    summary = run_campaign([brief], registry=reg,
+                           executor=Executor(reg, lambda u, **k: ResponseRecord(200, '{"answer":"no"}', 5.0)),
+                           judge=Judge(rubric=_CountingRubric()), store=store, agent=RedTeamAgent(),
+                           model=FakeModel(), max_mutations=1, call_budget=CallBudget(max_calls=1))
+    assert store.count("attempts") == 1                              # the real exchange survived
+    assert summary.results[0].verdict.outcome == VerdictOutcome.INCONCLUSIVE
+    kinds = dict(store.conn.execute("SELECT kind, SUM(calls) FROM cost_ledger GROUP BY kind").fetchall())
+    assert "rubric" not in kinds and kinds.get("generation") == 1   # rubric skipped, not charged
+    store.close()
+
+
 def test_rubric_calls_are_metered(tmp_path: Path) -> None:
     reg = _registry(tmp_path)
     store = Store.open(tmp_path / "s.db")

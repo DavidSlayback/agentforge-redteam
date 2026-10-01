@@ -23,9 +23,14 @@ class CallBudget:
     max_calls: int | None
     used: int = 0
 
+    @property
+    def has_room(self) -> bool:
+        """Whether at least one more metered call fits under the cap."""
+        return self.max_calls is None or self.used < self.max_calls
+
     def charge(self) -> None:
         """Account for one metered call about to be made; raise before the cap is exceeded."""
-        if self.max_calls is not None and self.used >= self.max_calls:
+        if not self.has_room:
             raise BudgetExceeded(f"model-call budget reached ({self.used}/{self.max_calls})")
         self.used += 1
 
