@@ -205,3 +205,38 @@ def test_the_builder_decodes_from_the_unstripped_body() -> None:
 def test_the_builder_keeps_a_missing_body_missing() -> None:
     obs = build_observation(ResponseRecord(599, None, 1.0), OracleConfig(), echoes=["anything long"])
     assert obs.response_text is None and obs.decoded is None
+
+
+# --- guard: one observation path ---------------------------------------------------------------
+
+_SRC = Path(__file__).resolve().parents[1] / "src" / "redteam"
+# The shared builder, and the calibration loader (observations from labelled YAML, not a response).
+_OBSERVATION_OWNERS = {_SRC / "runner.py", _SRC / "drift.py"}
+
+
+def _observations_from_a_response(source: str) -> list[int]:
+    """Line numbers where `source` constructs an Observation by hand, other than an aggregate one
+    (a burst summary has no single response body to decode)."""
+    import ast
+
+    lines = []
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Call):
+            fn = node.func
+            name = fn.id if isinstance(fn, ast.Name) else fn.attr if isinstance(fn, ast.Attribute) else None
+            if name == "Observation" and not any(k.arg == "aggregate" for k in node.keywords):
+                lines.append(node.lineno)
+    return lines
+
+
+def test_every_observation_of_a_response_is_built_by_the_shared_builder() -> None:
+    assert _observations_from_a_response(
+        "a = Observation(response_text=t)\nb = base.Observation(aggregate=True)") == [1]
+    offenders = {}
+    for path in _SRC.rglob("*.py"):
+        if path in _OBSERVATION_OWNERS:
+            continue
+        hits = _observations_from_a_response(path.read_text(encoding="utf-8"))
+        if hits:
+            offenders[str(path.relative_to(_SRC))] = hits
+    assert offenders == {}, f"build observations with runner.build_observation: {offenders}"

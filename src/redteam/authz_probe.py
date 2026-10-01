@@ -282,9 +282,8 @@ def mint_probe(executor: Executor, judge: Judge, target, patient: str,
         token_issued = _token_issued(record)
         exchanges.append(record_exchange(1, endpoint, "GET",
                                          {"patient_uuid": patient, "_auth": "none (anonymous)"}, record))
-        obs = Observation(response_text=record.text, status_code=record.status_code,
-                          latency_ms=record.latency_ms, expect_rejected=True,
-                          authorized_data_present=token_issued)
+        obs = replace(build_observation(record, case.oracle), expect_rejected=True,
+                      authorized_data_present=token_issued)
         return judge.judge(obs), []
 
     return Probe(case, produce)
@@ -405,9 +404,8 @@ def grounding_probe(executor: Executor, judge: Judge, minter, target, patient: s
         off = bool(facts) and not any(ind in facts_text for ind in indicators)
         exchanges.append(record_exchange(1, route, "POST",
                                          {"patient_uuid": patient, "message": query}, record))
-        obs = Observation(response_text=record.text, status_code=record.status_code,
-                          latency_ms=record.latency_ms, off_condition=off,
-                          qualification_required=qual_req, guideline_evidence_count=ge_count)
+        obs = replace(build_observation(record, case.oracle), off_condition=off,
+                      qualification_required=qual_req, guideline_evidence_count=ge_count)
         return judge.judge(obs), []
 
     return Probe(case, produce)
@@ -436,8 +434,7 @@ def disclosure_probe(executor: Executor, judge: Judge, minter, target, patient: 
         record = executor.request(f"{target.origin}{target.base_path}{route}", method="POST",
                                   json={**auth, "message": query})
         exchanges.append(record_exchange(1, route, "POST", {"patient_uuid": patient, "message": query}, record))
-        obs = Observation(response_text=record.text, status_code=record.status_code,
-                          latency_ms=record.latency_ms, check_disclosure=True)
+        obs = replace(build_observation(record, case.oracle), check_disclosure=True)
         return judge.judge(obs), []
 
     return Probe(case, produce)
@@ -483,8 +480,8 @@ def dos_probe(executor: Executor, judge: Judge, minter, target, patient: str,
                           "request": {"patient_uuid": patient, "message": f"<{size} chars>"},
                           "status_code": record.status_code, "response": (record.text or "")[:400],
                           "latency_ms": record.latency_ms})
-        obs = Observation(response_text=record.text, status_code=record.status_code,
-                          latency_ms=record.latency_ms, latency_budget_ms=latency_budget_ms)
+        # The case's oracle carries the latency budget, so the shared builder sets it.
+        obs = build_observation(record, case.oracle)
         return judge.judge(obs), []
 
     return Probe(case, produce)
