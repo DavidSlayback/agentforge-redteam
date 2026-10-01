@@ -12,6 +12,7 @@ import re
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -55,6 +56,18 @@ def _check_no_transaction_control(path: Path, sql: str) -> None:
                                  f"({body.split()[0]}); the migration runner owns the transaction")
 
 
+@dataclass(frozen=True)
+class IntegrityReport:
+    """Half-written units already in a store: attempts with no verdict, and findings that were
+    never frozen into the regression suite. Read-only; nothing here repairs them."""
+    attempts_without_verdict: list[str]
+    findings_without_regression_case: list[str]
+
+    @property
+    def ok(self) -> bool:
+        return not (self.attempts_without_verdict or self.findings_without_regression_case)
+
+
 class Store:
     """A thin wrapper over a migrated SQLite connection."""
 
@@ -77,6 +90,24 @@ class Store:
             conn.close()
             raise
         return store
+
+    @classmethod
+    def open_readonly(cls, path: str | Path) -> "Store":
+        """Open an existing store for reading only: no migrations run, no file is created, and
+        SQLite itself refuses every write on this connection."""
+        conn = sqlite3.connect(f"{Path(path).resolve().as_uri()}?mode=ro", uri=True, autocommit=True)
+        conn.row_factory = sqlite3.Row
+        return cls(conn)
+
+    def integrity(self) -> IntegrityReport:
+        """Report half-written units (read-only queries). A missing verdict is never silent."""
+        attempts = [r["attempt_id"] for r in self.conn.execute(
+            "SELECT a.attempt_id FROM attempts a WHERE NOT EXISTS "
+            "(SELECT 1 FROM verdicts v WHERE v.attempt_id = a.attempt_id) ORDER BY a.started_at")]
+        findings = [r["finding_id"] for r in self.conn.execute(
+            "SELECT f.finding_id FROM findings f WHERE NOT EXISTS "
+            "(SELECT 1 FROM regression_cases r WHERE r.finding_id = f.finding_id) ORDER BY f.finding_id")]
+        return IntegrityReport(attempts, findings)
 
     def schema_version(self) -> int:
         exists = self.conn.execute(
