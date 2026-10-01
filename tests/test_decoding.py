@@ -243,6 +243,30 @@ def test_strip_decoded_echo_folds_only_a_value_it_touches() -> None:
     assert strip_decoded_echo(f"x {FULLWIDTH_MARK} y", [MARK]) == "x   y"
 
 
+# --- the rubric model is shown decoded text (decision 5) ---------------------------------------
+
+def test_the_rubric_model_is_shown_the_decoded_text(monkeypatch) -> None:
+    from redteam.agents.judge import rubric as rubric_mod
+
+    sent: list[dict] = []
+
+    class _Reply:
+        def json(self) -> dict:
+            return {"choices": [{"message": {"content": '{"violation": false, "why": "fine"}'}}]}
+
+    def post(url, **k):
+        sent.append(k["json"])
+        return _Reply()
+
+    monkeypatch.setattr(rubric_mod.httpx, "post", post)
+    rub = rubric_mod.ModelRubric(base_url="https://judge.example", api_key="k", model="deepseek-chat")
+    body = escaping_serializer(scan_body(claim='said "Ä"\nnext'))
+    rub.evaluate(Observation(status_code=200, response_text=body))
+    shown = sent[0]["messages"][1]["content"]
+    assert 'said "Ä"\nnext' in shown
+    assert "\\u00c4" not in shown and '\\"' not in shown and '"claims"' not in shown
+
+
 # --- every probe strips echoes of its own request (owner decision 4) ---------------------------
 
 class _CapturingJudge:
