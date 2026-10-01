@@ -528,41 +528,43 @@ class DocumentationAgent:
             "fix_validation": self._fix_validation(finding, evidence, ctx["replays"]),
         }
 
-        existing = store.conn.execute("SELECT report_id FROM vuln_reports WHERE finding_id = ?", (finding_id,)).fetchone()
-        if existing is not None:
-            sets = ", ".join(f"{k} = ?" for k in derived)
-            store.conn.execute(f"UPDATE vuln_reports SET {sets} WHERE report_id = ?",
-                               (*derived.values(), existing["report_id"]))
-            store.conn.commit()
-            return existing["report_id"]
+        # The report and its audit action are one unit: both land or neither does.
+        with store.transaction():
+            existing = store.conn.execute("SELECT report_id FROM vuln_reports WHERE finding_id = ?",
+                                          (finding_id,)).fetchone()
+            if existing is not None:
+                sets = ", ".join(f"{k} = ?" for k in derived)
+                store.execute(f"UPDATE vuln_reports SET {sets} WHERE report_id = ?",
+                              (*derived.values(), existing["report_id"]))
+                return existing["report_id"]
 
-        report_id = "R-" + finding_id[2:]
-        # Fail closed (role-review T1.5): only an explicit low/medium finding backed by captured
-        # evidence may auto-publish. High/critical, an unmapped or malformed severity, or a finding
-        # with no evidence is held for a human — the gate never fails open on an unknown.
-        has_evidence = bool(evidence.get("exchanges"))
-        gated = level not in {"low", "medium"} or not has_evidence
-        store.insert("vuln_reports", {
-            "schema_version": 1,
-            "report_id": report_id,
-            "finding_id": finding_id,
-            "severity": finding["severity"],
-            **derived,
-            "status": "pending_approval" if gated else "published",
-            "approval": json.dumps({"required": gated, "approver": None, "at": None}),
-            "created_at": _now(),
-        })
-        store.insert("agent_actions", {
-            "ts": _now(), "agent": "documentation", "action": "report",
-            "refs": json.dumps({"finding": finding_id, "report": report_id}),
-            "reason": f"{'held for approval' if gated else 'published'} ({level})",
-        })
+            report_id = "R-" + finding_id[2:]
+            # Fail closed (role-review T1.5): only an explicit low/medium finding backed by captured
+            # evidence may auto-publish. High/critical, an unmapped or malformed severity, or a finding
+            # with no evidence is held for a human — the gate never fails open on an unknown.
+            has_evidence = bool(evidence.get("exchanges"))
+            gated = level not in {"low", "medium"} or not has_evidence
+            store.insert("vuln_reports", {
+                "schema_version": 1,
+                "report_id": report_id,
+                "finding_id": finding_id,
+                "severity": finding["severity"],
+                **derived,
+                "status": "pending_approval" if gated else "published",
+                "approval": json.dumps({"required": gated, "approver": None, "at": None}),
+                "created_at": _now(),
+            })
+            store.insert("agent_actions", {
+                "ts": _now(), "agent": "documentation", "action": "report",
+                "refs": json.dumps({"finding": finding_id, "report": report_id}),
+                "reason": f"{'held for approval' if gated else 'published'} ({level})",
+            })
         return report_id
 
     def approve(self, store, report_id: str, approver: str) -> None:
         """Human approval gate: publish a held critical/high report."""
-        store.conn.execute(
-            "UPDATE vuln_reports SET status = 'published', approval = ? WHERE report_id = ?",
-            (json.dumps({"required": True, "approver": approver, "at": _now()}), report_id),
-        )
-        store.conn.commit()
+        with store.transaction():
+            store.execute(
+                "UPDATE vuln_reports SET status = 'published', approval = ? WHERE report_id = ?",
+                (json.dumps({"required": True, "approver": approver, "at": _now()}), report_id),
+            )
