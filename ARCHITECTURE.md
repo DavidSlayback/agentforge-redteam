@@ -201,8 +201,8 @@ Full per-API table: `docs/EXTERNAL_APIS.md`. The behavior, as built:
   `findings.dedup_key` is `UNIQUE`.
 - **SLO:** a full regression replay completes within **5 s of platform overhead** (target latency
   excluded). `tests/test_slo.py` asserts every hot query uses an index and times a stub-sender
-  replay under that ceiling. On this machine the overhead is about 13 ms per frozen case (100
-  cases in 1.3 s, 500 in 6.8 s), so the 5 s bound holds up to roughly 350 frozen cases; it is
+  replay under that ceiling. On this machine the overhead is 10 to 14 ms per frozen case (500
+  cases in 4.8 to 6.8 s over three runs), so the 5 s bound holds up to roughly 350 to 500 frozen cases; it is
   `measured locally`, and `not verified in CI` because the GitLab pipeline has no runner
   (`docs/PERF.md`).
 

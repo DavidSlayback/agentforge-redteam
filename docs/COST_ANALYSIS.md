@@ -141,8 +141,8 @@ tier and its mint limit of 15 per 60 s per client) becomes the ceiling before th
    rows with status `new`, N workers claim and run them, each worker calling the same
    `assert_authorized` gate so the single-door invariant holds (this is also what makes
    `queue_depth.campaigns_pending` mean something; today it is structurally 0). SQLite stays viable
-   with WAL and a single writer, because the measured write cost is about 12 ms per judged attempt:
-   10K attempts is about 2 minutes of writing.
+   with WAL and a single writer, because the measured write cost is 6 to 12 ms per judged attempt:
+   10K attempts is about 1 to 2 minutes of writing.
 2. **Run volume against the local replica.** `agentforge-w2-local` exists in the registry but is
    disabled. Volume sweeps belong there, so the deployed target's quota and the owner's bill are not
    the throttle; re-confirm findings on the deployed SHA only.
