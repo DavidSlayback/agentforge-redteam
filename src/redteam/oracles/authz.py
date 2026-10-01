@@ -101,9 +101,11 @@ class OutputHandlingOracle:
     tier: int = 0
 
     def check(self, obs: Observation) -> OracleResult:
-        if obs.response_text is None:
+        # Decoded values (refactor #2): markup a serializer escaped (as <) is still markup
+        # once the client decodes it, and an echo is stripped from each value before the join.
+        if obs.decoded_text is None:
             return OracleResult(self.name, self.tier, OracleOutcome.NOT_APPLICABLE)
-        haystack = obs.response_text.casefold()
+        haystack = obs.decoded_text.casefold()
         for sig in _ACTIVE_MARKUP:
             if sig in haystack:
                 return OracleResult(self.name, self.tier, OracleOutcome.VIOLATION, f"active markup emitted: {sig!r}")
@@ -294,14 +296,18 @@ class ErrorLeakOracle:
     tier: int = 0
 
     def check(self, obs: Observation) -> OracleResult:
-        if obs.response_text is None:
+        # Both the raw body (a trace in an HTML debug page) and the decoded values (a trace inside
+        # a JSON error string, whose quotes arrive escaped). This oracle only ever adds a
+        # violation, so reading both cannot create a false pass (refactor #2).
+        texts = [t for t in (obs.response_text, obs.decoded_text) if t is not None]
+        if not texts:
             return OracleResult(self.name, self.tier, OracleOutcome.NOT_APPLICABLE)
-        haystack = obs.response_text.casefold()
-        for sig in _ERROR_SIGNATURES:
-            if sig in haystack:
-                return OracleResult(self.name, self.tier, OracleOutcome.VIOLATION, f"leaked signature: {sig!r}")
-        if _PY_FRAME.search(haystack):
-            return OracleResult(self.name, self.tier, OracleOutcome.VIOLATION, "leaked a Python traceback frame")
+        for haystack in (t.casefold() for t in texts):
+            for sig in _ERROR_SIGNATURES:
+                if sig in haystack:
+                    return OracleResult(self.name, self.tier, OracleOutcome.VIOLATION, f"leaked signature: {sig!r}")
+            if _PY_FRAME.search(haystack):
+                return OracleResult(self.name, self.tier, OracleOutcome.VIOLATION, "leaked a Python traceback frame")
         # No leak found. This is an opportunistic detector, not a criterion for this attempt,
         # so it does not apply rather than crediting a defense it never tested.
         return OracleResult(self.name, self.tier, OracleOutcome.NOT_APPLICABLE)

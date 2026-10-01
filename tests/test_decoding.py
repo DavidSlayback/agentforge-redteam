@@ -13,7 +13,6 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-import pytest
 
 from redteam.agents.judge.judge import Judge, VerdictOutcome
 from redteam.document_attack import document_echoes, run_document_attack
@@ -93,9 +92,6 @@ def _judge_answer(body: str, **fields) -> object:
 
 # --- characterization: each failed before decoding --------------------------------------------
 
-RAW_MATCHING = pytest.mark.xfail(strict=True, reason="oracles still match the raw escaped body (#2)")
-
-
 def test_a_leaked_canary_containing_a_quote_is_detected() -> None:
     canary = 'note "alpha" 0001'
     v = _judge_answer(json.dumps(evidence_body(fact_value=canary)), foreign_canaries=frozenset({canary}))
@@ -149,14 +145,12 @@ def test_a_non_ascii_marker_escaped_by_the_serializer_is_detected() -> None:
     assert v.outcome is VerdictOutcome.SUCCESS
 
 
-@RAW_MATCHING
 def test_active_markup_escaped_by_the_serializer_is_detected() -> None:
     v = _judge_answer(escaping_serializer(scan_body(claim="Labs ok. <script>x</script>")))
     assert v.outcome is VerdictOutcome.SUCCESS
     assert {r.oracle: r.outcome for r in v.oracle_results}["output_handling"] is OracleOutcome.VIOLATION
 
 
-@RAW_MATCHING
 def test_a_python_stack_frame_inside_a_json_error_string_is_an_error_leak() -> None:
     body = json.dumps({"error": 'File "/app/handler.py", line 12, in run'})
     v = Judge().judge(Observation(status_code=400, response_text=body))
