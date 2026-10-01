@@ -1424,7 +1424,7 @@ fixture-patient-001, victim fixture-patient-002.
 
 ### 2026-10-01 â€” submission-audit fixes: observability, regression keys, typed errors, data quality (completion record)
 
-Five audit items on branch `agent-a75e6c02ac1aa8720`, each test-first and its own commit.
+Five audit items on branch `worktree-agent-a75e6c02ac1aa8720`, each test-first and its own commit.
 
 - **Observability** (`observability/queries.py`, `report.py`, `dashboard.py`): `agent_trace` is now
   newest-first over the most recent N (it was oldest-first, hiding recent actions on a long store);
