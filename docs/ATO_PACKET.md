@@ -36,7 +36,9 @@ existing artifacts; each row links to the authoritative source rather than resta
   with only base64 payloads replaced and long fields capped (`runner._redact_request`), so minted
   `demo_token` values are stored in `evidence` (the token string appears in 97 of 163 evidence rows
   of the canonical store). They are synthetic-scope, short-lived (300 s) and the store is gitignored,
-  but the store file should not be shared. No model API key is written to the store.
+  but the store file should not be shared. The platform's code does not write model API keys to the
+  store; a pattern scan of the store copy (`sk-`, `Bearer`, `api_key`) found none, apart from two
+  discovery notes that use the word "Bearer" about the target's own tokens.
 
 ## 3. Dependency inventory
 
