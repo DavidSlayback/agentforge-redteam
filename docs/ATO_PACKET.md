@@ -23,6 +23,20 @@ existing artifacts; each row links to the authoritative source rather than resta
 - **Session/credential model & RBAC:** `docs/DATA_MODEL.md` §E11 — who writes/reads exploits,
   approval-before-publish, CLI-only run triggers, read-only dashboard. (SA3)
 - **External APIs:** `docs/EXTERNAL_APIS.md` — auth + rate-limit + failure handling per dependency.
+- **Which component may call which target, with what credential:**
+
+  | Component | May reach | Credential |
+  |---|---|---|
+  | Executor (and the token minter, Recon, probes, regression, benign set that call it) | only origins that are `enabled` in `authorization.yaml` (today `agentforge-w2`); redirects never followed | none of its own; per-patient synthetic `demo_token` minted from the target's mint routes, cached in memory for the 300 s TTL |
+  | Red Team, Judge, Documentation, Orchestrator | **no target access** (they hold no socket and no token) | n/a |
+  | Attacker, rubric and discovery model clients | their configured model endpoints, directly (not through the Executor, which gates targets, not model providers) | bearer keys from the environment or `.env` |
+  | Jev selector | the TypeSafe API | `AGENTFORGE_REDTEAM_JEV_KEY`, optional |
+
+- **Credential residue in the store (a reviewer should know):** request bodies are stored as evidence
+  with only base64 payloads replaced and long fields capped (`runner._redact_request`), so minted
+  `demo_token` values are stored in `evidence` (the token string appears in 97 of 163 evidence rows
+  of the canonical store). They are synthetic-scope, short-lived (300 s) and the store is gitignored,
+  but the store file should not be shared. No model API key is written to the store.
 
 ## 3. Dependency inventory
 
