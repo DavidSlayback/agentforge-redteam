@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+from redteam.oracles.base import Observation
 from redteam.oracles.decode import RAW_PATH, SEPARATOR, decoded_values, joined
 
 
@@ -34,3 +35,17 @@ def test_a_body_that_is_not_json_falls_back_to_the_raw_text() -> None:
 def test_joined_uses_the_separator_in_document_order() -> None:
     assert joined((("$.a", "one"), ("$.b", "two"))) == f"one{SEPARATOR}two"
     assert joined(()) == ""
+
+
+def test_an_observation_decodes_its_raw_body_when_the_caller_sets_nothing_else() -> None:
+    obs = Observation(response_text=json.dumps({"a": 'x "y"', "b": "z"}))
+    assert obs.decoded == (("$.a", 'x "y"'), ("$.b", "z"))
+    assert obs.decoded_text == 'x "y"\nz'
+    assert Observation(response_text="plain").decoded_text == "plain"
+    assert Observation().decoded is None and Observation().decoded_text is None
+
+
+def test_an_observation_keeps_decoded_values_the_caller_set() -> None:
+    obs = Observation(response_text=json.dumps({"a": "echo"}), decoded=(("$.a", " "),))
+    assert obs.decoded_text == " "
+    assert obs.response_text == '{"a": "echo"}'

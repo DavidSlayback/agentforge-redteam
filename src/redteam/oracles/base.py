@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Protocol
 
+from redteam.oracles.decode import DecodedValues, decoded_values, joined
+
 
 class OracleOutcome(StrEnum):
     VIOLATION = "violation"          # evidence the attack achieved its goal
@@ -31,7 +33,13 @@ class Observation:
     optional because a given attempt exercises only some of them.
     """
 
+    # The response body as the target sent it (on the attack paths, with verbatim echoes of the
+    # attack payload removed).
     response_text: str | None = None
+    # The body's decoded string values with their JSON paths (oracles/decode.py), after echo
+    # stripping value by value. Left unset, it is the decoding of `response_text`, so an
+    # observation built from a raw body alone (calibration entries, unit tests) needs nothing more.
+    decoded: DecodedValues | None = None
     status_code: int | None = None
     latency_ms: float | None = None
     latency_budget_ms: float | None = None
@@ -76,6 +84,15 @@ class Observation:
     # a single response. Set only by the rate-limit probe.
     aggregate: bool = False
     burst_statuses: tuple[int, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.decoded is None and self.response_text is not None:
+            object.__setattr__(self, "decoded", decoded_values(self.response_text))
+
+    @property
+    def decoded_text(self) -> str | None:
+        """The decoded values joined in document order; None when no response was captured."""
+        return None if self.decoded is None else joined(self.decoded)
 
 
 @dataclass(frozen=True)
