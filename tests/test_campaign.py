@@ -187,6 +187,7 @@ def test_a_blocked_call_is_still_metered(tmp_path: Path) -> None:
     summary = run_campaign([brief], registry=reg, executor=Executor(reg, lambda u, **k: None), judge=Judge(),
                            store=store, agent=RedTeamAgent(), model=BlockedModel())
     assert summary.outcomes["PROVIDER_BLOCK"] == 1
+    assert summary.brief_outcome() == "provider_blocked"   # its own class, never "errored" (item 8)
     assert queries.cost_summary(store)["calls"] == 1
     store.close()
 
