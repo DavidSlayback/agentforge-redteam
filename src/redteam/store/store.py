@@ -99,7 +99,7 @@ class Store:
     def __init__(self, conn: sqlite3.Connection) -> None:
         self.conn = conn
         self._in_scope = False   # a unit of work is open; nested scopes join it, writes wait for COMMIT
-        self._aborted = False    # an inner scope raised: the outer unit must not commit
+        self._aborted: BaseException | None = None   # an inner scope raised: the unit must not commit
 
     @classmethod
     def open(cls, path: str | Path, *, migrations_dir: Path = MIGRATIONS_DIR) -> "Store":
@@ -191,25 +191,26 @@ class Store:
         if self._in_scope:            # nested: join the outer unit; only the outermost commits
             try:
                 yield self
-            except BaseException:
-                self._aborted = True
+            except BaseException as exc:
+                self._aborted = self._aborted or exc   # keep the first failure as the cause
                 raise
             return
         if self.conn.in_transaction:
             raise RuntimeError("a transaction is already open on this connection outside a store scope")
         self.conn.execute("BEGIN")
-        self._in_scope, self._aborted = True, False
+        self._in_scope, self._aborted = True, None
         try:
             yield self
-            if self._aborted:
-                raise TransactionAborted("an inner transaction scope failed; the unit was rolled back")
+            if self._aborted is not None:
+                raise TransactionAborted(
+                    "an inner transaction scope failed; the unit was rolled back") from self._aborted
             self.conn.execute("COMMIT")
         except BaseException:
             if self.conn.in_transaction:
                 self.conn.execute("ROLLBACK")
             raise
         finally:
-            self._in_scope, self._aborted = False, False
+            self._in_scope, self._aborted = False, None
 
     def _require_scope(self, what: str) -> None:
         if not self._in_scope:

@@ -269,7 +269,7 @@ def test_a_scope_refuses_to_adopt_a_transaction_it_did_not_open(tmp_path: Path) 
 def test_a_failed_inner_scope_dooms_the_outer_unit_even_if_caught(tmp_path: Path) -> None:
     db = tmp_path / "s.db"
     store = Store.open(db)
-    with pytest.raises(TransactionAborted):
+    with pytest.raises(TransactionAborted) as aborted:
         with store.transaction():
             _action(store, "outer")
             try:
@@ -279,4 +279,6 @@ def test_a_failed_inner_scope_dooms_the_outer_unit_even_if_caught(tmp_path: Path
             except ValueError:
                 pass                              # swallowing it must not commit half a unit
     assert _committed_actions(db) == []
+    cause = aborted.value.__cause__               # the swallowed failure stays visible
+    assert isinstance(cause, ValueError) and str(cause) == "inner failure"
     store.close()
