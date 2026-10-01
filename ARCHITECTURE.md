@@ -222,6 +222,27 @@ now **under-claimed** several capabilities:
   rubric-judged safe). Deterministic oracles now include **`GroundingOracle`** (off-condition
   misinformation, LLM09) and **`MetadataDisclosureOracle`** (internal-implementation disclosure,
   API3/LLM02), both gated by an Observation flag so they fire only on their dedicated probes.
+- **One verdict path (2026-10-01, refactor #3).** Every verdict comes from the Judge composing
+  oracle results, or from `judge.no_evidence` when there is no response to judge (unreachable
+  target, failed upload). The rate-limit, enumeration and contradiction probes, which used to
+  decide their own verdicts, now build an Observation and call the Judge with their own oracle
+  only (`RateLimitOracle`, `EnumerationOracle`, `ContradictionOracle`; names unchanged, so dedup
+  keys and finding ids are stable). The Judge's evidence gate reads one per-observation set of
+  **defense statuses** (the statuses that are the defense under test answering: 401/403 on
+  access-control probes, enumeration's uniform 400, the mint's 429), and has an explicit
+  **aggregate** mode for a multi-request burst. A test fails if code outside the judge package
+  and the oracles builds a Verdict or an oracle result.
+- **Raw versus decoded inputs (2026-10-01, refactor #2).** Every Observation of a response is built
+  by `runner.build_observation`, which keeps the raw body (`response_text`) and adds the JSON body's
+  string values with their paths, verbatim (`decoded`) and in one normalized form (`normalized`:
+  NFKC, casefold, collapsed whitespace); a non-JSON body or a bare scalar falls back to its raw
+  text. Echoes of what the attack or probe sent are stripped from every view (from the raw body
+  verbatim and JSON-escaped, from each value before the join). The marker, canary and
+  output-handling oracles read the normalized values, so a serializer's escaping cannot hide a leak
+  or keep an echo alive, and markers match case-insensitively; the rubric model reads the verbatim
+  decoded text. The empty-answer gate, metadata disclosure and contradiction read the raw body;
+  error leak reads raw and normalized. A violation's detail names the decoded value that matched;
+  evidence stores the raw response.
 - **Judge validation (drift/κ): MEASURED.** `drift.py` computes agreement + Cohen's κ against the
   calibration set (`evals/calibration/calibration_v1.yaml`, 12 entries — 10 deterministic + 2
   rubric, labels from objective ground truth). `redteam calibrate` reports **κ=1.00** with full
@@ -233,8 +254,23 @@ now **under-claimed** several capabilities:
 - **Orchestrator → regression on SHA change: NOW WIRED.** The Recon poller (`redteam poll`,
   `src/redteam/recon/`) reads `/health` `git_sha`; on a change it runs the regression suite and
   records the trigger — the SHA-diff producer + trigger the 09-29 note said were missing. Ranking
-  still uses route-coverage + open findings (2 of 4 signals); cost remains the `--max-model-calls`
-  cap, not a ranking signal; mid-campaign hard-stop is between-campaigns only.
+  uses route-coverage + open findings (2 of 4 signals); cost remains the `--max-model-calls`
+  cap, not a ranking signal.
+- **Orchestrator scheduling + cost accounting: REWORKED (GitLab #4, 2026-10-01).** Coverage is now
+  computed from **Campaign records** the scheduler writes (one per scheduled brief), scoped to the
+  target id and keyed on the brief's own route — regression replays, the deterministic battery and
+  eval runs no longer count. Each brief records an outcome (tested / skipped / provider_blocked /
+  errored / unreachable / budget_halted); the untested outcomes carry a **run-scoped** penalty (it
+  never persists to a later run) and a brief is retired for the run after two of them, so a stuck
+  brief cannot starve its sibling. The exploit term decays with tries since the category's last
+  finding and is capped below an untried pair. The no-signal halt counts only tested campaigns, so a
+  run that tested nothing (ran out of runnable briefs, or a full outage) exits non-zero whatever its
+  halt reason. The model-call cap is owned by a single run-spanning `CallBudget`, checked **before
+  every metered call** (not only between campaigns); a rubric call that would exceed it degrades to
+  INCONCLUSIVE so a target exchange already made is never lost. Signal and cost are attributed to the
+  run's own campaign ids, not global table deltas. The `campaign` command validates routes against
+  the declared route map up front and follows the owner exit-code policy (2 config error, 1 nothing
+  tested, 0 otherwise).
 - **Regression — auto-trigger + cross-category flagging: DONE; CI gate: not done.** Faithful
   per-probe replay (`probe_kind` reconstruction), reappearance detection, **cross-category
   regression flagging** (`RegressionReport.cross_category_regression`), and SHA-change auto-trigger

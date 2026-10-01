@@ -19,11 +19,12 @@ def test_render_html_on_empty_store(tmp_path: Path) -> None:
 
 def test_render_html_shows_a_finding_and_escapes(tmp_path: Path) -> None:
     store = Store.open(tmp_path / "s.db")
-    store.insert("findings", {
-        "finding_id": "F-1", "title": "t",
-        "primary_category": "inj</td><script>alert(1)</script>", "severity_score": 8.1,
-        "status": "new", "dedup_key": "k", "updated_at": "2026-09-28",
-    })
+    with store.transaction():
+        store.insert("findings", {
+            "finding_id": "F-1", "title": "t",
+            "primary_category": "inj</td><script>alert(1)</script>", "severity_score": 8.1,
+            "status": "new", "dedup_key": "k", "updated_at": "2026-09-28",
+        })
     html = render_html(store)
     assert "F-1" in html
     assert "<script>alert(1)</script>" not in html   # rendered field is escaped, not injected

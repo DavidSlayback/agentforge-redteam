@@ -107,7 +107,7 @@ artifact), `SAFETY` (trust boundary), `SCHEDULE` (checkpoint). Status: `not star
 | P0 | p9 | Multi-agent architecture (single-agent/pipeline **fails**); distinct roles, contexts, trust levels, coordinated | CORE | Named distinct agents with separate contexts | **DONE** — Orchestrator/Red Team/Judge/Documentation + deterministic services, distinct contexts |
 | P1 | p9–10 | Red Team Agent: novel inputs, mutate partial successes, multi-turn sequences; model choice defended | CORE | Generates + mutates + multi-turn, live | **PARTIAL** — aimed generate + guarded mutate live; multi-turn deferred (target is stateless, T3.4); mutation aim shallow (T3.8) |
 | P2 | p4–5,12 | Judge Agent: verdict success/fail/partial, consistent across runs+versions, independent of attack engine, no drift, judge itself validated | CORE | Independent context/model; drift detection documented + calibration set | **PARTIAL** — deterministic tier-0 independent+consistent; rubric tier (DeepSeek, non-Qwen) live + run end-to-end vs the target (09-30); drift/κ machinery built (`drift.py`). Calibration **measured**: κ=1.00 (10/10 deterministic unconditional; +2 rubric when a rubric model is configured); reports NOT VALIDATED pending a human `review_status` flip |
-| P3 | p5,11 | Orchestrator: reads state (coverage gaps, open findings, regressions, cost), prioritizes next target, triggers regression on target change, halts when cost accrues without signal | CORE | Prioritization from real signals; budget halt | **PARTIAL** — budget/no-signal halt + decision trace live; prioritizes on 2 of 4 signals (route-coverage + open findings); cost is the `--max-model-calls` cap, not a ranking signal. **Regression-on-SHA-change NOW WIRED** via the Recon poller (`redteam poll`) |
+| P3 | p5,11 | Orchestrator: reads state (coverage gaps, open findings, regressions, cost), prioritizes next target, triggers regression on target change, halts when cost accrues without signal | CORE | Prioritization from real signals; budget halt | **PARTIAL** — budget/no-signal halt + decision trace live; prioritizes on 2 of 4 signals (route-coverage + open findings). **Scheduling reworked (GitLab #4):** coverage from per-brief Campaign records scoped by target and keyed on the brief route; untested outcomes penalised + a stuck brief retired after two; exploit term decayed + capped; no-signal counts only tested campaigns; model-call cap enforced before every call; signal/cost attributed per run; `campaign` exit-code policy. Cost is the `--max-model-calls` cap, not a ranking signal. **Regression-on-SHA-change WIRED** via the Recon poller (`redteam poll`). Remaining: the bounded **live** campaign that records selections spread across pairs (needs the Qwen key + live target; operator-run) |
 | P4 | p10 | Documentation Agent: confirmed exploit → professional report, no human writing; human approval gate for high severity | CORE | Report meets S3 bar; critical behind gate | **DONE** — evidence-backed reports, fail-closed gate (T1.5), CLI-triggered (not auto-orchestrated) |
 | P5 | p11 | Regression & validation harness: versioned queryable store; auto full suite on Orchestrator trigger; detect reappearance; flag cross-category regressions; a test passing due to behavior shift is worse than none | CORE | Deterministic replay; reappearance + cross-category detection | **DONE (CI gate pending)** — faithful per-probe replay + reappearance + **cross-category flagging** + **SHA-change auto-trigger** (poller); only a CI regression gate is still CLI-only |
 | P6 | p11 | Observability layer answers: cases per category; pass/fail across categories+versions; resilience trend; open/in-progress/resolved findings; run cost + scaling rate; per-agent ordered action trace | CORE | All 6 queryable from the store (SQLite, settled) | **DONE** — all 6 render via `redteam report` + dashboard.html |
@@ -1203,7 +1203,201 @@ intentional uniform 400, mints reappeared. The false holds were historical (`bfb
 #4 orchestrator scheduling and cost accounting → #1 atomic persistence. Each lists its open owner
 decisions; they cover most of the deferred items below.
 
-**Deferred (from the same review, not in this slice):** orchestrator starvation/coverage crediting,
-budget checked only between campaigns, echo/canary matching on raw JSON escapes, non-atomic
-migrations, `cmd_campaign` exit code, dashboard "recent" ordering, token in curl repros, docs-vs-code
-drift (ARCHITECTURE message bus, LLM07 claim, `regression` needing model keys).
+**Deferred (from the same review, not in this slice):** ~~orchestrator starvation/coverage
+crediting~~ (fixed, #4), ~~budget checked only between campaigns~~ (fixed, #4), ~~echo/canary
+matching on raw JSON escapes~~ (fixed, #2), ~~non-atomic migrations~~ (fixed, #1),
+~~`cmd_campaign` exit code~~ (fixed, #4), dashboard "recent" ordering, token in curl repros,
+docs-vs-code drift (ARCHITECTURE message bus, LLM07 claim, `regression` needing model keys).
+
+### 2026-10-01 — refactor #3: one verdict path (branch `refactor/one-verdict-path`)
+
+GitLab #3, implemented in the plan's commit order with the owner's decisions D1–D7. Every verdict
+now comes from the Judge composing oracle results, or from `judge.no_evidence` (unreachable
+target, failed upload). The rate-limit, enumeration and contradiction probes build an Observation
+and call the Judge restricted to their own oracle (`Judge.with_oracles`, D3), so they pass the
+shared evidence gate but a 5xx or a leaked trace is not a second finding. Oracle names are
+unchanged and now in the findings "aimed" set (D1). `defense_statuses` on the Observation replaces
+`denial_is_defense`; enumeration's uniform 400 stays "defense held" through it (D2). The rate-limit
+burst is an explicit aggregate observation (D4). Contradiction on an empty fact list is now
+INCONCLUSIVE, not FAIL (D5, own commit `29ac218`). Verdict reasons are the Judge's wording (D6).
+Benign, discovery and recon untouched (D7). The document scan step goes through the Judge: a 2xx
+answer keeps the full battery and the case's budget; a non-answer is judged with no oracles and no
+DoS budget, so it is INCONCLUSIVE with no oracle results, as on main. A guard test fails on a call
+to, runtime import of, or `dataclasses.replace` on Verdict/OracleResult outside `agents/judge`
+and `oracles` (annotation-only imports sit under `TYPE_CHECKING`).
+
+- **Stored oracle detail:** on a verdict-bearing response the probes store the same detail as
+  main. On a non-answer the Judge stores the oracle as `not_applicable` with
+  `set aside (not an answer): <outcome>: <the oracle's own detail>`; main stored the probe's
+  INCONCLUSIVE detail. This suffix applies on every path, not only these probes. The enumeration
+  INCONCLUSIVE detail now names what was seen: "likely rate-limited" only on a 429 (main said it
+  for every status).
+- **Deviations:** the new oracles live in `oracles/authz.py` beside grounding/disclosure and are
+  not in `DEFAULT_ORACLES` (D3 means no path needs them there). A 2xx other than 200 on the scan
+  step is now judged as an answer (was INCONCLUSIVE); the target answers 200. The DoS fast-4xx rule
+  stays a latency-budget rule in the Judge, because campaign DoS cases rely on it through
+  `run_case`; the scan step drops the budget on a non-answer instead. A contradiction body whose
+  `patient_facts` is a non-list scalar (e.g. a number) or whose `field` is unhashable (e.g. a list)
+  is now INCONCLUSIVE ("unparseable response") where main raised a TypeError out of the probe
+  (other non-list shapes were already INCONCLUSIVE on main).
+- **Checks:** `uv run pytest -q` 311 passed (baseline 278: characterization, oracle, Judge,
+  replay round-trip and guard tests added). `redteam calibrate` on a temp store: n=10 agree=10,
+  κ=1.00 (still `NOT VALIDATED` pending the human review flip). No store under `var/` touched.
+  An independent review confirmed parity with main on 52 inputs (IDs, dedup keys, defense
+  statuses); its six follow-up items are applied.
+- **Follow-up (not done, optional in #3):** have the mint, grounding, disclosure and oversized-input
+  probes build their Observation through the shared builder.
+
+### 2026-10-01 — atomic persistence (GitLab #1; branch `refactor/atomic-persistence`)
+
+Owner decisions applied: nested scopes **flatten** (an inner failure dooms the whole unit,
+`TransactionAborted`); bare writes outside a scope are **forbidden** (final commit); a read-only
+**integrity check** was added. The store now owns transactions (`autocommit=True`, explicit
+`BEGIN`/`COMMIT`/`ROLLBACK`). Each migration applies atomically with its version row and a failure
+names the file (resolves the deferred "non-atomic migrations" item). Units: judged attempt
+(`finalize`, covers every attack path), replay case + `last_result`, report + action, recon
+trigger + baseline, discovery pass, triage, benign run; single-row writers declare their own
+scope, and metering refuses to join another unit so a rollback cannot erase a real call. Each
+unit has a fault-injection sweep (fail on the Nth write, assert what is left in the store).
+Migrations verified on a fresh store and on copies of `var/redteam.db` (v8) and the three `var/`
+backups (v5/v7 → v8, no row loss). `redteam integrity` on a copy of `var/redteam.db`: 0 attempts
+without a verdict (of 171), 0 findings without a regression case (of 7). Canonical store untouched.
+
+**Review round 1 fixes (same branch).** The write rule is now enforced at the connection too (a
+sqlite3 authorizer denies INSERT/UPDATE/DELETE/DDL outside a scope or migration; statement-cache
+reuse is re-checked); `TransactionAborted` chains the inner cause; `redteam integrity` reports a hot
+journal clearly (exit 2, still read-only); single-action units use `store.record_action`; the scope
+depth counter became a flag. Replay keeps its unit open across target I/O, pinned by a trace test
+that each replay `BEGIN` is followed directly by finalize's first insert on every dispatch path.
+
+  probes build their Observation through the shared builder. (Done in refactor #2.)
+
+### 2026-10-01 — refactor #2: decode before matching (branch `refactor/decode-before-matching`)
+
+GitLab #2, on top of #3, in the plan's commit order with owner decisions 1–7, then one review
+round. The target answers in JSON, so a decoded needle (marker, canary, echoed payload) was searched
+for in an escaped haystack. `runner.build_observation` now builds every Observation of a response
+with three views, each stripped of echoes of the request before any join: the raw body
+(`response_text`, echoes removed verbatim and JSON-escaped), `decoded` (the body's string values
+with their JSON paths, verbatim; `oracles/decode.py`, iterative walk, non-JSON or a bare scalar
+falls back to the raw text) and `normalized` (the same values in `decode.normalize` form: NFKC,
+casefold, collapsed whitespace, echoes removed in that form).
+
+- **Inputs:** normalized, joined (1) for marker, canary and output handling; verbatim decoded for
+  the rubric model (5); raw for the empty-answer gate (2), metadata disclosure, contradiction;
+  raw and normalized for error leak.
+- **Markers** match case-insensitively under NFKC (3); echo stripping and the canary match use the
+  same normalization, whitespace included, on every value.
+- **Authorization probes** strip echoes of what they sent (4), and all of them now use the shared
+  builder; a guard test fails on an Observation of a response built anywhere else (the
+  rate-limit burst stays an explicit aggregate).
+- **Oracle detail** names the decoded value that matched, e.g. `marker present (in
+  $.answer.claims[0].text)` (6). Evidence still stores the raw response.
+- **No re-judging (7).** `tests/test_frozen_cases.py` replays every frozen case's stored attempts
+  offline through its own probe and compares the current and the pre-decoding views; set
+  `REDTEAM_FROZEN_CHECK_STORE` to run it on a store (it copies the file and opens the copy
+  read-only). It refuses a frozen case that is not probe-origin and excludes capped stored
+  responses (counted). On a copy of `var/redteam.db`: 7 frozen cases (all probe-origin), 44
+  attempts, 40 compared, 0 capped, 4 without a stored exchange; no outcome or oracle-outcome
+  change. A separate A/B (base-branch code vs this branch on the same copy) agrees on all 40. Five
+  stored outcomes differ from today's re-judge under both codes (mint 400/429 and one rate-limit
+  burst, stored FAIL, now INCONCLUSIVE): the fail-closed gate, not this refactor.
+- **Deviations:** (a) the empty-answer gate reads the raw body after echo stripping on every path.
+  That is what run_case and the document path always did; on the probe paths, which stripped
+  nothing before, a response that is only an echo of the request is now INCONCLUSIVE ("empty
+  answer") rather than judged. Kept as the fail-closed choice; a body with no string values
+  (`{"count": 3}`) is still an answer. (b) Decoding drops keys (checks that look for key names read
+  the raw body) and the earlier value under a duplicated key (the parser keeps the last). (c) A bare
+  JSON number, boolean or null is graded on its raw text.
+- **Checks:** `uv run pytest -q` 359 passed, 1 skipped (the opt-in store check; baseline 311),
+  green at every commit. `redteam calibrate` on a temp store: n=10 agree=10, κ=1.00.
+- **Residual:** an echo strip on the BOLA probe removes the victim id it sent; a canary that
+  contained that id would no longer match. Fixture canaries are fact values, not ids.
+
+### 2026-10-01 — refactor #4: orchestrator scheduling + cost accounting (branch `refactor/orchestrator-scheduling`)
+
+GitLab #4, in the plan's commit order on top of #3 (one verdict path) and #1 (atomic persistence).
+Commit 1 (model cannot set `probe_kind`/`regression`) was already on the branch. Owner decisions
+applied and named in each commit:
+
+- **D1 attribution — a real Campaign record per scheduled brief.** The scheduler mints a unique
+  id per run+brief (`orch-<run_id>-<seq>`), writes a Campaign row (migration 0009 adds
+  `outcome` + `schema_version`), and tags the brief's attempts, cost rows and audit actions with
+  it. Fills the v1 Campaign contract's missing producer; the contract test now validates a
+  persisted row. The brief `outcome` is an added property (additionalProperties) — no version bump.
+- **D4 coverage scoped by target only.** Coverage is computed from Campaign rows (campaign-made),
+  scoped to the target id, keyed on the brief's own route. Regression replays, the battery and eval
+  runs write attempts, not campaigns, so they no longer move a score; another target's campaigns
+  don't either.
+- **D3 untested handling — exclude after two.** The brief outcome vocabulary is `tested`,
+  `skipped`, `provider_blocked`, `errored`, `unreachable` (every attempt failed to reach the
+  target — an outage is not a test), and `budget_halted` (the cap stopped the brief before any
+  attempt — neither tested nor penalised). The four untested classes carry a **run-scoped** penalty
+  (never persisted across runs — owner decision 3 is "for the rest of the RUN"), and a brief with
+  two untested outcomes in a run is retired for the rest of it. This removes the starvation
+  (characterized first as an xfail across skip/block/error).
+- **D2 exploit decay + cap.** The exploit term decays with tries since the category's last finding
+  and is capped (0.49) strictly below an untried pair, so an open finding can never pin its category
+  or out-rank a never-tried pair.
+- **Governor + metering.** No-signal counts only tested campaigns, so a no-signal halt means the run
+  really tested and found nothing. A run that could test nothing exits non-zero regardless of its
+  halt reason (`nothing runnable` when it ran out of runnable briefs, or a budget/campaign halt that
+  still tested nothing). The model-call cap is owned solely by a run-spanning `CallBudget`, checked
+  before every metered call (raising the typed `BudgetExceeded` and stopping cleanly) and at the top
+  of the run loop; the Governor no longer counts calls. A rubric call that would exceed the cap
+  degrades to INCONCLUSIVE so the target exchange already made is never lost. Signal and cost are
+  attributed to the run's own campaign ids, not global deltas.
+- **D5 exit code.** `campaign` validates routes up front against the declared route map (an unknown
+  or shell-mangled `--route` is a configuration error, named in the message — the mangled route
+  burned 17 campaigns); exits 2 on a configuration error (unknown route / no candidates), 1 when
+  nothing was tested (all-skipped, all-blocked, or a full outage), 0 otherwise (individual brief
+  errors in a working run still exit 0).
+
+**Checks:** `uv run pytest -q` 367 passed (baseline 341; orchestrator, campaign, governor, CLI and
+contract tests added, including the independent-review fixes). Migration 0009 applied to a **copy**
+of `var/redteam.db` (v8 → v9, 171 attempts / 7 findings intact, `outcome`/`schema_version` columns
+present); canonical store untouched (read-only copy). No store under `var/` written, no `.env`
+touched, nothing pushed.
+
+**Not done (operator, blocked on a human-only action):** commit 12's **bounded live campaign** —
+the definition-of-done run showing selections spread across pairs with the run's own cost/signal
+attributed — needs the Qwen key and the live target, so it cannot run in the build sandbox. Run
+`redteam campaign` against the authorized target once a key is configured and paste the summary line
+here; until then this refactor's live-evidence step is outstanding.
+
+### 2026-10-01 — refactors #1–#4 integrated (branch `integrate/refactors`)
+
+Four GitLab refactor plans executed by implementer subagents in isolated worktrees, each followed by
+an independent review (mutation runs included) and a fix round, then merged here with
+`fix/model-set-probe-kind` (#4 commit 1). Order: #3 one verdict path → #2 decode before matching
+(rebased on final #3) and #1 atomic persistence in parallel → #4 orchestrator scheduling.
+
+**Owner decisions (David, 2026-10-01, all "recommended" unless noted):** #3 — oracle names
+byte-stable; enumeration's 400 stays held via a per-observation defense-status set; each migrated
+probe judged by its own oracle only; explicit aggregate observation mode; empty chart fixed in #3;
+reason text may change; benign/discovery/recon out of scope. #2 — all decoded values joined; empty
+check on raw; case-insensitive NFKC markers with identically normalized stripping; echo stripping on
+the authz path; rubric sees decoded text; detail names the matched value; no re-judging, with a
+frozen-case check. #4 — a Campaign record per brief; exploit term decays and is capped; exclude a
+brief after 2 untested outcomes in a run; coverage per target; exit non-zero when nothing tested or
+config error; outcome as an added v1 property. #1 — nested scopes flatten; refuse writes outside a
+scope (last commit); read-only integrity check.
+
+**Departures to note:** (1) #2 item 6 — the empty-answer gate reads the raw body after echo
+stripping on every path, so a probe response that only echoes the request is INCONCLUSIVE ("empty
+answer") rather than graded; kept as the fail-closed reading and recorded in the #2 entry. (2) #4 —
+a brief whose every attempt was target-unreachable is an untested outcome (`unreachable`), so a full
+outage exits non-zero; added during review to make decision 5 hold, beyond the listed decisions.
+
+**Integration-only fixes:** two semantic conflicts git could not see (a test calling
+`rate_limit_probe` with its pre-#3 signature; a ResourceWarning test measuring other tests' leaked
+connections), and a deep-nesting decode test that assumed Python 3.14's JSON parser depth (CI is
+3.13).
+
+**Verification:** 415 passed, 1 skipped (opt-in real-store check) on Python 3.14 and 3.13; contract
+drift gate clean; calibration 10/10; `redteam integrity` on a copy of the canonical store: 0
+attempts without a verdict, 0 findings without a regression case; canonical store untouched.
+
+**Outstanding:** #4's definition-of-done live run (a bounded `redteam campaign` against the
+authorized target) has not been run; it needs the operator's go-ahead.
+

@@ -134,3 +134,100 @@ def test_run_case_denies_unknown_target(tmp_path: Path) -> None:
         run_case(case, reg, Executor(reg, lambda u, **k: None), Judge(), store)
     assert store.count("attempts") == 0
     store.close()
+
+
+# --- atomic persistence: a fault mid-attempt leaves nothing half-written (issue #1) ----------
+
+import sqlite3  # noqa: E402
+
+# Every table one judged attempt (plus its finding and regression case) writes to.
+_UNIT_TABLES = ("attack_specs", "attempts", "evidence", "verdicts", "agent_actions",
+                "findings", "regression_cases")
+
+
+class _FaultyStore(Store):
+    """A real store that raises on its Nth write, the way a lock timeout or a crash would."""
+
+    fail_on: int | None = None
+    writes = 0
+
+    def _tick(self) -> None:
+        self.writes += 1
+        if self.writes == self.fail_on:
+            raise sqlite3.OperationalError(f"injected fault at write {self.writes}")
+
+    def insert(self, table, row):
+        self._tick()
+        return super().insert(table, row)
+
+    def execute(self, sql, params=()):
+        self._tick()
+        return super().execute(sql, params)
+
+
+def _exploit_case() -> SeedCase:
+    return SeedCase(case_id="c1", category="prompt-injection", owasp=["LLM01"], target_id="good",
+                    turns=[Turn(ordinal=1, route="/v1/x", body={})], oracle=OracleConfig(marker="ZZ-FAULT"),
+                    expected_safe="refuses")
+
+
+def test_a_fault_at_any_write_leaves_no_partial_attempt(tmp_path: Path) -> None:
+    reg = _registry(tmp_path)
+    echo = Executor(reg, lambda u, **k: ResponseRecord(200, "ok ZZ-FAULT", 4.0))   # SUCCESS -> finding
+
+    counting = _FaultyStore.open(tmp_path / "count.db")
+    run_case(_exploit_case(), reg, echo, Judge(), counting)
+    total = counting.writes
+    assert counting.count("regression_cases") == 1     # the full unit: it reached the freeze
+    counting.close()
+
+    for n in range(1, total + 1):
+        db = tmp_path / f"fault-{n}.db"
+        store = _FaultyStore.open(db)
+        store.fail_on = n
+        with pytest.raises(sqlite3.OperationalError, match="injected fault"):
+            run_case(_exploit_case(), reg, echo, Judge(), store)
+        store.close()
+
+        after = Store.open(db)
+        assert after.integrity().ok, f"fault at write {n}/{total} left a half-written unit"
+        assert {t: after.count(t) for t in _UNIT_TABLES} == dict.fromkeys(_UNIT_TABLES, 0), \
+            f"fault at write {n}/{total} left rows behind"
+        after.close()
+
+def test_a_fault_on_a_duplicate_exploit_leaves_the_finding_untouched(tmp_path: Path) -> None:
+    # The dedup path updates an existing finding instead of inserting one; that update is part of
+    # the same unit, so a fault anywhere leaves the store exactly as the first exploit left it.
+    reg = _registry(tmp_path)
+    echo = Executor(reg, lambda u, **k: ResponseRecord(200, "ok ZZ-FAULT", 4.0))
+    duplicate = _exploit_case().model_copy(update={"case_id": "c2"})
+
+    def found_once(db: Path) -> tuple[dict, str]:
+        store = Store.open(db)
+        run_case(_exploit_case(), reg, echo, Judge(), store)
+        state = ({t: store.count(t) for t in _UNIT_TABLES},
+                 store.conn.execute("SELECT verdict_ids FROM findings").fetchone()["verdict_ids"])
+        store.close()
+        return state
+
+    found_once(tmp_path / "count.db")
+    counting = _FaultyStore.open(tmp_path / "count.db")
+    run_case(duplicate, reg, echo, Judge(), counting)
+    total = counting.writes
+    counting.close()
+
+    for n in range(1, total + 1):
+        db = tmp_path / f"dup-{n}.db"
+        before = found_once(db)
+        store = _FaultyStore.open(db)
+        store.fail_on = n
+        with pytest.raises(sqlite3.OperationalError, match="injected fault"):
+            run_case(duplicate, reg, echo, Judge(), store)
+        store.close()
+
+        after = Store.open(db)
+        assert after.integrity().ok
+        assert ({t: after.count(t) for t in _UNIT_TABLES},
+                after.conn.execute("SELECT verdict_ids FROM findings").fetchone()["verdict_ids"]) == before, \
+            f"fault at write {n}/{total} changed the store"
+        after.close()

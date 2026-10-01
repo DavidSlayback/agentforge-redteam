@@ -17,7 +17,8 @@ Three invariants matter here, and two of them are integrity rules the platform l
 * **The baseline advances only after the regression completes.** The new SHA is written as the
   last-seen build *after* ``run_regression`` returns, so a regression that raises mid-run leaves
   the baseline unchanged and the next poll re-detects the change and re-triggers — a crashed
-  verification never silently reads as "held".
+  verification never silently reads as "held". The baseline row and the trigger's audit actions
+  commit as one transaction, so a fault while recording them leaves the change pending too.
 * **Reachable-but-unverifiable is not a pass.** A target that answers ``/health`` but no longer
   exposes a parseable ``git_sha`` (shape change, 5xx, empty body) is *not* recorded as a build
   and *not* treated as "unreachable, nothing to do"; it is an attention condition (audited, and
@@ -139,11 +140,8 @@ def poll_once(
 
     if obs.git_sha is None:
         # Reachable but the build can't be verified: audit it and refuse to treat it as a pass.
-        store.insert("agent_actions", {
-            "ts": _now(), "agent": "recon", "action": "health_unverifiable",
-            "refs": json.dumps({"target": target_id, "status": obs.status_code}),
-            "reason": f"/health reachable but no usable git_sha ({obs.note}); build unverifiable",
-        })
+        store.record_action("recon", "health_unverifiable", {"target": target_id, "status": obs.status_code},
+                            f"/health reachable but no usable git_sha ({obs.note}); build unverifiable")
         return PollResult(target_id, reachable=True, previous_sha=previous,
                           current_sha=None, changed=False, triggered=False, note=obs.note)
 
@@ -151,9 +149,10 @@ def poll_once(
     changed = previous is not None and current != previous
 
     if not changed:
-        store.insert("target_health", {
-            "target_id": target_id, "git_sha": current, "changed": 0, "observed_at": _now(),
-        })
+        with store.transaction():
+            store.insert("target_health", {
+                "target_id": target_id, "git_sha": current, "changed": 0, "observed_at": _now(),
+            })
         return PollResult(target_id, reachable=True, previous_sha=previous,
                           current_sha=current, changed=False, triggered=False, note=obs.note)
 
@@ -161,32 +160,35 @@ def poll_once(
     # runs, the baseline is not advanced, and the next poll re-detects the change and retries — a
     # failed verification is never silently dropped or read as green.
     report = run_regression(current)
-    store.insert("agent_actions", {
-        "ts": _now(), "agent": "recon", "action": "target_sha_changed",
-        "refs": json.dumps({"target": target_id, "previous_sha": previous, "current_sha": current}),
-        "reason": f"target build changed {previous[:8]}..->{current[:8]}..; regression triggered",
-    })
-    store.insert("agent_actions", {
-        "ts": _now(), "agent": "recon", "action": "regression_triggered",
-        "refs": json.dumps({
-            "target": target_id, "sha": current,
-            "held": len(report.held), "reappeared": len(report.reappeared),
-            "inconclusive": len(report.inconclusive), "unreplayable": len(report.unreplayable),
-            "newly_regressed": sorted(report.regressed_categories),
-            "newly_fixed": sorted(report.fixed_categories),
-            "cross_category_regression": report.cross_category_regression,
-            "ok": report.ok,
-        }),
-        "reason": ("regression clean — all frozen findings held" if report.ok else
-                   ("regression ATTENTION — CROSS-CATEGORY regression: fixing "
-                    f"{sorted(report.fixed_categories)} reopened {sorted(report.regressed_categories - report.fixed_categories)}"
-                    if report.cross_category_regression
-                    else "regression ATTENTION — a frozen finding did not hold")),
-    })
-    # Advance the baseline only now that the regression has actually completed.
-    store.insert("target_health", {
-        "target_id": target_id, "git_sha": current, "changed": 1, "observed_at": _now(),
-    })
+    # The trigger audit and the baseline advance are one unit: a fault leaves neither, so the
+    # change stays pending and the next poll re-detects it (never a half-recorded trigger).
+    with store.transaction():
+        store.insert("agent_actions", {
+            "ts": _now(), "agent": "recon", "action": "target_sha_changed",
+            "refs": json.dumps({"target": target_id, "previous_sha": previous, "current_sha": current}),
+            "reason": f"target build changed {previous[:8]}..->{current[:8]}..; regression triggered",
+        })
+        store.insert("agent_actions", {
+            "ts": _now(), "agent": "recon", "action": "regression_triggered",
+            "refs": json.dumps({
+                "target": target_id, "sha": current,
+                "held": len(report.held), "reappeared": len(report.reappeared),
+                "inconclusive": len(report.inconclusive), "unreplayable": len(report.unreplayable),
+                "newly_regressed": sorted(report.regressed_categories),
+                "newly_fixed": sorted(report.fixed_categories),
+                "cross_category_regression": report.cross_category_regression,
+                "ok": report.ok,
+            }),
+            "reason": ("regression clean — all frozen findings held" if report.ok else
+                       ("regression ATTENTION — CROSS-CATEGORY regression: fixing "
+                        f"{sorted(report.fixed_categories)} reopened {sorted(report.regressed_categories - report.fixed_categories)}"
+                        if report.cross_category_regression
+                        else "regression ATTENTION — a frozen finding did not hold")),
+        })
+        # Advance the baseline only now that the regression has actually completed.
+        store.insert("target_health", {
+            "target_id": target_id, "git_sha": current, "changed": 1, "observed_at": _now(),
+        })
     # Best-effort open-ended discovery over the new build's fresh evidence (it logs its own
     # discovery_pass action). Runs after the trust-critical regression + baseline, so it can never
     # affect whether the build reads clean; it only surfaces leads for human triage. A discovery
@@ -196,11 +198,10 @@ def poll_once(
         try:
             discovery = discover(current)
         except Exception as exc:  # noqa: BLE001 — discovery is advisory; never let it hide the regression
-            store.insert("agent_actions", {
-                "ts": _now(), "agent": "discovery", "action": "discovery_error",
-                "refs": json.dumps({"target": target_id, "sha": current}),
-                "reason": f"discovery pass failed (regression result stands): {type(exc).__name__}: {exc}",
-            })
+            # Discovery runs after the trigger unit committed and in its own unit, so its failure
+            # can never roll back the regression record.
+            store.record_action("discovery", "discovery_error", {"target": target_id, "sha": current},
+                                f"discovery pass failed (regression result stands): {type(exc).__name__}: {exc}")
     return PollResult(target_id, reachable=True, previous_sha=previous, current_sha=current,
                       changed=True, triggered=True, note=obs.note, regression=report, discovery=discovery)
 

@@ -63,10 +63,13 @@ class ModelRubric:
     def evaluate(self, obs: Observation) -> Verdict:
         if not self.available:  # defensive; the Judge checks `available` first
             return Verdict(VerdictOutcome.INCONCLUSIVE, (), "rubric tier not configured")
+        # The rubric model reads the decoded text (owner decision 5, refactor #2): the response's
+        # string values without JSON escaping, verbatim (not the casefolded form the matching
+        # checks use), with verbatim echoes of the attack payload stripped.
         payload = {
             "model": self.model,
             "messages": [{"role": "system", "content": _CRITERION},
-                         {"role": "user", "content": f"Assistant response:\n{obs.response_text or ''}"}],
+                         {"role": "user", "content": f"Assistant response:\n{obs.decoded_text or ''}"}],
             "max_tokens": 300, "temperature": 0.0,
         }
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}

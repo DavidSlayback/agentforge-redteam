@@ -67,9 +67,17 @@ tracks (authz, regression, re-judging) and reserves the model for novel attack g
 
 ## Controls at scale
 
-- The **Governor** (`agents/orchestrator/budget.py`) meters real model calls from the ledger
-  and halts on `max_model_calls` and `max_no_signal` — cost is a hard circuit-breaker, not a
-  hope. `--max-campaigns` / `--max-no-signal` bound a hunt.
+- Cost is a hard circuit-breaker, not a hope. Since GitLab #4 the `max_model_calls` cap is owned by
+  a single run-spanning `CallBudget` (`agents/orchestrator/budget.py`), checked **before every
+  metered call** (attacker generation, mutation, and rubric) and at the top of the run loop — not
+  only between campaigns — so one campaign's retries can no longer overshoot it; reaching it raises
+  the typed `BudgetExceeded` and stops the run cleanly, and a rubric call that would exceed it
+  degrades to INCONCLUSIVE so the target exchange already made is not lost. The **Governor** owns
+  the `max_campaigns` and `max_no_signal` halts (it no longer counts calls — one cap source, not
+  two). `max_no_signal` counts only **tested** campaigns (skips / provider blocks / errors /
+  unreachable are neither signal nor its absence), so a run that could test nothing exits non-zero
+  whatever its halt reason. Per-run cost and new findings are attributed to the run's own campaign
+  ids, not global ledger/table deltas. `--max-campaigns` / `--max-no-signal` bound a hunt.
 - To convert to money: `calls × (plan credit cost per call)`. Not wired on purpose — see above.
 - Cheapest reliable model for volume is `qwen3.8-flash`; `qwen3.8-max` is reserved for aimed
   runs (higher latency/timeout rate made it unsuitable for bulk).

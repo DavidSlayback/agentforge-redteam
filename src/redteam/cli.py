@@ -184,6 +184,31 @@ def cmd_evidence(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_integrity(args: argparse.Namespace) -> int:
+    """Read-only check for half-written units: attempts with no verdict and findings never frozen
+    into the regression suite. Opens the store read-only (no migrations, no writes); exits 1 if
+    anything is found, so a missing verdict is never silent, and 2 if an interrupted write left a
+    rollback journal that only a normal open may recover (the check never recovers it itself)."""
+    from redteam.store.store import HotJournal
+
+    store = Store.open_readonly(args.store)
+    try:
+        r = store.integrity()
+    except HotJournal as exc:
+        print(f"integrity: cannot check {args.store}: {exc}", file=sys.stderr)
+        return 2
+    finally:
+        store.close()
+    for attempt_id in r.attempts_without_verdict:
+        print(f"  attempt without verdict: {attempt_id}")
+    for finding_id in r.findings_without_regression_case:
+        print(f"  finding without regression case: {finding_id}")
+    print(f"integrity: attempts_without_verdict={len(r.attempts_without_verdict)} "
+          f"findings_without_regression_case={len(r.findings_without_regression_case)} "
+          f"-> {'OK' if r.ok else 'ATTENTION'}")
+    return 0 if r.ok else 1
+
+
 def cmd_regression(args: argparse.Namespace) -> int:
     from redteam.regression import replay
 
@@ -372,6 +397,17 @@ def cmd_campaign(args: argparse.Namespace) -> int:
     from redteam.agents.orchestrator.orchestrator import Orchestrator
     from redteam.agents.orchestrator.selector import DeterministicSelector, JevSelector
 
+    # Validate routes before spending anything (no store, no model): a --route must be one of the
+    # declared routes (`_ROUTE_FIELDS`), which have a known input field and so are schedulable.
+    # Anything else is a configuration error — a typo, or a shell that rewrote `/v1/x` into a
+    # filesystem path (MSYS/Git-Bash mangling, which burned 17 campaigns). Naming the bad route
+    # means a typo among valid routes fails loudly instead of being silently dropped at ranking.
+    unknown_routes = [r for r in args.route if r not in _ROUTE_FIELDS]
+    if unknown_routes:
+        print(f"campaign: unknown route(s) {unknown_routes}; declared routes are "
+              f"{sorted(_ROUTE_FIELDS)} (configuration error)", file=sys.stderr)
+        return 2
+
     registry, target, executor, minter, judge, agent, model = _wire(args.target, args.model)
     store = Store.open(args.store)
     categories = [(c, _OWASP.get(c, [])) for c in args.category]
@@ -403,9 +439,17 @@ def cmd_campaign(args: argparse.Namespace) -> int:
                    budget=Budget(**budget_kwargs),
                    patient_uuid=args.patient, route_fields=_ROUTE_FIELDS, canaries=canaries or None,
                    target_sha=args.target_sha)
-    print(f"campaign done: campaigns={run.campaigns} findings_opened={run.findings_opened} "
-          f"halt={run.halt_reason!r}")
+    print(f"campaign done: campaigns={run.campaigns} tested={run.tested} "
+          f"findings_opened={run.findings_opened} model_calls={run.model_calls} halt={run.halt_reason!r}")
     store.close()
+    # Owner exit-code policy: a configuration error (no runnable candidates) is exit 2; a run that
+    # tested nothing is exit 1; a working run is exit 0 even if individual briefs errored.
+    if run.halt_reason == "no candidates":
+        print("campaign: no runnable candidates (configuration error)", file=sys.stderr)
+        return 2
+    if run.tested == 0:
+        print("campaign: no brief was actually tested", file=sys.stderr)
+        return 1
     return 0
 
 
@@ -435,6 +479,9 @@ def build_parser() -> argparse.ArgumentParser:
     ev = sub.add_parser("evidence", help="dump the captured request/response for an attempt")
     ev.add_argument("attempt_id")
     ev.set_defaults(func=cmd_evidence)
+
+    sub.add_parser("integrity", help="read-only: report attempts without verdicts and unfrozen findings"
+                   ).set_defaults(func=cmd_integrity)
 
     rg = sub.add_parser("regression", help="replay the regression suite against a build")
     rg.add_argument("--target", required=True)

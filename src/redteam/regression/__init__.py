@@ -132,7 +132,16 @@ def replay(
         # Route by category so an authz/document finding replays through the same path that
         # produced it — not run_case, which would re-scope a BOLA probe or flatten a document
         # attack into a plain message and falsely report the fix as holding.
-        result = dispatch(replay_case, registry, executor, judge, store, minter, target_sha=target_sha)
+        # The replay's attempt and this case's last_result are one unit: a fault leaves neither, so
+        # the case's recorded result never refers to an attempt the store does not hold. (BEGIN is
+        # deferred and the execution path reads nothing, so no lock is held during target I/O —
+        # pinned by test_a_replay_unit_touches_the_store_only_from_finalize_on.)
+        with store.transaction():
+            result = dispatch(replay_case, registry, executor, judge, store, minter, target_sha=target_sha)
+            store.execute(
+                "UPDATE regression_cases SET last_result = ?, last_sha = ? WHERE case_id = ?",
+                (str(result.verdict.outcome), target_sha, row["case_id"]),
+            )
         outcome = result.verdict.outcome
         prior = row["last_result"]   # the previous replay's verdict for this same frozen case
         if outcome is VerdictOutcome.SUCCESS:
@@ -148,9 +157,4 @@ def replay(
                     {"case_id": row["case_id"], "category": case.category, "prior_sha": row["last_sha"]})
         else:
             report.inconclusive.append(row["case_id"])  # PARTIAL / INCONCLUSIVE -> never a pass
-        store.conn.execute(
-            "UPDATE regression_cases SET last_result = ?, last_sha = ? WHERE case_id = ?",
-            (str(outcome), target_sha, row["case_id"]),
-        )
-        store.conn.commit()
     return report

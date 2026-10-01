@@ -28,8 +28,10 @@ def _success() -> Verdict:
 
 def test_same_weakness_dedups_to_one_finding_with_many_verdicts(tmp_path: Path) -> None:
     store = Store.open(tmp_path / "s.db")
-    fid1, new1 = promote(store, _case(), _success(), "ver-1")
-    fid2, new2 = promote(store, _case(), _success(), "ver-2")   # same (oracle, sink, category)
+    with store.transaction():   # promote runs inside finalize's unit in production
+        fid1, new1 = promote(store, _case(), _success(), "ver-1")
+    with store.transaction():
+        fid2, new2 = promote(store, _case(), _success(), "ver-2")   # same (oracle, sink, category)
     assert new1 is True and new2 is False and fid1 == fid2
     assert store.count("findings") == 1                          # no duplicate finding/sequence
     verdict_ids = json.loads(store.conn.execute(
@@ -40,25 +42,28 @@ def test_same_weakness_dedups_to_one_finding_with_many_verdicts(tmp_path: Path) 
 
 def test_distinct_weaknesses_are_separate_findings(tmp_path: Path) -> None:
     store = Store.open(tmp_path / "s.db")
-    promote(store, _case(), _success(), "ver-1")
+    with store.transaction():
+        promote(store, _case(), _success(), "ver-1")
     other = SeedCase(case_id="c2", category="denial-of-service", owasp=["LLM10"], target_id="t",
                      turns=[Turn(ordinal=1, route="/v1/y", body={})], expected_safe="holds")
     dos = Verdict(VerdictOutcome.SUCCESS, (OracleResult("status", 0, OracleOutcome.VIOLATION, "500"),), "5xx")
-    promote(store, other, dos, "ver-2")
+    with store.transaction():
+        promote(store, other, dos, "ver-2")
     assert store.count("findings") == 2
     store.close()
 
 
 def test_queue_depth_counts_pending_work(tmp_path: Path) -> None:
     store = Store.open(tmp_path / "s.db")
-    store.insert("campaigns", {"campaign_id": "cam-1", "target_id": "t", "status": "new", "created_at": "2026-09-30"})
-    store.insert("campaigns", {"campaign_id": "cam-2", "target_id": "t", "status": "done", "created_at": "2026-09-30"})
-    store.insert("findings", {"finding_id": "F-1", "title": "t", "primary_category": "x",
-                              "dedup_key": "k", "status": "new", "updated_at": "2026-09-30"})
-    store.insert("vuln_reports", {"report_id": "R-1", "finding_id": "F-1", "status": "pending_approval",
-                                  "created_at": "2026-09-30"})
-    store.insert("vuln_reports", {"report_id": "R-2", "finding_id": "F-1", "status": "published",
-                                  "created_at": "2026-09-30"})
+    with store.transaction():
+        store.insert("campaigns", {"campaign_id": "cam-1", "target_id": "t", "status": "new", "created_at": "2026-09-30"})
+        store.insert("campaigns", {"campaign_id": "cam-2", "target_id": "t", "status": "done", "created_at": "2026-09-30"})
+        store.insert("findings", {"finding_id": "F-1", "title": "t", "primary_category": "x",
+                                  "dedup_key": "k", "status": "new", "updated_at": "2026-09-30"})
+        store.insert("vuln_reports", {"report_id": "R-1", "finding_id": "F-1", "status": "pending_approval",
+                                      "created_at": "2026-09-30"})
+        store.insert("vuln_reports", {"report_id": "R-2", "finding_id": "F-1", "status": "published",
+                                      "created_at": "2026-09-30"})
     q = queries.queue_depth(store)
     assert q == {"campaigns_pending": 1, "reports_pending_approval": 1}
     store.close()

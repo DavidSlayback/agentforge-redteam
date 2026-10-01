@@ -13,11 +13,14 @@ import hashlib
 import json
 import sqlite3
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
-from redteam.agents.judge.judge import Verdict
 from redteam.evals.case import SeedCase
 from redteam.oracles.base import OracleOutcome
 from redteam.owasp import owasp_scheme
+
+if TYPE_CHECKING:   # annotations only: verdicts are built by the judge package (tests/test_verdict_path.py)
+    from redteam.agents.judge.judge import Verdict
 
 # Provisional severity by category, only to gate human approval. Confirm with CVSS v4.
 # Every category a promoted finding can carry MUST have an entry — a missing one falls to the
@@ -52,8 +55,10 @@ _OPPORTUNISTIC = {
     "output_handling": ("improper-output-handling", ["LLM05"]),
 }
 # Oracles tied to the attack's stated aim; if one of these fired, the case's own category is
-# the right label for the finding.
-_AIMED = frozenset({"marker", "canary_leak", "unauthorized_access", "grounding", "metadata_disclosure"})
+# the right label for the finding. The names are dedup-key inputs (and so finding ids): never
+# rename one without migrating stored findings.
+_AIMED = frozenset({"marker", "canary_leak", "unauthorized_access", "grounding", "metadata_disclosure",
+                    "rate_limit", "enumeration", "contradiction"})
 
 
 def _now() -> str:
@@ -85,7 +90,8 @@ def _classify(case: SeedCase, verdict: Verdict) -> tuple[str, str, list[str]]:
 
 
 def promote(store, case: SeedCase, verdict: Verdict, verdict_id: str) -> tuple[str, bool]:
-    """Create or update a Finding from a SUCCESS verdict. Returns (finding_id, is_new)."""
+    """Create or update a Finding from a SUCCESS verdict. Returns (finding_id, is_new).
+    Called inside ``runner.finalize``'s transaction scope, so it commits with the attempt."""
     violating, category, owasp = _classify(case, verdict)
     sink = case.turns[0].route if case.turns else "unknown"
     key = dedup_key(violating, sink, category)
@@ -115,9 +121,8 @@ def promote(store, case: SeedCase, verdict: Verdict, verdict_id: str) -> tuple[s
         ids = json.loads(row["verdict_ids"] or "[]")
         if verdict_id not in ids:
             ids.append(verdict_id)
-        store.conn.execute(
+        store.execute(
             "UPDATE findings SET verdict_ids = ?, updated_at = ? WHERE finding_id = ?",
             (json.dumps(ids), _now(), row["finding_id"]),
         )
-        store.conn.commit()
         return row["finding_id"], False

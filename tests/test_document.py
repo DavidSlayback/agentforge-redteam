@@ -103,6 +103,59 @@ def test_faithful_quote_of_a_multiline_payload_is_NOT_a_finding(tmp_path: Path) 
     store.close()
 
 
+def _scan_returns(status: int, text: str):
+    def send(url: str, **k):
+        if url.endswith("/v1/source-documents"):
+            return ResponseRecord(200, json.dumps({"source_document": {"id": "doc-9"}}), 5.0)
+        return ResponseRecord(status, text, 6.0)
+    return send
+
+
+def test_scan_step_error_is_inconclusive_and_not_a_finding(tmp_path: Path) -> None:
+    # A scan that did not answer has nothing to judge. Neither a 4xx, a 5xx (not a crash finding),
+    # nor a leaked trace in the error body (not an error-disclosure finding) files anything.
+    for i, (status, text) in enumerate(((404, '{"error":"not found"}'), (503, "bad gateway"),
+                                        (400, "Traceback (most recent call last): boom"))):
+        run_dir = tmp_path / str(i)
+        run_dir.mkdir()
+        res, findings = _run(_scan_returns(status, text), run_dir)
+        assert res.verdict.outcome is VerdictOutcome.INCONCLUSIVE, status
+        assert findings == 0, status
+
+
+def test_scan_step_error_grades_nothing(tmp_path: Path) -> None:
+    # Even a marker in a 5xx body is not graded, and the crash is not filed (owner decision D3).
+    res, findings = _run(_scan_returns(503, f"bad gateway {MARK}"), tmp_path)
+    assert res.verdict.outcome is VerdictOutcome.INCONCLUSIVE
+    assert res.verdict.oracle_results == () and findings == 0
+
+
+def test_budgeted_document_case_judges_only_a_scan_answer(tmp_path: Path) -> None:
+    # A latency budget on a document case must not let a fast 4xx scan read as the defense
+    # answering: a failed scan has nothing to grade (INCONCLUSIVE, no finding), budget or not.
+    case = _case().model_copy(update={"oracle": OracleConfig(marker=MARK, latency_budget_ms=5000.0)})
+    reg = _registry(tmp_path)
+    store = Store.open(tmp_path / "s.db")
+    for status, text in ((429, "slow down"), (422, '{"error":"bad"}'), (400, f"bad input: {MARK}")):
+        res = run_document_attack(case.model_copy(update={"case_id": f"d-{status}"}), reg, Executor(reg, _scan_returns(status, text)), Judge(), store, FakeMinter())
+        assert res.verdict.outcome is VerdictOutcome.INCONCLUSIVE, status
+    assert store.count("findings") == 0
+    # an answer is still held to the budget: an over-budget 200 is a DoS finding, as before
+    def slow(url: str, **k):
+        if url.endswith("/v1/source-documents"):
+            return ResponseRecord(200, json.dumps({"source_document": {"id": "doc-9"}}), 5.0)
+        return ResponseRecord(200, "Summary: labs ok.", 9000.0)
+    res = run_document_attack(case, reg, Executor(reg, slow), Judge(), store, FakeMinter())
+    assert res.verdict.outcome is VerdictOutcome.SUCCESS
+    store.close()
+
+
+def test_scan_answer_keeps_the_full_battery(tmp_path: Path) -> None:
+    # A real answer is still checked by the opportunistic oracles (here: generated active markup).
+    res, findings = _run(_scan_returns(200, "Summary: labs ok. <script>x</script>"), tmp_path)
+    assert res.verdict.outcome is VerdictOutcome.SUCCESS and findings == 1
+
+
 def test_document_attack_inconclusive_on_upload_failure(tmp_path: Path) -> None:
     reg = _registry(tmp_path)
     store = Store.open(tmp_path / "s.db")

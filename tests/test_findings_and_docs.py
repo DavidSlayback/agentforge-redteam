@@ -96,9 +96,9 @@ def test_unmapped_category_is_gated_not_auto_published(tmp_path: Path) -> None:
     run_case(_case("c1"), reg, echo, Judge(), store)
     fid = store.conn.execute("SELECT finding_id FROM findings").fetchone()["finding_id"]
     # forge an unmapped category + severity with no known level
-    store.conn.execute("UPDATE findings SET primary_category = 'brand-new-category', "
-                       "severity = ? WHERE finding_id = ?", (json.dumps({"note": "no level"}), fid))
-    store.conn.commit()
+    with store.transaction():
+        store.execute("UPDATE findings SET primary_category = 'brand-new-category', "
+                      "severity = ? WHERE finding_id = ?", (json.dumps({"note": "no level"}), fid))
     report_id = DocumentationAgent().document(store, fid)
     status = store.conn.execute("SELECT status FROM vuln_reports WHERE report_id = ?", (report_id,)).fetchone()["status"]
     assert status == "pending_approval"   # fail closed on unknown/malformed severity
@@ -116,6 +116,22 @@ def test_opportunistic_crash_is_classified_as_dos_not_the_attack_category(tmp_pa
     assert row is not None, "a 5xx should still promote a finding via StatusOracle"
     assert row["primary_category"] == "denial-of-service"   # reclassified from prompt-injection
     store.close()
+
+
+def test_a_deterministic_probe_oracle_keeps_its_finding_key_when_an_opportunistic_one_cofires() -> None:
+    # The rate-limit, enumeration and contradiction oracles are aimed: a co-firing crash or error
+    # leak must not re-key the probe's finding to the opportunistic class.
+    from redteam.agents.judge.judge import Verdict
+    from redteam.findings import _classify
+    from redteam.oracles.base import OracleOutcome, OracleResult
+
+    for oracle, category in (("rate_limit", "denial-of-service"), ("enumeration", "enumeration"),
+                             ("contradiction", "data-integrity")):
+        case = SeedCase(case_id="p", category=category, owasp=["API4:2023"], target_id="good",
+                        turns=[Turn(ordinal=1, route="/v1/x", body={})], oracle=OracleConfig(), expected_safe="x")
+        v = Verdict(VerdictOutcome.SUCCESS, (OracleResult("error_leak", 0, OracleOutcome.VIOLATION),
+                                             OracleResult(oracle, 0, OracleOutcome.VIOLATION)))
+        assert _classify(case, v)[:2] == (oracle, category)
 
 
 def test_generated_active_markup_is_an_output_handling_finding(tmp_path: Path) -> None:

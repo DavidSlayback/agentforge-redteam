@@ -238,3 +238,53 @@ def test_discover_runs_after_regression_on_change_only(tmp_path: Path) -> None:
     assert seen == ["bbbbbbbb"] and result.discovery is not None
     assert "discovery 1 candidate" in poll_summary(result)[1]
     store.close()
+
+
+# --- atomic persistence: the trigger audit and the baseline advance together (issue #1) -------
+
+import sqlite3  # noqa: E402
+
+
+class _FaultyStore(Store):
+    """A real store that raises on its Nth write, the way a lock timeout or a crash would."""
+
+    fail_on: int | None = None
+    writes = 0
+
+    def _tick(self) -> None:
+        self.writes += 1
+        if self.writes == self.fail_on:
+            raise sqlite3.OperationalError(f"injected fault at write {self.writes}")
+
+    def insert(self, table, row):
+        self._tick()
+        return super().insert(table, row)
+
+    def execute(self, sql, params=()):
+        self._tick()
+        return super().execute(sql, params)
+
+
+def test_a_fault_after_the_regression_leaves_no_half_trigger_and_the_next_poll_retries(tmp_path: Path) -> None:
+    total = 3   # target_sha_changed, regression_triggered, and the advanced baseline
+    for n in range(1, total + 1):
+        db = tmp_path / f"fault-{n}.db"
+        store = Store.open(db)
+        poll_once(store, "t", observe=lambda: _ok("aaaaaaaa"), run_regression=lambda sha: _clean())
+        store.close()
+
+        faulty = _FaultyStore.open(db)
+        faulty.fail_on = n
+        with pytest.raises(sqlite3.OperationalError, match="injected fault"):
+            poll_once(faulty, "t", observe=lambda: _ok("bbbbbbbb"), run_regression=lambda sha: _clean())
+        assert faulty.writes == n
+        faulty.close()
+
+        after = Store.open(db)
+        assert after.count("agent_actions") == 0, f"fault at write {n}/{total} left a trigger action"
+        assert after.count("target_health") == 1, f"fault at write {n}/{total} advanced the baseline"
+        calls: list[str] = []                     # the change is still pending: the next poll retries
+        result = poll_once(after, "t", observe=lambda: _ok("bbbbbbbb"),
+                           run_regression=lambda sha: calls.append(sha) or _clean())
+        assert result.triggered and calls == ["bbbbbbbb"]
+        after.close()

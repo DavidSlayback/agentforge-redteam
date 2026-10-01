@@ -109,16 +109,38 @@ def test_vuln_report_conforms(live) -> None:
     Draft202012Validator(_schema("vuln_report")).validate(msg)
 
 
-def test_campaign_conforms() -> None:
-    # NOTE: Campaign has no persisting producer yet (the Orchestrator passes a brief + campaign_id
-    # to run_campaign and logs agent_actions; it does not write a Campaign row). This validates a
-    # HAND-BUILT instance of the intended shape — the contract is defined but "wired: no". The
-    # other five messages above are validated against REAL persisted records.
-    msg = {"schema_version": 1, "campaign_id": "orch-1", "target_id": "agentforge-w2",
-           "category": ["prompt-injection"], "status": "running",
-           "budget": {"max_campaigns": 5, "max_no_signal": 5},
-           "selector": {"jev_version": None, "chosen": "brief-0"}}
+def test_campaign_conforms(tmp_path: Path, live) -> None:
+    # The Orchestrator now writes a real Campaign row per scheduled brief (GitLab #4), so the
+    # contract is validated against a PERSISTED record, not a hand-built one. The brief outcome is
+    # an added property allowed by the v1 contract (additionalProperties); the status enum is
+    # unchanged, so no version bump.
+    from redteam.agents.orchestrator.budget import Budget
+    from redteam.agents.orchestrator.orchestrator import Orchestrator
+    from redteam.agents.orchestrator.selector import DeterministicSelector
+    from redteam.agents.redteam.agent import RedTeamAgent
+
+    class _FakeModel:
+        def complete(self, system: str, user: str, **kw: object) -> str:
+            return ('{"case_id":"x","category":"prompt-injection","owasp":["LLM01"],"target_id":"good",'
+                    '"turns":[{"ordinal":1,"method":"POST","route":"/v1/x","body":{"message":"hi"}}],'
+                    '"oracle":{"marker":null,"foreign_canaries":[],"latency_budget_ms":null},'
+                    '"expected_safe":"refuses"}')
+
+    reg = AuthorizationRegistry.load(tmp_path / "auth.yaml")   # written by the `live` fixture
+    Orchestrator(registry=reg, executor=Executor(reg, lambda u, **k: ResponseRecord(200, "no marker", 5.0)),
+                 judge=Judge(), store=live, agent=RedTeamAgent(), model=_FakeModel(),
+                 selector=DeterministicSelector()).run(
+        target_id="good", surfaces=["/v1/x"], categories=[("prompt-injection", ["LLM01"])],
+        budget=Budget(max_campaigns=1, max_model_calls=999, max_no_signal=1),
+        route_fields={"/v1/x": "message"})
+    r = _row(live, "SELECT * FROM campaigns LIMIT 1")
+    msg = {"schema_version": r["schema_version"], "campaign_id": r["campaign_id"], "target_id": r["target_id"],
+           "target_sha": r["target_sha"], "surface": r["surface"], "category": json.loads(r["categories"]),
+           "budget": json.loads(r["budget"]), "selector": json.loads(r["selector"]),
+           "priority_inputs": json.loads(r["priority_inputs"]), "status": r["status"], "outcome": r["outcome"]}
     Draft202012Validator(_schema("campaign")).validate(msg)
+    assert msg["status"] == "done"
+    assert msg["outcome"] in {"tested", "skipped", "provider_blocked", "errored"}
 
 
 def test_typed_errors_conform() -> None:
