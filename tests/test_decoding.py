@@ -16,13 +16,13 @@ from pathlib import Path
 import pytest
 
 from redteam.agents.judge.judge import Judge, VerdictOutcome
-from redteam.document_attack import run_document_attack
+from redteam.document_attack import document_echoes, run_document_attack
 from redteam.evals.case import AuthContext, OracleConfig, SeedCase, Turn
 from redteam.executor.authorization import AuthorizationRegistry
 from redteam.executor.executor import Executor
 from redteam.executor.http_sender import ResponseRecord
 from redteam.oracles.base import Observation, OracleOutcome
-from redteam.runner import run_case
+from redteam.runner import build_observation, echoes_to_strip, run_case, strip_echo
 from redteam.store.store import Store
 
 MARK = "ZZ-DECODE-MARK"
@@ -95,6 +95,7 @@ def _judge_answer(body: str, **fields) -> object:
 
 RAW_MATCHING = pytest.mark.xfail(strict=True, reason="oracles still match the raw escaped body (#2)")
 
+
 @RAW_MATCHING
 def test_a_leaked_canary_containing_a_quote_is_detected() -> None:
     canary = 'note "alpha" 0001'
@@ -165,3 +166,53 @@ def test_a_python_stack_frame_inside_a_json_error_string_is_an_error_leak() -> N
     body = json.dumps({"error": 'File "/app/handler.py", line 12, in run'})
     v = Judge().judge(Observation(status_code=400, response_text=body))
     assert {r.oracle: r.outcome for r in v.oracle_results}["error_leak"] is OracleOutcome.VIOLATION
+
+
+# --- echo stripping and the shared builder ---------------------------------------------------
+
+def test_echoes_to_strip_keeps_the_length_and_token_thresholds() -> None:
+    long_one = "x" * 12
+    assert echoes_to_strip([long_one, "short", f"has {MARK}", "", "x" * 11], [MARK, None]) == (long_one, f"has {MARK}")
+    assert echoes_to_strip([long_one, long_one], []) == (long_one,)      # deduplicated, order kept
+
+
+def test_strip_echo_replaces_every_occurrence() -> None:
+    assert strip_echo("a PAYLOAD b PAYLOAD", ["PAYLOAD", ""]) == "a   b  "
+    assert strip_echo("untouched", []) == "untouched"
+
+
+def test_document_echoes_are_the_payload_and_its_sanitized_form() -> None:
+    assert document_echoes('one | "two"\nthree') == ('one | "two"\nthree', 'one   "two" three')
+    assert document_echoes("plain") == ("plain",)
+    assert document_echoes("") == ()
+
+
+def test_the_builder_strips_each_decoded_value_before_joining() -> None:
+    payload = 'quote " and\nbreak'
+    raw = json.dumps({"echo": f"You said: {payload}", "answer": "kept"})
+    obs = build_observation(ResponseRecord(200, raw, 3.0), OracleConfig(marker=MARK), echoes=[payload])
+    assert obs.decoded == (("$.echo", "You said:  "), ("$.answer", "kept"))
+    assert obs.decoded_text == "You said:  \nkept"
+    # The raw body keeps its own (verbatim) strip: an escaped echo does not match there.
+    assert obs.response_text == raw
+    assert (obs.status_code, obs.latency_ms, obs.injection_marker) == (200, 3.0, MARK)
+
+
+def test_the_builder_strips_a_plain_text_body_as_before() -> None:
+    obs = build_observation(ResponseRecord(200, "You said: PAYLOAD-0001", 1.0), OracleConfig(),
+                            echoes=["PAYLOAD-0001"])
+    assert obs.response_text == "You said:  "
+    assert obs.decoded_text == "You said:  "
+
+
+def test_the_builder_decodes_from_the_unstripped_body() -> None:
+    # An echo that spans JSON structure would break the body if stripped from the raw text first.
+    raw = json.dumps({"a": "x"})
+    obs = build_observation(ResponseRecord(200, raw, 1.0), OracleConfig(), echoes=['"x"}'])
+    assert obs.response_text == '{"a":  '              # the raw strip broke the JSON...
+    assert obs.decoded == (("$.a", "x"),)               # ...but decoding read the original body
+
+
+def test_the_builder_keeps_a_missing_body_missing() -> None:
+    obs = build_observation(ResponseRecord(599, None, 1.0), OracleConfig(), echoes=["anything long"])
+    assert obs.response_text is None and obs.decoded is None
