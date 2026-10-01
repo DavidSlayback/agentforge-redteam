@@ -1,6 +1,13 @@
 # Harness spec — AgentForge Red Team
 
 Design spec for the platform harness (not a status doc; `docs/PLAN.md` stays the index).
+
+> **Reconciliation note, 2026-10-01.** This is the 2026-09-28 *design*. Where it differs from the
+> built platform, the code, `contracts/v1/`, the migrations and `ARCHITECTURE.md` win. Known
+> differences, marked inline below: the shipped message shapes (for example `Campaign.budget` is
+> `{max_campaigns, max_model_calls, max_no_signal}`, not `{usd, requests, model_calls, wall_s}`), the
+> index list, the CLI surface, the test layout, and the unbuilt `drill` and `serve-dashboard`
+> commands.
 Draft 2026-09-28; five decisions (D1–D5) resolved same day, noted inline. Everything here is
 structure — schemas, tables, layout, slices. Attack
 *content* (eval seed text, threat-model findings) is authored separately; see
@@ -43,10 +50,14 @@ scripts (satisfies E10 migration, E12 indexing) rather than an ORM — no depend
 reason about, and the store is the audited source of truth.
 
 Tables mirror the messages plus: `agent_actions` (the ordered trace: `id, ts, agent,
-action, campaign_id, refs, reason`), `cost_ledger`, `coverage`, `regression_cases`,
-`schema_version`. Indexes: `findings(severity)`, `findings(taxonomy)`,
-`attempts(target_sha)`, `attempts(campaign_id)`, `verdicts(attempt_id)`,
-`agent_actions(campaign_id, ts)`. Regression full-scan SLO verified in CI (E12).
+action, campaign_id, refs, reason`), `cost_ledger`, `coverage` (created but never written),
+`regression_cases`, `schema_version`, and later `evidence`, `target_health`, `benign_runs`,
+`discovery_candidates`. **Indexes as built** (`ARCHITECTURE.md` lists them by query pattern):
+`findings(severity_score)`, `findings(primary_category)`, `findings(status)`, `attempts(target_sha)`,
+`attempts(spec_id)`, `verdicts(attempt_id)`, `agent_actions(campaign_id, ts)`,
+`campaigns(target_id, outcome)`, among others; there is no `findings(taxonomy)` or
+`attempts(campaign_id)` index. Regression full-scan SLO: asserted by `tests/test_slo.py`, run
+locally (the CI pipeline has no runner; `docs/PERF.md`).
 
 **Transaction rule.** All persistence for one logical unit commits or rolls back together; a
 missing verdict is never left silently half-written. The store owns the transaction
@@ -106,10 +117,12 @@ agentforge-redteam/
     regression/
     observability/          # read-only dashboard
     cli.py
-  tests/{contracts,oracles,executor}/
+  tests/{contracts,oracles,executor}/   # built as a flat tests/ directory, one file per area
 ```
 
 ## CLI surface
+
+Designed:
 
 - `redteam campaign --target <id> [--budget …] [--time …] [--category …]`
 - `redteam regression --target <id> --sha <sha>`
@@ -117,6 +130,13 @@ agentforge-redteam/
 - `redteam report [--finding <id>] [--format md|sarif]`
 - `redteam approve <report_id>`
 - `redteam serve-dashboard`
+
+**As built** (`uv run redteam --help`): `report`, `dashboard` (writes a static HTML file),
+`approve`, `document`, `evidence`, `integrity`, `regression`, `poll`, `discover`, `candidates`,
+`triage`, `disclosure`, `grounding`, `benign`, `calibrate`, `authz`, `campaign`. `campaign` takes
+`--category`, `--route`, `--patient`, `--victim-patient`, `--max-campaigns`, `--max-no-signal`,
+`--selector`, `--model`, `--max-model-calls` and `--target-sha` (no `--budget` or `--time`). **Not
+built:** `drill`, `serve-dashboard`, and `report --finding` / `--format sarif`.
 
 ## Execution slices
 
