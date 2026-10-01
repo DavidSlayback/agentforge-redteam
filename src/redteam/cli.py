@@ -464,7 +464,7 @@ def cmd_campaign(args: argparse.Namespace) -> int:
     run = orch.run(target_id=args.target, surfaces=args.route, categories=categories,
                    budget=Budget(**budget_kwargs),
                    patient_uuid=args.patient, route_fields=_ROUTE_FIELDS, canaries=canaries or None,
-                   target_sha=args.target_sha)
+                   target_sha=args.target_sha, max_mutations=args.max_mutations)
     print(f"campaign done: campaigns={run.campaigns} tested={run.tested} "
           f"findings_opened={run.findings_opened} model_calls={run.model_calls} halt={run.halt_reason!r}")
     store.close()
@@ -477,6 +477,16 @@ def cmd_campaign(args: argparse.Namespace) -> int:
         print("campaign: no brief was actually tested", file=sys.stderr)
         return 1
     return 0
+
+
+def _non_negative_int(text: str) -> int:
+    try:
+        value = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"--max-mutations must be an integer, got {text!r}") from None
+    if value < 0:
+        raise argparse.ArgumentTypeError(f"--max-mutations must be >= 0, got {value}")
+    return value
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -585,6 +595,9 @@ def build_parser() -> argparse.ArgumentParser:
     cp.add_argument("--max-campaigns", type=int, default=5, dest="max_campaigns")
     cp.add_argument("--max-no-signal", type=int, default=None, dest="max_no_signal",
                     help="halt after this many findingless campaigns (default: the campaign budget, i.e. hunt fully)")
+    cp.add_argument("--max-mutations", type=_non_negative_int, default=1, dest="max_mutations",
+                    help="attacker-model mutations tried after an attempt the target defends (default 1; "
+                         "0 disables mutation). Each mutation is a metered model call")
     cp.add_argument("--selector", choices=["deterministic", "jev"], default="deterministic")
     cp.add_argument("--model", default=None, help="override the attacker model (e.g. qwen3.8-max)")
     cp.add_argument("--max-model-calls", type=int, default=None, dest="max_model_calls",
