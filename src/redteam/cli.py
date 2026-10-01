@@ -1,8 +1,8 @@
 """`redteam` command-line surface.
 
-Read-only / safe commands (`report`, `approve`) construct nothing live. Attack commands
-(`campaign`, `regression`) build the executor, minter, and attacker model lazily, so the
-safe commands run without a key or network. Approvals go through the CLI on purpose: the
+Read-only / safe commands (`report`, `approve`) construct nothing live. `campaign` builds the
+executor, minter, and attacker model lazily; `regression` replays frozen deterministic cases and
+builds no attacker model. The safe commands run without a key or network. Approvals go through the CLI on purpose: the
 dashboard stays read-only (Q15).
 """
 
@@ -82,6 +82,18 @@ def _wire_deterministic(target_id: str):
         raise SystemExit(f"target '{target_id}' is not in authorization.yaml")
     executor = Executor(registry, http_sender)
     return registry, target, executor, TokenMinter(executor, target), Judge()
+
+
+def _wire_replay(target_id: str):
+    """Build only what a regression replay needs: executor, minter, and a Judge. Replay re-runs
+    frozen, deterministic cases, so it never builds the attacker model (and needs no Qwen key).
+    The rubric is constructed from the environment only to serve a case no oracle decides; it never
+    raises when unconfigured -- it is simply unavailable, and that case degrades to INCONCLUSIVE."""
+    from redteam.agents.judge.rubric import ModelRubric
+
+    registry, target, executor, minter, _judge = _wire_deterministic(target_id)
+    from redteam.agents.judge.judge import Judge
+    return registry, target, executor, minter, Judge(rubric=ModelRubric.from_env())
 
 
 def cmd_authz(args: argparse.Namespace) -> int:
@@ -212,7 +224,7 @@ def cmd_integrity(args: argparse.Namespace) -> int:
 def cmd_regression(args: argparse.Namespace) -> int:
     from redteam.regression import replay
 
-    registry, _target, executor, minter, judge, _agent, _model = _wire(args.target)
+    registry, _target, executor, minter, judge = _wire_replay(args.target)
     store = Store.open(args.store)
     r = replay(store, registry, executor, judge, args.sha, minter=minter)
     print(f"regression @ {args.sha}: held={len(r.held)} reappeared={len(r.reappeared)} "
