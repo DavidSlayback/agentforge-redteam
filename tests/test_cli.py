@@ -32,17 +32,19 @@ def test_campaign_maps_categories_to_owasp() -> None:
     assert args.max_campaigns == 5
 
 
-def test_campaign_rejects_a_malformed_route_before_any_work(tmp_path: Path, monkeypatch, capsys) -> None:
-    # A shell that rewrites `/v1/x` into a filesystem path is a configuration error: the command
-    # must fail fast (exit 2) before building the store or the attacker model (no key needed).
+def test_campaign_rejects_an_undeclared_route_before_any_work(tmp_path: Path, monkeypatch, capsys) -> None:
+    # A route that is not one of the declared routes (a typo, or a shell that rewrote `/v1/x` into
+    # a filesystem path) is a configuration error: the command fails fast (exit 2), names the bad
+    # route, and never builds the store or the attacker model (no key needed).
     def _boom(*a, **k):
-        raise AssertionError("_wire must not run when a route is malformed")
+        raise AssertionError("_wire must not run when a route is undeclared")
 
     monkeypatch.setattr("redteam.cli._wire", _boom)
     rc = main(["campaign", "--target", "agentforge-w2", "--category", "prompt-injection",
                "--route", "C:/Program Files/Git/v1/x"])
     assert rc == 2
-    assert "configuration error" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "configuration error" in err and "C:/Program Files/Git/v1/x" in err
 
 
 # --- campaign exit-code policy (owner decision 5) --------------------------------------------
@@ -92,9 +94,9 @@ def test_campaign_exit_two_when_no_candidates(tmp_path: Path, monkeypatch) -> No
     class M:
         def complete(self, s, u, **k): return _GEN
     _patch_wire(monkeypatch, tmp_path, M())
-    # a rooted route with no declared input field is schedulable by nothing -> no candidates
+    # a declared route but a deterministic-only category -> build_candidates proposes nothing
     rc = main(["--store", str(tmp_path / "s.db"), "campaign", "--target", "good",
-               "--category", "prompt-injection", "--route", "/v1/no-such-field"])
+               "--category", "broken-object-authorization", "--route", "/v1/follow-up-evidence"])
     assert rc == 2
 
 

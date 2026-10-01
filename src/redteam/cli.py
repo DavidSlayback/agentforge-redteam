@@ -392,25 +392,20 @@ def cmd_calibrate(args: argparse.Namespace) -> int:
     return 0 if run.validated else 1
 
 
-def _is_rooted_route(route: str) -> bool:
-    """A --route must be a rooted path on the authorized origin, not a scheme, an authority, or a
-    filesystem path. A shell that rewrites `/v1/x` into a local path (MSYS/Git-Bash path mangling)
-    produced routes that burned 17 campaigns on authorization errors; reject them up front."""
-    return (route.startswith("/") and not route.startswith("//")
-            and "://" not in route and "@" not in route and "\\" not in route)
-
-
 def cmd_campaign(args: argparse.Namespace) -> int:
     from redteam.agents.orchestrator.budget import Budget
     from redteam.agents.orchestrator.orchestrator import Orchestrator
     from redteam.agents.orchestrator.selector import DeterministicSelector, JevSelector
 
-    # Validate routes before spending anything (no store, no model): a route that is not a rooted
-    # path is a configuration error, not a brief error (owner exit-code policy).
-    bad_routes = [r for r in args.route if not _is_rooted_route(r)]
-    if bad_routes:
-        print(f"campaign: not rooted paths on the target origin (configuration error): {bad_routes}",
-              file=sys.stderr)
+    # Validate routes before spending anything (no store, no model): a --route must be one of the
+    # declared routes (`_ROUTE_FIELDS`), which have a known input field and so are schedulable.
+    # Anything else is a configuration error — a typo, or a shell that rewrote `/v1/x` into a
+    # filesystem path (MSYS/Git-Bash mangling, which burned 17 campaigns). Naming the bad route
+    # means a typo among valid routes fails loudly instead of being silently dropped at ranking.
+    unknown_routes = [r for r in args.route if r not in _ROUTE_FIELDS]
+    if unknown_routes:
+        print(f"campaign: unknown route(s) {unknown_routes}; declared routes are "
+              f"{sorted(_ROUTE_FIELDS)} (configuration error)", file=sys.stderr)
         return 2
 
     registry, target, executor, minter, judge, agent, model = _wire(args.target, args.model)
