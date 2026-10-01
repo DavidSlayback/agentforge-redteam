@@ -6,6 +6,7 @@ category: denial-of-service
 subcategory: no-rate-limit
 owasp: [API4:2023, LLM10]
 target_id: agentforge-w2
+risk_class: invariant        # boundary | invariant | regression
 probe_kind: rate_limit
 turns:
   - ordinal: 1

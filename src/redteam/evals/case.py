@@ -69,5 +69,9 @@ class SeedCase(BaseModel):
     # expressible in `turns`/`oracle` alone: names the builder so a frozen finding replays through
     # the SAME probe instead of a generic path (which would fake a green). See role-review T1.6.
     probe_kind: str | None = None
-    # Set on committed eval cases only; generated variants leave it None.
+    # Set on committed eval cases only; generated variants leave these None. Required for committed
+    # files by `loader.validate_committed_case`, not by this model (variants never carry them).
     result: CaseResult | None = None
+    # What the case defends: a trust `boundary`, an `invariant` the target must preserve, or a
+    # `regression` risk (a fixed exploit that must stay fixed).
+    risk_class: Literal["boundary", "invariant", "regression"] | None = None

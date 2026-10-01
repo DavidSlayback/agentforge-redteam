@@ -6,6 +6,7 @@ category: broken-authentication
 subcategory: anonymous-credential-issuance
 owasp: [API2:2023, A07:2021]
 target_id: agentforge-w2
+risk_class: boundary        # boundary | invariant | regression
 probe_kind: mint
 turns:
   - ordinal: 1
