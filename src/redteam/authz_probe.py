@@ -62,9 +62,10 @@ class Probe:
 
 
 def run_probe(probe: Probe, store, registry: AuthorizationRegistry, *,
-              target_sha: str | None = None) -> RunResult:
+              target_sha: str | None = None, campaign_id: str | None = None) -> RunResult:
     """Execute one Probe through the shared driver."""
-    return drive(store, probe.case, registry, target_sha=target_sha, produce=probe.produce)
+    return drive(store, probe.case, registry, target_sha=target_sha, produce=probe.produce,
+                 campaign_id=campaign_id)
 
 
 def reconstruct_probe(case: SeedCase, executor: Executor, judge: Judge, target, minter=None) -> Probe:
@@ -185,13 +186,15 @@ def run_authz_case(
     store,
     minter=None,
     target_sha: str | None = None,
+    campaign_id: str | None = None,
 ) -> RunResult:
     """Play an authorization probe (back-compat wrapper over turn_probe + run_probe).
 
     Shared by the initial probe run and regression replay, so a frozen BOLA/auth finding is
     re-tested by the *same* tampering path rather than being silently re-scoped by run_case.
     """
-    return run_probe(turn_probe(case, executor, judge, minter), store, registry, target_sha=target_sha)
+    return run_probe(turn_probe(case, executor, judge, minter), store, registry, target_sha=target_sha,
+                     campaign_id=campaign_id)
 
 
 def build_authz_probes(

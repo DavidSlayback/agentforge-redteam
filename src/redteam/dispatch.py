@@ -17,8 +17,13 @@ from redteam.routing import execution_kind
 from redteam.runner import RunResult, run_case
 
 
-def dispatch(case, registry, executor, judge, store, minter, target_sha: str | None = None) -> RunResult:
-    """Route a case to the execution path its category requires (per redteam.routing)."""
+def dispatch(case, registry, executor, judge, store, minter, target_sha: str | None = None,
+             campaign_id: str | None = None) -> RunResult:
+    """Route a case to the execution path its category requires (per redteam.routing).
+
+    ``campaign_id`` tags every record the run produces (spec, attempt, audit actions) with the
+    scheduled brief it belongs to, so a run's signal and cost are attributable (GitLab #4).
+    """
     # A closure-based probe (mint / rate-limit) can't be reproduced from turns/oracle alone, so a
     # frozen one is rebuilt from its probe_kind and run through the SAME probe — never a generic
     # path that would fake a regression green (role-review T1.6).
@@ -26,10 +31,14 @@ def dispatch(case, registry, executor, judge, store, minter, target_sha: str | N
         target = registry.by_id(case.target_id)
         if target is None:
             raise AuthorizationDenied(case.target_id)
-        return run_probe(reconstruct_probe(case, executor, judge, target, minter), store, registry, target_sha=target_sha)
+        return run_probe(reconstruct_probe(case, executor, judge, target, minter), store, registry,
+                         target_sha=target_sha, campaign_id=campaign_id)
     kind = execution_kind(case.category)
     if kind == "authz":
-        return run_authz_case(case, registry, executor, judge, store, minter=minter, target_sha=target_sha)
+        return run_authz_case(case, registry, executor, judge, store, minter=minter, target_sha=target_sha,
+                              campaign_id=campaign_id)
     if kind == "document":
-        return run_document_attack(case, registry, executor, judge, store, minter, target_sha=target_sha)
-    return run_case(case, registry, executor, judge, store, minter=minter, target_sha=target_sha)
+        return run_document_attack(case, registry, executor, judge, store, minter, target_sha=target_sha,
+                                   campaign_id=campaign_id)
+    return run_case(case, registry, executor, judge, store, minter=minter, target_sha=target_sha,
+                    campaign_id=campaign_id)

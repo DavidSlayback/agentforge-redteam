@@ -71,6 +71,7 @@ def run_document_attack(
     store,
     minter,
     target_sha: str | None = None,
+    campaign_id: str | None = None,
 ) -> RunResult:
     if case.auth is None or minter is None:
         raise TargetUnreachable("document attack requires an authenticated patient and a minter")
@@ -112,4 +113,4 @@ def run_document_attack(
             observation = replace(observation, latency_budget_ms=None)
         return scan_judge.judge(observation), list(observation.provider_events)
 
-    return drive(store, case, registry, target_sha=target_sha, produce=produce)
+    return drive(store, case, registry, target_sha=target_sha, produce=produce, campaign_id=campaign_id)

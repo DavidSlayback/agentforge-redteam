@@ -252,8 +252,19 @@ now **under-claimed** several capabilities:
 - **Orchestrator → regression on SHA change: NOW WIRED.** The Recon poller (`redteam poll`,
   `src/redteam/recon/`) reads `/health` `git_sha`; on a change it runs the regression suite and
   records the trigger — the SHA-diff producer + trigger the 09-29 note said were missing. Ranking
-  still uses route-coverage + open findings (2 of 4 signals); cost remains the `--max-model-calls`
-  cap, not a ranking signal; mid-campaign hard-stop is between-campaigns only.
+  uses route-coverage + open findings (2 of 4 signals); cost remains the `--max-model-calls`
+  cap, not a ranking signal.
+- **Orchestrator scheduling + cost accounting: REWORKED (GitLab #4, 2026-10-01).** Coverage is now
+  computed from **Campaign records** the scheduler writes (one per scheduled brief), scoped to the
+  target id and keyed on the brief's own route — regression replays, the deterministic battery and
+  eval runs no longer count. Each brief records an outcome (tested / skipped / provider_blocked /
+  errored); untested outcomes carry a separate penalty and a brief is retired for the run after two
+  of them, so a stuck brief cannot starve its sibling. The exploit term decays with tries since the
+  category's last finding and is capped below an untried pair. The no-signal halt counts only tested
+  campaigns (a run that tested nothing halts "nothing runnable"); the model-call cap is now checked
+  **before every metered call**, not only between campaigns. Signal and cost are attributed to the
+  run's own campaign ids, not global table deltas. The `campaign` command validates routes up front
+  and follows the owner exit-code policy (2 config error, 1 nothing tested, 0 otherwise).
 - **Regression — auto-trigger + cross-category flagging: DONE; CI gate: not done.** Faithful
   per-probe replay (`probe_kind` reconstruction), reappearance detection, **cross-category
   regression flagging** (`RegressionReport.cross_category_regression`), and SHA-change auto-trigger

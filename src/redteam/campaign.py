@@ -16,8 +16,9 @@ from datetime import datetime, timezone
 from redteam.agents.judge.judge import Judge, Rubric, VerdictOutcome
 from redteam.agents.redteam.agent import RedTeamAgent
 from redteam.agents.redteam.model import ModelClient
+from redteam.agents.orchestrator.budget import CallBudget
 from redteam.dispatch import dispatch as _dispatch
-from redteam.errors import ProviderBlock
+from redteam.errors import BudgetExceeded, ProviderBlock
 from redteam.evals.case import AuthContext
 from redteam.executor.authorization import AuthorizationRegistry
 from redteam.executor.executor import Executor
@@ -47,23 +48,41 @@ def _log_call(store, campaign_id: str, kind: str) -> None:
         store.insert("cost_ledger", {"ts": _now(), "campaign_id": campaign_id, "kind": kind, "calls": 1})
 
 
-def _record(store, action: str, brief: dict, reason: str) -> None:
-    """One campaign audit action for a brief, as its own unit of work."""
+def _ensure_campaign(store, campaign_id: str, briefs: list[dict]) -> None:
+    """Make sure a Campaign row exists for ``campaign_id`` before any spec references it (the
+    attack_specs.campaign_id foreign key). The Orchestrator writes the rich row first, so this is
+    a no-op there; for an ad-hoc ``run_campaign`` (no scheduler) it writes a minimal placeholder
+    with no outcome, so such attempts never count as campaign coverage."""
+    if store.conn.execute("SELECT 1 FROM campaigns WHERE campaign_id = ?", (campaign_id,)).fetchone():
+        return
+    target_id = next((b.get("target_id") for b in briefs if b.get("target_id")), "unknown")
+    with store.transaction():
+        store.insert("campaigns", {"campaign_id": campaign_id, "target_id": target_id,
+                                   "status": "running", "created_at": _now()})
+
+
+def _record(store, action: str, brief: dict, reason: str, campaign_id: str | None = None) -> None:
+    """One campaign audit action for a brief, as its own unit of work, attributed to the run's
+    campaign so untested outcomes (which write no attempt) are still traceable to the run."""
     store.record_action("campaign", action, {"category": brief.get("category"), "route": brief.get("route")},
-                        reason)
+                        reason, campaign_id=campaign_id)
 
 
 @dataclass
 class _MeteredModel:
     """Records each attacker-model call in the cost ledger before making it, so a retry, a
-    reply that fails to parse, or a provider block all count against --max-model-calls."""
+    reply that fails to parse, or a provider block all count against --max-model-calls. The cap
+    is checked *before* the call: a call that would exceed it is never logged or made."""
 
     model: ModelClient
     store: object
     campaign_id: str
     kind: str
+    budget: CallBudget | None = None
 
     def complete(self, system: str, user: str, **kw) -> str:
+        if self.budget is not None:
+            self.budget.charge()   # raises BudgetExceeded before the cap is passed
         _log_call(self.store, self.campaign_id, self.kind)
         return self.model.complete(system, user, **kw)
 
@@ -75,12 +94,15 @@ class _MeteredRubric:
     rubric: Rubric
     store: object
     campaign_id: str
+    budget: CallBudget | None = None
 
     @property
     def available(self) -> bool:
         return self.rubric.available
 
     def evaluate(self, obs):
+        if self.budget is not None:
+            self.budget.charge()
         _log_call(self.store, self.campaign_id, "rubric")
         return self.rubric.evaluate(obs)
 
@@ -92,6 +114,20 @@ class CampaignSummary:
     variants: int = 0
     outcomes: Counter = field(default_factory=Counter)
     results: list[RunResult] = field(default_factory=list)
+    budget_halted: bool = False   # the model-call cap was reached; the campaign stopped cleanly
+
+    def brief_outcome(self) -> str:
+        """The scheduled brief's outcome class for the v1 Campaign contract and scheduling:
+        ``tested`` if a judged attempt was written (any verdict), else the untested class
+        (``provider_blocked`` | ``skipped`` | ``errored``). The Orchestrator schedules one brief
+        per campaign, so this summary describes that brief."""
+        if self.generated >= 1:
+            return "tested"
+        if self.outcomes.get("PROVIDER_BLOCK"):
+            return "provider_blocked"
+        if self.outcomes.get("SKIPPED"):
+            return "skipped"
+        return "errored"
 
 
 def run_campaign(
@@ -108,12 +144,14 @@ def run_campaign(
     minter=None,
     canaries: list[str] | None = None,
     target_sha: str | None = None,
+    call_budget: CallBudget | None = None,
 ) -> CampaignSummary:
     summary = CampaignSummary(campaign_id=campaign_id)
-    generation = _MeteredModel(model, store, campaign_id, "generation")
-    mutation = _MeteredModel(model, store, campaign_id, "mutation")
+    _ensure_campaign(store, campaign_id, briefs)   # the specs below reference campaigns(campaign_id)
+    generation = _MeteredModel(model, store, campaign_id, "generation", call_budget)
+    mutation = _MeteredModel(model, store, campaign_id, "mutation", call_budget)
     if judge.rubric is not None:
-        judge = replace(judge, rubric=_MeteredRubric(judge.rubric, store, campaign_id))
+        judge = replace(judge, rubric=_MeteredRubric(judge.rubric, store, campaign_id, call_budget))
     for brief in briefs:
         try:
             # Authorization categories are model-free deterministic probes that need a
@@ -123,7 +161,8 @@ def run_campaign(
             if is_deterministic_only(brief["category"]):
                 summary.outcomes["SKIPPED"] += 1
                 _record(store, "skipped", brief,
-                        "authorization category must run via `redteam authz`, not campaign (would be a fake pass)")
+                        "authorization category must run via `redteam authz`, not campaign (would be a fake pass)",
+                        campaign_id=campaign_id)
                 continue
             # A canary-gated category with no canary cannot be scored — running it anyway
             # would let StatusOracle score a 200 as SAFE and report a defense that was never
@@ -131,7 +170,8 @@ def run_campaign(
             if brief["category"] in NEEDS_CANARY and not canaries:
                 summary.outcomes["SKIPPED"] += 1
                 _record(store, "skipped", brief,
-                        "no canary available for a canary-gated category; not tested (would be a fake pass)")
+                        "no canary available for a canary-gated category; not tested (would be a fake pass)",
+                        campaign_id=campaign_id)
                 continue
             # Read what has already been tried here so the Red Team varies, not repeats.
             history = history_brief(store, brief["target_id"], brief["category"])
@@ -143,7 +183,8 @@ def run_campaign(
             # Run as a synthetic patient when the brief names one (so attempts reach the AI).
             if brief.get("patient_uuid"):
                 case = case.model_copy(update={"auth": AuthContext(patient_uuid=brief["patient_uuid"])})
-            result = _dispatch(case, registry, executor, judge, store, minter, target_sha=target_sha)
+            result = _dispatch(case, registry, executor, judge, store, minter, target_sha=target_sha,
+                               campaign_id=campaign_id)
             summary.generated += 1
             summary.outcomes[str(result.verdict.outcome)] += 1
             summary.results.append(result)
@@ -151,17 +192,26 @@ def run_campaign(
             parent, last, muts = case, result, 0
             while last.verdict.outcome in _MUTATE_ON and muts < max_mutations:
                 variant = agent.mutate(parent, mutation, verdict=last.verdict)  # aim at what blocked it
-                last = _dispatch(variant, registry, executor, judge, store, minter, target_sha=target_sha)
+                last = _dispatch(variant, registry, executor, judge, store, minter, target_sha=target_sha,
+                                 campaign_id=campaign_id)
                 summary.variants += 1
                 summary.outcomes[str(last.verdict.outcome)] += 1
                 summary.results.append(last)
                 parent, muts = variant, muts + 1
+        except BudgetExceeded as exc:
+            # The model-call cap was reached mid-brief: stop the whole campaign cleanly rather
+            # than record this as a brief error. No attempt was written for this brief.
+            summary.budget_halted = True
+            _record(store, "budget_halt", brief, str(exc), campaign_id=campaign_id)
+            break
         except ProviderBlock as exc:
             # The attacker model's own content filter is a distinct, typed outcome — not a
             # generic error and never evidence about the target (role-review T3.8).
             summary.outcomes["PROVIDER_BLOCK"] += 1
-            _record(store, "provider_block", brief, f"attacker-model provider block: {exc}"[:300])
+            _record(store, "provider_block", brief, f"attacker-model provider block: {exc}"[:300],
+                    campaign_id=campaign_id)
         except Exception as exc:  # one bad brief must not end an unattended campaign
             summary.outcomes["ERROR"] += 1
-            _record(store, "brief_error", brief, f"{type(exc).__name__}: {exc}"[:300])
+            _record(store, "brief_error", brief, f"{type(exc).__name__}: {exc}"[:300],
+                    campaign_id=campaign_id)
     return summary

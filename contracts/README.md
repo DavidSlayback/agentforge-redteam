@@ -10,7 +10,7 @@ itself through numbered migrations.
 
 | Schema | Producer → Consumer |
 |---|---|
-| `campaign.schema.json` | Orchestrator → Red Team **(wired: no — see below)** |
+| `campaign.schema.json` | Orchestrator → Red Team **(wired: yes — one Campaign row per scheduled brief)** |
 | `attack_spec.schema.json` | Red Team → Executor |
 | `attempt.schema.json` | Executor → Judge |
 | `verdict.schema.json` | Judge → store |
@@ -25,13 +25,13 @@ itself through numbered migrations.
 1. **Schema validity** — every file is a well-formed Draft 2020-12 schema.
 2. **Producer conformance** — a *real* record produced by the code validates against its
    schema: a live `run_case`/authz attempt's AttackSpec, Attempt, Verdict, the promoted
-   Finding, and a rendered VulnReport, plus each typed error in `redteam.errors`. The record is
-   assembled from the store row (JSON columns parsed back to arrays/objects) and its
-   `schema_version` is read **off the row** — every such record now persists one (migration
-   0005), so nothing is hand-stamped. **Exception:** `Campaign` has no persisting producer yet
-   (the Orchestrator logs `agent_actions`, it does not write a Campaign row), so its schema is
-   exercised by a hand-built instance and marked `wired: no`. The other five messages are
-   checked against real records.
+   Finding, a rendered VulnReport, and a persisted Campaign row (written by the Orchestrator, one
+   per scheduled brief), plus each typed error in `redteam.errors`. The record is assembled from
+   the store row (JSON columns parsed back to arrays/objects) and its `schema_version` is read
+   **off the row** — every such record now persists one (migrations 0005 and 0009), so nothing is
+   hand-stamped. The Campaign's brief `outcome` (`tested` | `skipped` | `provider_blocked` |
+   `errored`) is an added property allowed by `additionalProperties`; the status enum is
+   unchanged, so this stays `v1`. All seven messages are now checked against real records.
 3. **Negative control** — one deliberately malformed instance **per schema** is rejected, so
    every contract is shown able to fail (a contract that accepts everything tests nothing).
 

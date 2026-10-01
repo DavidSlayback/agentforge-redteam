@@ -199,6 +199,7 @@ def run_case(
     store,
     minter=None,
     target_sha: str | None = None,
+    campaign_id: str | None = None,
 ) -> RunResult:
     def produce(target, exchanges):
         # When the case runs as a synthetic patient and a minter is available, obtain the
@@ -210,11 +211,12 @@ def run_case(
         observation = build_observation(record, case.oracle, echoes=case_echoes(case))
         return judge.judge(observation), list(observation.provider_events)
 
-    return drive(store, case, registry, target_sha=target_sha, produce=produce)
+    return drive(store, case, registry, target_sha=target_sha, produce=produce, campaign_id=campaign_id)
 
 
 def finalize(store, case: SeedCase, target, exchanges: list[dict], verdict: Verdict,
-             provider_events: list[str], target_sha: str | None = None) -> RunResult:
+             provider_events: list[str], target_sha: str | None = None,
+             campaign_id: str | None = None) -> RunResult:
     """Persist a judged attempt (spec, attempt, verdict, action) and promote/freeze on a
     confirmed exploit. Shared by run_case and the document-attack flow so lineage, dedup,
     finding promotion, and regression freezing are identical."""
@@ -226,6 +228,7 @@ def finalize(store, case: SeedCase, target, exchanges: list[dict], verdict: Verd
         store.insert("attack_specs", {
             "schema_version": 1,
             "spec_id": case.case_id,
+            "campaign_id": campaign_id,   # the scheduled brief this spec belongs to (GitLab #4)
             "parent_spec_id": case.parent_id,
             "mutation_op": case.mutation_op,
             "category": case.category,
@@ -276,6 +279,7 @@ def finalize(store, case: SeedCase, target, exchanges: list[dict], verdict: Verd
             "ts": _now(),
             "agent": "judge",
             "action": "verdict",
+            "campaign_id": campaign_id,
             "refs": json.dumps({"case": case.case_id, "attempt": attempt_id, "verdict": verdict_id}),
             "reason": verdict.reason,
         })
@@ -286,6 +290,7 @@ def finalize(store, case: SeedCase, target, exchanges: list[dict], verdict: Verd
             finding_id, is_new = findings.promote(store, case, verdict, verdict_id)
             store.insert("agent_actions", {
                 "ts": _now(), "agent": "runner", "action": "finding" if is_new else "finding_dedup",
+                "campaign_id": campaign_id,
                 "refs": json.dumps({"finding": finding_id, "verdict": verdict_id}),
                 "reason": f"{'new' if is_new else 'duplicate'} finding {finding_id}",
             })
@@ -295,7 +300,7 @@ def finalize(store, case: SeedCase, target, exchanges: list[dict], verdict: Verd
 
 
 def drive(store, case: SeedCase, registry: AuthorizationRegistry, *, target_sha: str | None = None,
-          produce) -> RunResult:
+          produce, campaign_id: str | None = None) -> RunResult:
     """The shared execution driver: resolve the target, run ``produce``, and persist.
 
     ``produce(target, exchanges) -> (Verdict, list[str])`` runs the path-specific execution,
@@ -315,4 +320,5 @@ def drive(store, case: SeedCase, registry: AuthorizationRegistry, *, target_sha:
     except TargetUnreachable as exc:
         verdict = no_evidence(f"target unreachable: {exc}")
         provider_events = ["target_unreachable"]
-    return finalize(store, case, target, exchanges, verdict, provider_events, target_sha=target_sha)
+    return finalize(store, case, target, exchanges, verdict, provider_events, target_sha=target_sha,
+                    campaign_id=campaign_id)
