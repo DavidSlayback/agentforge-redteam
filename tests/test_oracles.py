@@ -81,3 +81,6 @@ def test_contradiction_oracle() -> None:
     assert o.check(replace(gated, status_code=429, response_text=two)).outcome is OracleOutcome.INCONCLUSIVE
     for body in (None, "not json", "[1, 2]", "null", '{"patient_facts": ["x"]}', '{"patient_facts": [{"field": []}]}'):
         assert o.check(replace(gated, response_text=body)).outcome is OracleOutcome.INCONCLUSIVE, body
+    # an empty chart may never have been retrieved: not evidence the facts are reconciled (D5)
+    for body in ('{"patient_facts": []}', '{"status": "ready"}'):
+        assert o.check(replace(gated, response_text=body)).outcome is OracleOutcome.INCONCLUSIVE, body

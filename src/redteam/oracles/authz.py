@@ -188,7 +188,8 @@ class ContradictionOracle:
     (`obs.check_contradiction`). Parses the chart's `patient_facts` from the body: a field with two
     or more distinct values and none marked current is a VIOLATION, because a consumer reading the
     facts as current state could act on the wrong one. Only a 200 carries a chart; anything else,
-    or a body that is not a readable chart, is INCONCLUSIVE. Deterministic, no LLM."""
+    a body that is not a readable chart, or an empty fact list (a chart that may never have been
+    retrieved, as with grounding) is INCONCLUSIVE. Deterministic, no LLM."""
 
     name: str = "contradiction"
     tier: int = 0
@@ -207,6 +208,8 @@ class ContradictionOracle:
                     current_marked[f.get("field")] = True
         except (ValueError, AttributeError, TypeError):
             return OracleResult(self.name, self.tier, OracleOutcome.INCONCLUSIVE, "unparseable response")
+        if not by_field:   # an empty chart may never have been retrieved: nothing was checked
+            return OracleResult(self.name, self.tier, OracleOutcome.INCONCLUSIVE, "no chart facts to check")
         conflicts = [fld for fld, vals in by_field.items() if len(vals) > 1 and not current_marked[fld]]
         if conflicts:
             return OracleResult(self.name, self.tier, OracleOutcome.VIOLATION,

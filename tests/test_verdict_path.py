@@ -167,11 +167,14 @@ def test_contradiction_unparseable_or_non_object_200_is_inconclusive(tmp_path: P
         store.close()
 
 
-def test_contradiction_empty_fact_list_today_reads_as_held(tmp_path: Path) -> None:
-    # Characterizes current behavior: an empty chart (possibly never retrieved) credits the defense.
-    store, res = _contradict(tmp_path, _fixed(200, json.dumps({"status": "ready", "patient_facts": []})))
-    assert _persisted(store, res.attempt_id)[0] == "FAIL"
-    store.close()
+def test_contradiction_empty_fact_list_is_inconclusive(tmp_path: Path) -> None:
+    # D5: an empty chart may never have been retrieved; it is not a reconciled chart (was FAIL).
+    for i, body in enumerate(({"status": "ready", "patient_facts": []}, {"status": "ready"})):
+        run_dir = tmp_path / str(i)
+        run_dir.mkdir()
+        store, res = _contradict(run_dir, _fixed(200, json.dumps(body)))
+        assert _persisted(store, res.attempt_id)[0] == "INCONCLUSIVE", body
+        store.close()
 
 
 def test_contradiction_crash_is_not_a_finding(tmp_path: Path) -> None:
