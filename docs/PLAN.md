@@ -107,7 +107,7 @@ artifact), `SAFETY` (trust boundary), `SCHEDULE` (checkpoint). Status: `not star
 | P0 | p9 | Multi-agent architecture (single-agent/pipeline **fails**); distinct roles, contexts, trust levels, coordinated | CORE | Named distinct agents with separate contexts | **DONE** — Orchestrator/Red Team/Judge/Documentation + deterministic services, distinct contexts |
 | P1 | p9–10 | Red Team Agent: novel inputs, mutate partial successes, multi-turn sequences; model choice defended | CORE | Generates + mutates + multi-turn, live | **PARTIAL** — aimed generate + guarded mutate live; multi-turn deferred (target is stateless, T3.4); mutation aim shallow (T3.8) |
 | P2 | p4–5,12 | Judge Agent: verdict success/fail/partial, consistent across runs+versions, independent of attack engine, no drift, judge itself validated | CORE | Independent context/model; drift detection documented + calibration set | **PARTIAL** — deterministic tier-0 independent+consistent; rubric tier (DeepSeek, non-Qwen) live + run end-to-end vs the target (09-30); drift/κ machinery built (`drift.py`). Calibration **measured**: κ=1.00 (10/10 deterministic unconditional; +2 rubric when a rubric model is configured); reports NOT VALIDATED pending a human `review_status` flip |
-| P3 | p5,11 | Orchestrator: reads state (coverage gaps, open findings, regressions, cost), prioritizes next target, triggers regression on target change, halts when cost accrues without signal | CORE | Prioritization from real signals; budget halt | **PARTIAL** — budget/no-signal halt + decision trace live; prioritizes on 2 of 4 signals (route-coverage + open findings); cost is the `--max-model-calls` cap, not a ranking signal. **Regression-on-SHA-change NOW WIRED** via the Recon poller (`redteam poll`) |
+| P3 | p5,11 | Orchestrator: reads state (coverage gaps, open findings, regressions, cost), prioritizes next target, triggers regression on target change, halts when cost accrues without signal | CORE | Prioritization from real signals; budget halt | **PARTIAL** — budget/no-signal halt + decision trace live; prioritizes on 2 of 4 signals (route-coverage + open findings). **Scheduling reworked (GitLab #4):** coverage from per-brief Campaign records scoped by target and keyed on the brief route; untested outcomes penalised + a stuck brief retired after two; exploit term decayed + capped; no-signal counts only tested campaigns; model-call cap enforced before every call; signal/cost attributed per run; `campaign` exit-code policy. Cost is the `--max-model-calls` cap, not a ranking signal. **Regression-on-SHA-change WIRED** via the Recon poller (`redteam poll`). Remaining: the bounded **live** campaign that records selections spread across pairs (needs the Qwen key + live target; operator-run) |
 | P4 | p10 | Documentation Agent: confirmed exploit → professional report, no human writing; human approval gate for high severity | CORE | Report meets S3 bar; critical behind gate | **DONE** — evidence-backed reports, fail-closed gate (T1.5), CLI-triggered (not auto-orchestrated) |
 | P5 | p11 | Regression & validation harness: versioned queryable store; auto full suite on Orchestrator trigger; detect reappearance; flag cross-category regressions; a test passing due to behavior shift is worse than none | CORE | Deterministic replay; reappearance + cross-category detection | **DONE (CI gate pending)** — faithful per-probe replay + reappearance + **cross-category flagging** + **SHA-change auto-trigger** (poller); only a CI regression gate is still CLI-only |
 | P6 | p11 | Observability layer answers: cases per category; pass/fail across categories+versions; resilience trend; open/in-progress/resolved findings; run cost + scaling rate; per-agent ordered action trace | CORE | All 6 queryable from the store (SQLite, settled) | **DONE** — all 6 render via `redteam report` + dashboard.html |
@@ -1203,10 +1203,11 @@ intentional uniform 400, mints reappeared. The false holds were historical (`bfb
 #4 orchestrator scheduling and cost accounting → #1 atomic persistence. Each lists its open owner
 decisions; they cover most of the deferred items below.
 
-**Deferred (from the same review, not in this slice):** orchestrator starvation/coverage crediting,
-budget checked only between campaigns, echo/canary matching on raw JSON escapes, non-atomic
-migrations, `cmd_campaign` exit code, dashboard "recent" ordering, token in curl repros, docs-vs-code
-drift (ARCHITECTURE message bus, LLM07 claim, `regression` needing model keys).
+**Deferred (from the same review, not in this slice):** ~~orchestrator starvation/coverage
+crediting~~ (fixed, #4), ~~budget checked only between campaigns~~ (fixed, #4), echo/canary
+matching on raw JSON escapes, ~~non-atomic migrations~~ (fixed, #1), ~~`cmd_campaign` exit code~~
+(fixed, #4), dashboard "recent" ordering, token in curl repros, docs-vs-code drift (ARCHITECTURE
+message bus, LLM07 claim, `regression` needing model keys).
 
 ### 2026-10-01 — refactor #3: one verdict path (branch `refactor/one-verdict-path`)
 
@@ -1268,3 +1269,45 @@ reuse is re-checked); `TransactionAborted` chains the inner cause; `redteam inte
 journal clearly (exit 2, still read-only); single-action units use `store.record_action`; the scope
 depth counter became a flag. Replay keeps its unit open across target I/O, pinned by a trace test
 that each replay `BEGIN` is followed directly by finalize's first insert on every dispatch path.
+
+### 2026-10-01 — refactor #4: orchestrator scheduling + cost accounting (branch `refactor/orchestrator-scheduling`)
+
+GitLab #4, in the plan's commit order on top of #3 (one verdict path) and #1 (atomic persistence).
+Commit 1 (model cannot set `probe_kind`/`regression`) was already on the branch. Owner decisions
+applied and named in each commit:
+
+- **D1 attribution — a real Campaign record per scheduled brief.** The scheduler mints a unique
+  id per run+brief (`orch-<run_id>-<seq>`), writes a Campaign row (migration 0009 adds
+  `outcome` + `schema_version`), and tags the brief's attempts, cost rows and audit actions with
+  it. Fills the v1 Campaign contract's missing producer; the contract test now validates a
+  persisted row. The brief `outcome` is an added property (additionalProperties) — no version bump.
+- **D4 coverage scoped by target only.** Coverage is computed from Campaign rows (campaign-made),
+  scoped to the target id, keyed on the brief's own route. Regression replays, the battery and eval
+  runs write attempts, not campaigns, so they no longer move a score; another target's campaigns
+  don't either.
+- **D3 untested handling — exclude after two.** An untested outcome (skip / provider block / error)
+  carries a scoring penalty; a brief with two untested outcomes in a run is retired for the rest of
+  the run and the exclusion is recorded. This removes the starvation (characterized first as an
+  xfail across skip/block/error).
+- **D2 exploit decay + cap.** The exploit term decays with tries since the category's last finding
+  and is capped (0.49) strictly below an untried pair, so an open finding can never pin its category
+  or out-rank a never-tried pair.
+- **Governor + metering.** No-signal counts only tested campaigns; a run that can test nothing halts
+  "nothing runnable" (distinct from the config-error "no candidates"). The model-call cap is checked
+  before every metered call via a run-spanning `CallBudget`, raising the typed `BudgetExceeded` and
+  stopping cleanly. Signal and cost are attributed to the run's own campaign ids, not global deltas.
+- **D5 exit code.** `campaign` validates routes up front (a non-rooted path is a configuration
+  error — the shell-mangled `--route` that burned 17 campaigns); exits 2 on a configuration error
+  (malformed route / no candidates), 1 when nothing was tested, 0 otherwise (individual brief errors
+  in a working run still exit 0).
+
+**Checks:** `uv run pytest -q` 356 passed (baseline 341; orchestrator, campaign, governor, CLI and
+contract tests added). Migration 0009 applied to a **copy** of `var/redteam.db` (v8 → v9, 171
+attempts / 7 findings intact, `outcome`/`schema_version` columns present); canonical store untouched
+(read-only copy). No store under `var/` written, no `.env` touched, nothing pushed.
+
+**Not done (operator, blocked on a human-only action):** commit 12's **bounded live campaign** —
+the definition-of-done run showing selections spread across pairs with the run's own cost/signal
+attributed — needs the Qwen key and the live target, so it cannot run in the build sandbox. Run
+`redteam campaign` against the authorized target once a key is configured and paste the summary line
+here; until then this refactor's live-evidence step is outstanding.
