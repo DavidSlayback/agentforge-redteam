@@ -85,6 +85,8 @@ def where(values: DecodedValues, matches: Callable[[str], bool]) -> str:
 
 
 def normalize(text: str) -> str:
-    """Unicode compatibility normalization (NFKC) then casefolding: the one form every matching
-    check reads and echo stripping matches in, so they can never disagree (owner decision 3)."""
-    return unicodedata.normalize("NFKC", text).casefold()
+    """Unicode compatibility normalization (NFKC), casefolding, and every run of whitespace
+    collapsed to one space: the one form every matching check reads and echo stripping matches
+    in, so they can never disagree (owner decision 3). A re-cased, width-shifted or reflowed echo
+    is still stripped, and the same change to a leaked value still matches."""
+    return " ".join(unicodedata.normalize("NFKC", text).casefold().split())

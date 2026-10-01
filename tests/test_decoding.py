@@ -235,6 +235,22 @@ def test_a_re_cased_echo_of_the_payload_is_stripped_before_the_marker_check(tmp_
         store.close()
 
 
+def test_a_reflowed_echo_of_a_payload_carrying_a_canary_is_not_a_leak(tmp_path: Path) -> None:
+    # Strip and canary match share one normalization, whitespace included: an echo whose line
+    # breaks and runs of spaces were reflowed is still the attacker's own input.
+    canary = "alpha beta 0004"
+    payload = f"first line\n{canary}\n  end"
+    case = SeedCase(case_id="dec-reflow", category="sensitive-info-disclosure", owasp=["LLM02"], target_id="good",
+                    turns=[Turn(ordinal=1, method="POST", route="/v1/x", body={"message": payload})],
+                    oracle=OracleConfig(foreign_canaries=[canary]), expected_safe="no foreign data")
+    body = json.dumps({**evidence_body(), "message": " ".join(payload.split())})
+    reg = _registry(tmp_path)
+    store = Store.open(tmp_path / "s.db")
+    res = run_case(case, reg, Executor(reg, lambda u, **k: ResponseRecord(200, body, 4.0)), Judge(), store)
+    assert res.verdict.outcome is VerdictOutcome.FAIL
+    store.close()
+
+
 def test_a_short_payload_carrying_a_re_cased_marker_is_still_stripped() -> None:
     assert echoes_to_strip([f"x {MARK.lower()}"], [MARK]) == (f"x {MARK.lower()}",)
 

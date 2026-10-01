@@ -67,7 +67,8 @@ def test_where_names_the_first_matching_value_or_a_match_across_values() -> None
     assert where(values, lambda v: "one\ntwo" in v) == "across decoded values"
 
 
-def test_normalize_is_compatibility_normalization_then_casefold() -> None:
+def test_normalize_is_compatibility_normalization_casefold_and_collapsed_whitespace() -> None:
+    assert normalize("  a\n\tb   c ") == "a b c"
     assert normalize("ZZ-Mark") == "zz-mark"
     assert normalize("ＺＺ-Ｍ") == "zz-m"          # fullwidth letters
     assert normalize("Straße") == "strasse"               # casefold, not lower
