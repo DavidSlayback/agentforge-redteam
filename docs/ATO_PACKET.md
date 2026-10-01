@@ -68,8 +68,8 @@ existing artifacts; each row links to the authoritative source rather than resta
 
 ## 5. Test evidence
 
-- `uv run pytest -q` = **415 passed, 1 skipped** on the 2026-10-01 base commit (Python 3.14.7; the
-  integration record also reports 3.13), covering unit, contract, eval-suite, oracle, regression, SLO,
+- `uv run pytest -q` = **496 passed, 1 skipped** on the reconciled 2026-10-01 commit (re-run on Python 3.13; the earlier
+  415 figure was the documentation base commit, run on 3.14.7), covering unit, contract, eval-suite, oracle, regression, SLO,
   data-quality, redaction, atomic-persistence fault injection and frozen-case checks. The skip is the
   opt-in real-store check. Offline (no target, no keys). Live runs are recorded in the store with the
   target SHA (172 attempts, 7 findings); observability via `redteam report` / `dashboard.html`. Judge

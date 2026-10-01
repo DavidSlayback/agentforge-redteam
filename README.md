@@ -58,7 +58,7 @@ uv run pytest -q
 ```
 
 The test suite runs offline (no target, no model keys) and includes the contract tests. On the
-base commit of this documentation pass it reads `415 passed, 1 skipped` (the skip is an opt-in
+reconciled commit it reads `496 passed, 1 skipped` (the skip is an opt-in
 real-store check); the GitLab pipeline in `.gitlab-ci.yml` has no runner, so run it locally.
 
 ### Configuration
@@ -66,17 +66,17 @@ real-store check); the GitLab pipeline in `.gitlab-ci.yml` has no runner, so run
 Model keys live in a `.env` file at the repo root (gitignored; real environment variables
 win over it). Commands that run with no model key: `authz`, `report`, `dashboard`, `document`,
 `evidence`, `approve`, `integrity`, `poll` (without `--discover`), `benign`, `disclosure`,
-`grounding`, and `calibrate` (deterministic entries only). **Known defect on this commit:**
-`regression` replays frozen cases with no model call, but its wiring still builds the attacker
-model, so it exits with `attacker model not configured` unless the three attacker variables below
-are set.
+`grounding`, `calibrate` (deterministic entries only), and `regression`. `regression` replays
+frozen cases with no attacker model and no attacker key (`_wire_replay`); a frozen case that only the
+rubric can decide, with no rubric configured, comes back INCONCLUSIVE and fails the gate rather than
+crashing.
 
 | Variable | Needed by | Purpose |
 |---|---|---|
-| `AGENTFORGE_REDTEAM_BASE_URL` | `campaign`, `regression` (see above) | OpenAI-compatible endpoint for the Red Team model |
-| `AGENTFORGE_REDTEAM_API_KEY` | `campaign`, `regression` | Key for that endpoint |
-| `AGENTFORGE_REDTEAM_MODEL` | `campaign`, `regression` | Attacker model (in use: `qwen3.8-flash`; override per `campaign` run with `--model`). `AGENTFORGE_REDTEAM_TIMEOUT` (seconds, default 90) raises the attacker-call timeout |
-| `AGENTFORGE_REDTEAM_RUBRIC_MODEL` | `campaign` (optional) | Enables the rubric Judge tier; must be a non-Qwen family (in use: `deepseek-v4-pro`) |
+| `AGENTFORGE_REDTEAM_BASE_URL` | `campaign` | OpenAI-compatible endpoint for the Red Team model |
+| `AGENTFORGE_REDTEAM_API_KEY` | `campaign` | Key for that endpoint |
+| `AGENTFORGE_REDTEAM_MODEL` | `campaign` | Attacker model (in use: `qwen3.8-flash`; override per `campaign` run with `--model`). `AGENTFORGE_REDTEAM_TIMEOUT` (seconds, default 90) raises the attacker-call timeout |
+| `AGENTFORGE_REDTEAM_RUBRIC_MODEL` | `campaign`, `regression` (optional) | Enables the rubric Judge tier; must be a non-Qwen family (in use: `deepseek-v4-pro`) |
 | `AGENTFORGE_REDTEAM_RUBRIC_BASE_URL`, `AGENTFORGE_REDTEAM_RUBRIC_KEY` | optional | Separate rubric endpoint/key; fall back to the Red Team endpoint/key |
 | `AGENTFORGE_REDTEAM_JEV_KEY` | `campaign --selector jev` (optional) | Jev orchestrator selector; deterministic selector otherwise |
 | `AGENTFORGE_REDTEAM_DISCOVERY_MODEL` | `discover` / `poll --discover` (optional) | Model for the open-ended discovery reviewer. Defaults to the rubric model (non-Qwen); an explicit value is honored even if same-family, since discovery emits candidates (leads), not verdicts. **Recommended: `qwen3.8-max`** — it out-performed DeepSeek as the reviewer in the 2026-09-30 comparison (higher signal, fewer false positives) |
@@ -118,7 +118,8 @@ uv run redteam campaign --target agentforge-w2 --category prompt-injection --rou
 ```
 
 Other seeded categories and their exact commands are in [evals/README.md](evals/README.md).
-`--max-model-calls` (default 200) is the cost circuit-breaker.
+`--max-model-calls` (default 200) is the cost circuit-breaker; `--max-mutations N` (default 1, `0`
+disables) bounds the attacker-model mutations tried after a defended attempt, each a metered call.
 
 **4. Inspect results.**
 
@@ -128,8 +129,10 @@ uv run redteam report
 
 `redteam dashboard --out dashboard.html` writes the same view as a self-contained page:
 coverage per category, pass/fail by category and build, resilience trend, open/resolved
-findings, run cost, and an ordered per-agent trace. (Known limitation on this commit: the "recent agent
-actions" panels list the *oldest* actions first, `ORDER BY id LIMIT n`, not the newest.) `redteam evidence <attempt_id>` dumps
+findings, per-run cost and a cost trend (in model calls; `usd` is `None` when a call is unpriced, so
+read it as unpriced, not free), pass/fail over time by category and build, and a per-agent trace that
+is newest-first over the most recent N actions (`agent_trace_chronological` returns the same window
+in order). `redteam evidence <attempt_id>` dumps
 the exact request/response behind any verdict. `redteam integrity` opens the store read-only
 and lists any attempt without a verdict or finding without a frozen regression case (exit 1 if
 it finds one; exit 2 if a crashed write left a journal that a normal open must recover first).

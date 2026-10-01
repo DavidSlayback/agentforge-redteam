@@ -44,12 +44,15 @@ agent_actions: an ordered, append-only trace of every agent decision (campaign_i
   duplicate — so the same weakness found by N attempts is one finding with N linked verdicts, never
   N findings. Verified by `tests/test_store.py::test_dedup_key_is_unique` and
   `tests/test_data_quality.py`.
-- **Required fields validated before write:** the Documentation agent checks that a finding has
-  `finding_id`, `primary_category`, `severity` and `dedup_key` before writing a report (it raises
-  otherwise), and its approval gate **fails closed** on unknown or malformed severity and on a
-  finding with no captured evidence (role-review T1.5). The PRD's report fields (reproduction steps,
-  observed behavior, expected behavior) are derived from the finding and its evidence and are always
-  written, but they are **not** separately validated as non-empty before the write. Inter-agent records
+- **Required fields validated before write:** `DocumentationAgent.document()` refuses a
+  finding, before any write, that lacks a unique identifier (`finding_id`, `dedup_key`), an attack
+  category, a severity level, reproduction steps (no captured exchange), observed behavior (no oracle
+  violation) or expected behavior (no `expected_safe`), or whose attack sequence duplicates another
+  finding's report. It raises `DataQualityError` (a `ValueError`) with every named reason at once;
+  `redteam document` prints them and exits 1. The approval gate still **fails closed**: high,
+  critical or an unrecognised level is held for a human (a finding with no evidence is now refused,
+  not held). Verified by `tests/test_documentation_data_quality.py`. The Red Team agent also rejects
+  a generated case with a blank `expected_safe`. Inter-agent records
   are validated against the versioned JSON Schemas in `contracts/v1/` by `tests/test_contracts.py`
   (real persisted rows pass, malformed ones are rejected); nothing validates against the schemas at
   runtime. Referential integrity is enforced by SQLite foreign keys (`PRAGMA foreign_keys = ON`) and

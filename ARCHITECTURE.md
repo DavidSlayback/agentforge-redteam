@@ -57,19 +57,23 @@ happens in the code, not the intended message flow.
 | **Orchestrator** | Deterministic ranker; optional Jev LLM selector (off by default) | Chooses the next campaign: (category, route) brief | store state (campaign coverage, open findings) → a brief and a `Campaign` row | Decides; **cannot** override budget, halt or authorization | Calls `run_campaign` in-process; writes one `Campaign` row per brief with its outcome |
 | **Red Team** | LLM agent (Qwen) | Generate a case from a brief; mutate a non-success once | brief → `SeedCase` (data only) | **Least trusted**: no network, no credentials | Called by the campaign loop; its specs are persisted with the attempt |
 | **Judge** | Oracles, then non-Qwen rubric LLM | Rule SUCCESS, FAIL or INCONCLUSIVE | `Observation` → `Verdict` | Independent of the attack engine | Called by the runner; the verdict and its audit action commit in the attempt's unit of work |
-| **Documentation** | **Deterministic code, no LLM** | Confirmed finding → report | `Finding` → `VulnReport` | Writes reports; high and critical held for a human | `redteam document <finding_id>`; validates finding fields first |
+| **Documentation** | **Deterministic code, no LLM** | Confirmed finding → report | `Finding` → `VulnReport` | Writes reports; high and critical held for a human | `redteam document <finding_id>`; refuses an incomplete finding (`DataQualityError`) before writing anything |
 | **Executor** | Deterministic service | The only path to the target; authorization per request | URL + request → `ResponseRecord` | Holds the origin allow-list; mints tokens through itself | Called by the runner, minter, recon and probes |
-| **Regression runner** | Deterministic service | Replay frozen cases on a build; flag reappearance | `regression_cases` + SHA → attempts | Deterministic | `redteam regression`, or triggered by `redteam poll` on a SHA change |
+| **Regression runner** | Deterministic service | Replay frozen cases on a build; flag reappearance | `regression_cases` + SHA → attempts | Deterministic | `redteam regression` (no attacker key: `_wire_replay`), or triggered by `redteam poll` on a SHA change; a reappearance raises `RegressionDetected` and exits 1 |
 | **Recon** | Deterministic service | Poll `/health` for `git_sha`; trigger regression on change | `/health` → target-health row, regression run | Read-only against the target | `redteam poll`, cron-friendly; route inventory is `not done` |
 | **Discovery tier** | LLM reviewer (non-Qwen by default) | Open-ended review of stored evidence | attempts → `discovery_candidates` | Leads only; cannot write findings | `redteam discover`, or `redteam poll --discover` |
 
 Human-facing outputs: a **static dashboard** (`redteam dashboard`, one self-contained HTML file;
 no server and no login), a markdown report (`redteam report`), and a **CLI approval** path
 (`redteam approve`) that writes an approval record into the report row. Both views answer the PRD's
-six observability questions from the store's tables, but on this commit their "recent agent
-actions" panels list the oldest actions first (`ORDER BY id LIMIT n`), and there is no per-run cost
-view or per-agent cost, and no time-ordered series (the by-build mix is keyed by build id and
-sorted by it, so it is a comparison across builds, not a chronological trend).
+six observability questions from the store's tables. The "recent agent actions" panels are
+newest-first over the most recent N (`queries.agent_trace`; `agent_trace_chronological` gives the same
+window in order). `queries.cost_by_run` and `cost_trend` give per-run cost in **model calls** (calls,
+attempts, calls per attempt, cumulative calls; `usd` is `None` when a call is unpriced, so unknown,
+not free; no price is wired for any model), and `queries.resilience_over_time` gives the verdict mix
+and attack-success rate per category per build, builds ordered by earliest attempt, with an
+improving or worsening call. All three render in `redteam report` and the dashboard. There is still
+no per-agent cost and no USD figure: the ledger's `tokens` and `usd` columns are never written.
 
 ## Interaction diagram
 
@@ -269,7 +273,8 @@ so a drift question applies only to the rubric tier and to oracle rules.
 - The local replica (`agentforge-w2-local`) is `enabled: false`; high-volume campaigns and the
   free-tier embedding-quota isolation planned in ADR 0003 are `not done`.
 - Multi-turn attack sequences are N/A (the composer is stateless); mutation is one guarded rephrase,
-  with `max_mutations=1` fixed in the Orchestrator.
+  with `max_mutations` defaulting to 1; `redteam campaign --max-mutations N` sets it (`0` disables
+  mutation; each mutation is a metered attacker call).
 
 ## Discovery tier (open-ended, candidate-only)
 
@@ -281,7 +286,7 @@ pre-encoded classes. A human hardens a confirmed candidate into an oracle and pr
 store: 32 candidates from two reviewers (DeepSeek and Qwen Max), 20 promoted to existing findings,
 12 dismissed as false positives, 0 new classes (`docs/DISCOVERY_TRIAGE.md`).
 
-## Implementation status (2026-10-01, base commit `2f3ea96`)
+## Implementation status (2026-10-01, reconciled with the merged code; store counts read on base `2f3ea96`)
 
 Wired = called by a CLI path. Tested = a test fails if it breaks. Live = recorded in
 `var/redteam.db` (read through a copy) against the deployed target.
@@ -302,6 +307,9 @@ Wired = called by a CLI path. Tested = a test fails if it breaks. Live = recorde
 | Discovery tier | yes | yes | yes | 3 passes, 32 candidates |
 | Benign over-refusal set | yes | yes | yes | one run, build `da7451d1`: 0 of 11 |
 | Atomic persistence and integrity check | yes | yes | yes | `redteam integrity`: 0 attempts without verdict, 0 findings without a case |
+| Typed errors | partly | yes | no | `JudgeTimeout` (rubric timeout becomes INCONCLUSIVE) and `RegressionDetected` (regression CLI, exit 1) are raised; `NoFindingsInWindow` is `RESERVED` (nothing asks for a window); none is serialized into the `error` schema at runtime. `tests/test_typed_errors.py` |
+| Documentation data-quality refusals | yes | yes | no | `redteam document` exits 1 with named reasons before any write; not exercised on the live store since the merge |
+| Eval-case Stage-3 enforcement | yes | yes | n/a | 13 committed cases, 11 categories; subcategory, risk class and evidence required (`evals/README.md`) |
 | Regression CI gate | no | n/a | n/a | the pipeline has no runner; run locally |
 | Fix-holds under mutation | no | n/a | n/a | replay is exact-case only |
 | State-diff oracle, tool-trace visibility | no | n/a | n/a | black-box |

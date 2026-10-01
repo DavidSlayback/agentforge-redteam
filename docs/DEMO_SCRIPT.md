@@ -28,8 +28,8 @@ runs live against the authorized, owner-operated target with synthetic patients 
 4. **Dry-run the campaign step once** (step 5 below) and the regression step (step 8). The
    campaign calls the attacker model, which has taken up to about a minute for one generation and
    timed out at the 90 s default three times in the last live run (`AGENTFORGE_REDTEAM_TIMEOUT`
-   raises it). `redteam regression` currently needs the three attacker-model variables from the
-   README set even though it makes no model call, so run it in the same configured shell.
+   raises it). `redteam regression` needs no attacker-model variables (it builds no attacker model);
+   with no rubric model set, a rubric-only frozen case reports INCONCLUSIVE.
 5. **Have these files open in tabs** so you can cut to them fast:
    `docs/architecture.html`, `authorization.yaml`,
    `docs/findings/F-831d4df407broken-authentication-demo-context.md`, and a browser tab ready for

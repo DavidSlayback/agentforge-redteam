@@ -76,7 +76,7 @@ test_typed_errors_conform
 test_negative_control_rejects_malformed[attack_spec|attempt|campaign|error|finding|verdict|vuln_report]
 ```
 
-The full suite on the same commit: `415 passed, 1 skipped` (the skip is the opt-in real-store check,
+The full suite on the same commit: `496 passed, 1 skipped` (Python 3.13, after the code merges; the skip is the opt-in real-store check,
 `REDTEAM_FROZEN_CHECK_STORE`).
 
 What these tests cover: each schema is valid; a real record the code persisted (assembled from the
@@ -88,9 +88,11 @@ instance. What they do **not** cover, stated plainly:
   consumer checks what it receives. A consumer-side test would feed each consumer a valid and an
   invalid message and assert it accepts and rejects them. Not done.
 - **Typed errors are class-level.** `test_typed_errors_conform` builds a message from each of the
-  seven exception classes. No runtime path serializes an error into the `error` schema, and three of
-  the seven (`JudgeTimeout`, `NoFindingsInWindow`, `RegressionDetected`) are never raised on this
-  commit.
+  seven exception classes. No runtime path serializes an error into the `error` schema. Six of the
+  seven are raised in `src/`; `JudgeTimeout` (rubric timeout, converted to INCONCLUSIVE) and
+  `RegressionDetected` (`RegressionReport.raise_if_regressed`, printed by the regression CLI) joined
+  them in the code merge. `NoFindingsInWindow` is `RESERVED`: nothing takes a time window.
+  `tests/test_typed_errors.py` keeps the raised and reserved sets from drifting.
 - **One sample per message type.** Each test reads the first row; it is not a sweep of the store.
 - The target-contract drift gate (`tools/generate_contracts.py`, a CI step) covers the Co-Pilot's own
   route schemas, a different family from these; it was not run in this workstream.

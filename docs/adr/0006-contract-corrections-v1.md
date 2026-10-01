@@ -31,13 +31,14 @@ record the corrected producers write, so these are v1 revisions.
 ## Known drift this ADR does not fix
 
 - The `outcome` vocabulary in code is `tested`, `skipped`, `provider_blocked`, `errored`,
-  `unreachable`, `budget_halted` (refactor #4). `contracts/README.md` and `test_campaign_conforms`
-  still list the first four. The schema does not constrain `outcome`, so nothing breaks; the README
-  should be updated by whoever owns `contracts/`.
+  `unreachable`, `budget_halted` (refactor #4). `contracts/README.md` now lists all six; `test_campaign_conforms`
+  still builds its sample from the first four. The schema does not constrain `outcome`, so nothing breaks; the sample
+  in the test is a follow-up for whoever owns `tests/`.
 - Typed errors: `error.schema.json` enumerates seven codes and a test builds a conforming message
   from each exception class, but no runtime path serializes an error into that wire form; a caught
-  error becomes an audit-action reason string. Three of the seven classes (`JudgeTimeout`,
-  `NoFindingsInWindow`, `RegressionDetected`) are not raised anywhere on this commit.
+  error becomes an audit-action reason string. Update after the code merge: `JudgeTimeout` and
+  `RegressionDetected` are now raised (rubric timeout handled into INCONCLUSIVE; the regression CLI);
+  `NoFindingsInWindow` is explicitly `RESERVED` and `tests/test_typed_errors.py` enforces the split.
 
 ## Consequences
 

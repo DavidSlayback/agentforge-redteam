@@ -41,7 +41,9 @@ a message that crosses a trust boundary.
 **Typed errors** (also `/contracts`, per E6): `target_unreachable`, `authorization_denied`,
 `budget_exceeded`, `judge_timeout`, `no_findings_in_window`, `regression_detected`,
 `provider_block`. Each: `{code, message, context, retriable}`. A hard budget stop and a
-provider block are outcomes, not crashes.
+provider block are outcomes, not crashes. As built: `JudgeTimeout` and `RegressionDetected` are raised
+(rubric timeout becomes INCONCLUSIVE; the regression CLI exits 1), `NoFindingsInWindow` is
+`RESERVED`, and no runtime path serializes an error into the contract (`tests/test_typed_errors.py`).
 
 ## Store schema (SQLite, single file)
 
@@ -135,7 +137,9 @@ Designed:
 `approve`, `document`, `evidence`, `integrity`, `regression`, `poll`, `discover`, `candidates`,
 `triage`, `disclosure`, `grounding`, `benign`, `calibrate`, `authz`, `campaign`. `campaign` takes
 `--category`, `--route`, `--patient`, `--victim-patient`, `--max-campaigns`, `--max-no-signal`,
-`--selector`, `--model`, `--max-model-calls` and `--target-sha` (no `--budget` or `--time`). **Not
+`--selector`, `--model`, `--max-model-calls`, `--max-mutations` (default 1; `0` disables mutation) and
+`--target-sha` (no `--budget` or `--time`). `regression` needs no attacker key (`_wire_replay`).
+`document` refuses an incomplete finding with `DataQualityError` (exit 1). **Not
 built:** `drill`, `serve-dashboard`, and `report --finding` / `--format sarif`.
 
 ## Execution slices
