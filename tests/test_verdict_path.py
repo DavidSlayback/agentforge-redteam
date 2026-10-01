@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from redteam.agents.judge.judge import Judge, VerdictOutcome
+from redteam.agents.judge.judge import Judge
 from redteam.authz_probe import (
     contradiction_probe,
     disclosure_probe,
