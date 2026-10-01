@@ -36,7 +36,7 @@ triggers the Co-Pilot's own embedding and LLM calls on the owner's accounts.
 | Attempts needing no attacker model | 139 (authorization battery, grounding, disclosure, enumeration, data-integrity, DoS, replays) | same |
 | Metered attacker calls | **43**: 26 generation, 17 mutation | `cost_ledger` |
 | Metered rubric calls | **0 recorded** (rubric metering began 2026-10-01; no rubric run since); 12 verdicts carry a rubric result | `cost_ledger`, `verdicts.oracle_results` |
-| Discovery-tier calls | **81 unmetered** (3 passes reviewed 29, 23 and 29 attempts; 33 returned a reviewer error) | `agent_actions` (`discovery_pass`) |
+| Discovery-tier calls | **81 unmetered** (3 passes reviewed 29, 23 and 29 attempts; the first pass's 29 reviews returned reviewer errors per `docs/ATO_PACKET.md`; the store records only "no candidates from 29 reviewed", so an error total is not recoverable from it) | `agent_actions` (`discovery_pass`) |
 | Jev selector calls | 0 (all 60 selections were deterministic) | `agent_actions` |
 | Tokens, USD | **not recorded** | `cost_ledger.tokens`, `usd` all NULL |
 | Attacker-model read timeouts (90 s default) | 40 of 47 brief errors | `agent_actions` (`brief_error`) |
@@ -59,7 +59,7 @@ Leave blank until filled; do not estimate. All of these are outside the reposito
 | 3 | Plan or subscription fee, prorated to the dev window, if the Qwen key bills through a plan | Bailian plan page; the plan notes say it bills in plan credits | n/a | OWNER |
 | 4 | Jev (TypeSafe) usage, if any | TypeSafe dashboard | 0 selections | OWNER |
 | 5 | AI-assisted development spend (the coding assistant used to build the platform) | Anthropic Console or Claude plan usage page | n/a | OWNER |
-| 6 | Target-side AI spend triggered by platform runs: embedding and LLM calls the Co-Pilot made for platform traffic | The target's provider consoles (Gemini embedding quota and the LLM provider) for the same window | about 39 AI-route exchanges returned `200` at about 4.5 s each, plus the 2026-09-28 pre-store runs | OWNER |
+| 6 | Target-side AI spend triggered by platform runs: embedding and LLM calls the Co-Pilot made for platform traffic | The target's provider consoles (Gemini embedding quota and the LLM provider) for the same window | about 44 AI-route exchanges (`/v1/follow-up-evidence`) returned `200` at a median of about 4.4 s each, plus the 2026-09-28 pre-store runs | OWNER |
 | 7 | Hosting: the deployed target's VM share, if charged to this project | Vultr billing; the platform itself runs on a dev machine | n/a | OWNER |
 | 8 | Average tokens per attacker call (input, output) | Row 1 tokens divided by row 1 calls from the provider usage export | needed for every projection below | OWNER |
 
@@ -67,7 +67,8 @@ When rows 1 to 8 are filled, the projection formula in section 5 turns the call 
 
 ## 3. Per-run call model
 
-Per LLM-origin attack: 1 generation call, plus 1 mutation call on a mutable non-success, plus retry
+Per LLM-origin attack: 1 generation call, plus up to `--max-mutations` mutation calls on a mutable
+non-success (default 1; `0` removes them, and the ledger counts below were taken at 1), plus retry
 overhead. Planning factor **1.7 calls per LLM attack** (design estimate: 1.5 plus 15% retries);
 the ledger shows 1.3 as a floor (see caveats). A rubric-judged attack adds 1 judge call. Every call
 is metered before it is made, so a retry or a timeout counts against `--max-model-calls` (default
@@ -205,7 +206,9 @@ the call counts, and the queue and worker split changes wall-clock, not cost.
   target exchange already made is kept.
 - The Governor owns `--max-campaigns` and `--max-no-signal`; only *tested* campaigns move the
   no-signal streak.
-- Per-run call attribution uses the run's own campaign ids, not table deltas.
+- Per-run call attribution uses the run's own campaign ids, not table deltas, and is shown as per-run
+  calls, calls per attempt and a cumulative trend by `queries.cost_by_run` and `cost_trend` (in
+  `redteam report` and the dashboard). `usd` there is `None` (unpriced), never a made-up number.
 - Not covered by any cap today: discovery calls, Jev calls, and target-side calls.
 
 See `KEY_METRICS.md` for metric definitions, `docs/PERF.md` for the throughput numbers used above,

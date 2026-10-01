@@ -59,9 +59,10 @@ Median and maximum `latency_ms` over the 178 exchanges in the canonical store, b
 | Class (status) | Exchanges | Median | Max |
 |---|---|---|---|
 | Authorization rejects (`403`, `400`, `429`), battery probes | about 70 | 127 to 189 ms | 447 ms |
-| Anonymous mint (`200`) | 29 | 134 ms | 447 ms |
-| AI routes (`200`: follow-up evidence, grounding, disclosure, excessive agency, injection) | 39 | 4.4 to 4.8 s | 6.6 s |
+| Anonymous mint (`200`, `/v1/demo-context`) | 30 | 132 ms | 447 ms |
+| AI route (`200`, `/v1/follow-up-evidence`: follow-up, grounding, disclosure, excessive agency, injection probes) | 44 | 4.4 s | 6.6 s |
 | Document scan or upload (`200`) | 20 | 219 ms | 260 ms |
+| Source-document context (`200`) | 14 | 132 ms | 145 ms |
 
 The two regimes are two orders of magnitude apart, which is why the cost and the wall-clock of a run
 depend on how many attempts reach a model-backed route, not on the attempt count.
@@ -233,6 +234,10 @@ run = orch.run(target_id="good", surfaces=["/v1/x"], route_fields={"/v1/x": "mes
 print(f"{(time.perf_counter()-t0)*1000/run.campaigns:.1f} ms per campaign")
 ```
 
+`Orchestrator.run` takes `max_mutations` (default 1, the value these runs used; the CLI exposes it as
+`redteam campaign --max-mutations`). Pass `max_mutations=0` to time a campaign with no mutation call.
+The figures in this document were taken with the default.
+
 ### C. Observability query time at scale
 
 Build a scratch store with `Store.open(path).close()` (applies the migrations), then bulk-insert
@@ -241,4 +246,5 @@ synthetic rows with plain `sqlite3` (`attack_specs(spec_id, category, created_at
 outcome, judged_at)`, `evidence(evidence_id, attempt_id, exchanges, created_at)` with a 2 KB body),
 reopen with `Store.open_readonly(path)`, and time `queries.pass_fail_by_category`,
 `queries.outcomes_by_sha`, `queries.cases_per_category`, `queries.cost_summary`,
-`queries.queue_depth`, `queries.agent_trace(store, 100)` and `store.integrity()`.
+`queries.queue_depth`, `queries.agent_trace(store, 100)` (newest-first since the code merge; the
+timed figure was taken on the earlier oldest-first version, same `LIMIT`) and `store.integrity()`.
