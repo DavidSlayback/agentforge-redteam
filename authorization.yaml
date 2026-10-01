@@ -6,7 +6,9 @@
 # permission lives here, in version control. See docs/adr/0002 and docs/HARNESS_SPEC.md.
 #
 # `origin` is matched literally against the request's scheme+host (no path). Nothing
-# runs against a system absent from this file.
+# runs against a system absent from this file. Loading fails closed: `enabled` must be a
+# YAML boolean (a quoted "false" is refused, not coerced), and an enabled entry must
+# carry a non-empty `proof`.
 
 targets:
   - id: agentforge-w2

@@ -1163,3 +1163,35 @@ Cross-origin binding then added to the three anonymous mints and deployed: live 
 `@ 926805ce` = held=5 reappeared=2 inconclusive=0, identical to `d5e79bb3`. This is belt-and-suspenders
 against cross-origin **browser** abuse only; a scripted client can omit/forge `Origin`, so F-831/F-24b
 remain risk-accepted. **Live build for the submission: `926805ce`.**
+
+### 2026-10-01 — fail-closed verdict fixes (review items 1–4; branch `fix/fail-closed-verdicts`)
+
+Source: whole-repo review (5 parallel reviewers, top findings re-verified). Branch is
+`peaceful-moser` + a merge of `main` (main's mint-429 and report fixes were missing here) + the
+fixes below. 270 tests; calibration set still 10/10.
+
+- **Judge evidence gate** (`a6d677b`). A non-2xx (other than 401/403 on an access-control probe) or
+  an empty answer is INCONCLUSIVE, never "held"; answer-grading oracles are set aside on such a
+  response (an echoed payload in a 422 is not a finding) and the rubric is never shown an error.
+  Authz oracle no longer reads 400/404/429 as a denial; rate-limit needs an observed 429;
+  contradiction needs a 200; rubric needs a boolean `violation`. The store showed the bug live:
+  BOLA/missing/forged-token 400s and mint replays on 400/429 were all recorded FAIL.
+- **Platform-owned criterion** (`0601185`). The marker is minted per case and judged only if the
+  payload asks for it; the model's own marker ("" matches everything) and DoS budget are ignored.
+- **Fix status** (`6308f1d`, `05910eb`). A build the exploit succeeded on is never "fixed"
+  (immutable SHA); otherwise a clean replay FAIL is held, else inconclusive. Builds re-hunted
+  before any replay are sightings, not fix attempts. Reports regenerated from a store *copy*:
+  the false `bfbb1eb2 — held` lines (400-era) are gone; every line matches the dispositions above.
+- **Fail closed** (`246951a`). A failed canary read raises (battery → coverage gap) instead of
+  turning shared values into canaries; registry refuses non-boolean `enabled` and enabled entries
+  without `proof`; every attacker and rubric call is metered before it is made.
+
+**Re-check of recorded fix validations:** every current claim (`d5e79bb3`, `926805ce`) survives the
+new rules — F-6ee held with 429s observed, AI-layer fixes held on clean 200s, enumeration held on its
+intentional uniform 400, mints reappeared. The false holds were historical (`bfbb1eb2`, early
+`da7451d1`) and superseded. Canonical store untouched (read-only queries; regeneration on a copy).
+
+**Deferred (from the same review, not in this slice):** orchestrator starvation/coverage crediting,
+budget checked only between campaigns, echo/canary matching on raw JSON escapes, non-atomic
+migrations, `cmd_campaign` exit code, dashboard "recent" ordering, token in curl repros, docs-vs-code
+drift (ARCHITECTURE message bus, LLM07 claim, `regression` needing model keys).
