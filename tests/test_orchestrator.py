@@ -264,6 +264,30 @@ def test_coverage_counts_only_this_targets_campaign_records(tmp_path: Path) -> N
     store.close()
 
 
+def test_open_finding_does_not_pin_its_category(tmp_path: Path) -> None:
+    # Commit 6: with an open finding (here two, so a fixed bonus would dominate), the sibling
+    # category must still be scheduled within a bounded number of campaigns. The exploit term is
+    # capped below an untried pair and decays with tries since the last finding.
+    reg = _registry(tmp_path)
+    store = Store.open(tmp_path / "s.db")
+    with store.transaction():
+        for i in (1, 2):
+            store.insert("findings", {"finding_id": f"F-{i}", "title": "t",
+                                      "primary_category": "denial-of-service", "status": "new",
+                                      "dedup_key": f"k{i}", "updated_at": "2026-01-01"})
+    clean = Executor(reg, lambda u, **k: ResponseRecord(200, "no marker here", 5.0))
+    orch = Orchestrator(registry=reg, executor=clean, judge=Judge(), store=store,
+                        agent=RedTeamAgent(), model=FakeModel(), selector=DeterministicSelector())
+    orch.run(
+        target_id="good", surfaces=["/v1/x"],
+        categories=[("denial-of-service", ["LLM10"]), ("prompt-injection", ["LLM01"])],
+        budget=Budget(max_campaigns=4, max_model_calls=999, max_no_signal=4),
+        route_fields={"/v1/x": "message"},
+    )
+    assert "prompt-injection" in _selected_categories(store)
+    store.close()
+
+
 def _selected_categories(store: Store) -> list[str]:
     import json as _json
 

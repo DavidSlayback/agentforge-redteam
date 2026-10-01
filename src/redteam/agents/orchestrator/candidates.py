@@ -18,6 +18,11 @@ _EXPLORE_WEIGHT = 1.0    # favor (category, route) pairs tested few times
 _EXPLOIT_WEIGHT = 0.5    # favor categories with open findings
 _UNTESTED_PENALTY = 0.5  # demote a pair whose campaigns could not be tested (skip/block/error),
                          # so a stuck brief stops winning without being counted as covered
+# The exploit term is capped strictly below the exploration gap between an untried pair
+# (explore 1.0) and a once-tested pair (explore 0.5), so a category with open findings can never
+# out-rank a pair that has never been tried (owner decision 2). It also decays with the tested
+# campaigns run since that category's last finding, so one open finding does not pin the category.
+_EXPLOIT_CAP = 0.49
 
 _OPEN_STATUSES = ("new", "confirmed", "retested")
 
@@ -34,6 +39,24 @@ def _open_findings_by_category(store: Store) -> dict[str, int]:
         ",".join("?" * len(_OPEN_STATUSES))
     )
     return {r["cat"]: r["c"] for r in store.conn.execute(q, _OPEN_STATUSES)}
+
+
+def _tries_since_last_finding(store: Store, target_id: str) -> dict[str, int]:
+    """Per category, the number of tested campaigns run (for this target) since that category's
+    most recent open finding. Drives the exploit-term decay: a category keeps exploitation weight
+    right after a finding, which fades as it is re-tested without a new one."""
+    last = {r["cat"]: r["t"] for r in store.conn.execute(
+        "SELECT primary_category AS cat, MAX(updated_at) AS t FROM findings "
+        "WHERE status IN (%s) GROUP BY primary_category" % ",".join("?" * len(_OPEN_STATUSES)),
+        _OPEN_STATUSES)}
+    tested_ts: dict[str, list[str]] = {}
+    for r in store.conn.execute(
+            "SELECT json_extract(categories, '$[0]') AS cat, created_at FROM campaigns "
+            "WHERE target_id = ? AND outcome = 'tested'", (target_id,)):
+        tested_ts.setdefault(r["cat"], []).append(r["created_at"])
+    # ISO-8601 timestamps compare lexicographically, so "> last finding" is a string comparison.
+    return {cat: sum(1 for c in tested_ts.get(cat, []) if ts is None or c > ts)
+            for cat, ts in last.items()}
 
 
 def _campaign_coverage(store: Store, target_id: str) -> dict[tuple[str, str], dict[str, int]]:
@@ -83,6 +106,7 @@ def build_candidates(
     """
     cov = _campaign_coverage(store, target_id)
     open_by_cat = _open_findings_by_category(store)
+    tries_since = _tries_since_last_finding(store, target_id)
     route_fields = route_fields or {}
     excluded = excluded or set()
 
@@ -100,8 +124,11 @@ def build_candidates(
                 continue   # retired for the rest of this run (repeated untested outcomes)
             counts = cov.get((category, route), {"tested": 0, "untested": 0})
             tested, untested = counts["tested"], counts["untested"]
+            exploit = 0.0
+            if open_f:
+                exploit = min(_EXPLOIT_WEIGHT * open_f / (1 + tries_since.get(category, 0)), _EXPLOIT_CAP)
             score = (_EXPLORE_WEIGHT / (1 + tested)
-                     + _EXPLOIT_WEIGHT * open_f
+                     + exploit
                      - _UNTESTED_PENALTY * untested)
             brief = {"category": category, "owasp": owasp, "target_id": target_id, "route": route,
                      "input_field": route_fields[route]}   # guaranteed present (filtered above)
