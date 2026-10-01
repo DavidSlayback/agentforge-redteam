@@ -20,11 +20,21 @@ def test_keys_numbers_booleans_and_null_are_not_decoded() -> None:
     body = json.dumps({"key_only": 1, "flag": True, "none": None, "ratio": 0.5, "s": "kept"})
     assert decoded_values(body) == (("$.s", "kept"),)
     assert decoded_values("{}") == ()
-    assert decoded_values("42") == ()
 
 
 def test_a_top_level_json_string_decodes_to_itself() -> None:
     assert decoded_values(json.dumps('a "b"')) == (("$", 'a "b"'),)
+    obs = Observation(response_text=json.dumps('line\none'), injection_marker="one", status_code=200)
+    assert obs.decoded_text == "line\none"
+
+
+def test_a_bare_scalar_body_is_graded_on_its_raw_text() -> None:
+    # A bare number, boolean or null has no string value, but it is the whole answer: grading it
+    # as no content would hide e.g. a numeric canary. It falls back to the raw text.
+    for text in ("12345678901234", "true", "null", " 0.5 "):
+        assert decoded_values(text) == ((RAW_PATH, text),)
+    obs = Observation(response_text="12345678901234", foreign_canaries=frozenset({"12345678901234"}))
+    assert obs.decoded_text == "12345678901234"
 
 
 def test_a_body_that_is_not_json_falls_back_to_the_raw_text() -> None:

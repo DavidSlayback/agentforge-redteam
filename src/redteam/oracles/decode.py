@@ -6,9 +6,12 @@ oracles look for â€” the injection marker, foreign canaries, an echoed payload â
 strings, so they are matched against the body's decoded string values, not its raw text.
 
 Decoding rule (refactor #2): every string value in the parsed body, in document order, with its
-JSON path. Keys, numbers, booleans and null are not included. A top-level JSON string decodes to
-itself. A body that does not parse as JSON (an HTML error page, plain text, malformed JSON) falls
-back to the raw text, which is exactly what the oracles read before decoding existed.
+JSON path. Keys, numbers, booleans and null inside an object or array are not included. A top-level
+JSON string decodes to itself. A body that does not parse as JSON (an HTML error page, plain text,
+malformed JSON), or that is a bare number, boolean or null, falls back to the raw text, which is
+exactly what the oracles read before decoding existed. Keys are dropped by design (checks that look
+for key names read the raw body), and so is a value under a duplicated key (the parser keeps the
+last one).
 """
 
 from __future__ import annotations
@@ -31,6 +34,8 @@ def decoded_values(text: str) -> DecodedValues:
     try:
         data = json.loads(text)
     except (ValueError, RecursionError):   # not JSON, or nested deeper than the parser accepts
+        return ((RAW_PATH, text),)
+    if not isinstance(data, (dict, list, str)):   # a bare number, boolean or null is the answer
         return ((RAW_PATH, text),)
     return _string_values(data)
 
