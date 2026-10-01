@@ -122,7 +122,7 @@ artifact), `SAFETY` (trust boundary), `SCHEDULE` (checkpoint). Status: `not star
 | E11 | p13 | Data model + access controls: who writes/reads exploits, human approval before publish; lineage/reporting | OPTIONAL | **DONE** — `docs/DATA_MODEL.md` E11 (writer/reader model, approval-before-publish, lineage) |
 | E12 | p13 | SQL indexes on common queries (severity/category/version); regression full-scan SLO verified in CI | OPTIONAL | **DONE** — 13 indexes; `tests/test_slo.py` asserts common queries are index-backed (EXPLAIN QUERY PLAN) + full replay under bound; runs in CI via pytest (`.gitlab-ci.yml`) |
 | E13 | p13 | Baseline CPU/mem/latency/throughput under representative run (100 cases + full regression) | OPTIONAL | not started |
-| E14 | p13 | Load test: 100 consecutive cases vs live target; platform metrics; identify bottleneck + the architectural fix | OPTIONAL | not started |
+| E14 | p13 | Load test: 100 consecutive cases vs live target; platform metrics; identify bottleneck + the architectural fix | OPTIONAL | **DONE** — `docs/PERF.md`: 100 live cases; bottleneck = single serialized Executor door; fix = worker pool behind the same auth gate (scales to the target's own 429/quota ceiling) |
 | E15 | p12–13 | ATO-style evidence packet (arch + data-flow diagram, auth model, dependency versions, platform self-scan, test evidence, sample incident/postmortem); + integration packet if the peer integration-week exercise applies (see R3) | OPTIONAL | not started |
 
 ### Safety / trust boundary (AGENTS.md + PRD Appendix item 9)
