@@ -15,6 +15,7 @@ fields, and no second report for a Finding that already has one.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import shlex
 from dataclasses import dataclass
@@ -23,7 +24,32 @@ from urllib.parse import urlencode
 
 from redteam.owasp import owasp_label
 
-_REQUIRED = ("finding_id", "primary_category", "severity", "dedup_key")
+_SEVERITY_LEVELS = frozenset({"low", "medium", "high", "critical"})
+
+
+class DataQualityError(ValueError):
+    """A finding is not complete enough to document, so no report was written (E9).
+
+    ``reasons`` are stable, named codes -- missing_severity, missing_attack_category,
+    missing_unique_identifier, missing_reproduction_steps, missing_observed_behavior,
+    missing_expected_behavior, duplicate_attack_sequence -- so a caller can act on them. A
+    ValueError subclass so existing callers that guard document() keep working.
+    """
+
+    def __init__(self, finding_id: str | None, reasons: list[str], detail: str = "") -> None:
+        self.finding_id = finding_id
+        self.reasons = list(reasons)
+        super().__init__(f"finding {finding_id} refused, not documented: {', '.join(self.reasons)}"
+                         + (f" ({detail})" if detail else ""))
+
+
+def _sequence_fingerprint(exchanges: list[dict]) -> str | None:
+    """A stable hash of the attack sequence: the ordered (method, route, request) of each exchange.
+    Two findings with the same fingerprint describe the same attack."""
+    if not exchanges:
+        return None
+    steps = [[ex.get("method"), ex.get("route"), ex.get("request")] for ex in exchanges]
+    return hashlib.sha256(json.dumps(steps, sort_keys=True, default=str).encode("utf-8")).hexdigest()
 
 _REMEDIATION = {
     "prompt-injection": "Delimit and datamark untrusted content in prompts; enforce an instruction hierarchy; verify claims against source before display.",
@@ -130,10 +156,45 @@ def _decode_token_claims(token: str) -> dict:
 
 @dataclass
 class DocumentationAgent:
-    def _validate(self, finding: dict) -> None:
-        missing = [f for f in _REQUIRED if not finding.get(f)]
-        if missing:
-            raise ValueError(f"finding {finding.get('finding_id')} missing required fields: {missing}")
+    def _finding_problems(self, finding: dict) -> list[str]:
+        """Required fields carried by the finding row itself."""
+        problems = []
+        if not finding.get("finding_id") or not finding.get("dedup_key"):
+            problems.append("missing_unique_identifier")
+        if not finding.get("primary_category"):
+            problems.append("missing_attack_category")
+        try:
+            level = json.loads(finding.get("severity") or "null").get("provisional_level")
+        except (ValueError, TypeError, AttributeError):
+            level = None
+        if not isinstance(level, str) or not level.strip():
+            problems.append("missing_severity")
+        return problems
+
+    def _evidence_problems(self, store, finding: dict, evidence: dict) -> tuple[list[str], str]:
+        """Required fields carried by the finding's evidence, and the duplicate-sequence check
+        against the reports of OTHER findings. Returns (reasons, detail)."""
+        problems, detail = [], ""
+        exchanges = evidence.get("exchanges") or []
+        if not exchanges:
+            problems.append("missing_reproduction_steps")
+        if not self._violations(evidence):
+            problems.append("missing_observed_behavior")
+        if not evidence.get("expected_safe"):
+            problems.append("missing_expected_behavior")
+        fingerprint = _sequence_fingerprint(exchanges)
+        if fingerprint is not None:
+            for row in store.conn.execute(
+                    "SELECT finding_id, repro FROM vuln_reports WHERE finding_id != ?", (finding["finding_id"],)):
+                try:
+                    other = json.loads(row["repro"] or "{}").get("exchanges") or []
+                except (ValueError, TypeError, AttributeError):
+                    continue
+                if _sequence_fingerprint(other) == fingerprint:
+                    problems.append("duplicate_attack_sequence")
+                    detail = f"same attack sequence as {row['finding_id']}"
+                    break
+        return problems, detail
 
     # ---- gathering -------------------------------------------------------------------
 
@@ -503,13 +564,17 @@ class DocumentationAgent:
         if row is None:
             raise ValueError(f"no such finding: {finding_id}")
         finding = dict(row)
-        self._validate(finding)
+        # Data quality is checked BEFORE anything is written: every problem is reported at once.
+        problems = self._finding_problems(finding)
+        ctx = self.context(store, finding, registry)
+        more, detail = self._evidence_problems(store, finding, ctx["evidence"])
+        if problems or more:
+            raise DataQualityError(finding.get("finding_id"), problems + more, detail)
 
         try:
             level = json.loads(finding["severity"]).get("provisional_level", "")
         except (ValueError, TypeError, AttributeError):
             level = ""
-        ctx = self.context(store, finding, registry)
         evidence = ctx["evidence"]
         kind = self._kind(finding, evidence)
         description, impact = self._description(finding, kind)

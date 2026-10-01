@@ -162,7 +162,13 @@ def cmd_document(args: argparse.Namespace) -> int:
     registry = AuthorizationRegistry.load(args.authorization) if Path(args.authorization).exists() else None
     store = Store.open(args.store)
     doc = DocumentationAgent()
-    report_id = doc.document(store, args.finding_id, registry=registry)
+    from redteam.agents.documentation.agent import DataQualityError
+    try:
+        report_id = doc.document(store, args.finding_id, registry=registry)
+    except DataQualityError as exc:
+        print(f"document: {exc}", file=sys.stderr)
+        store.close()
+        return 1
     row = store.conn.execute("SELECT * FROM findings WHERE finding_id = ?", (args.finding_id,)).fetchone()
     finding = dict(row)
     level = json.loads(finding["severity"]).get("provisional_level", "medium")
