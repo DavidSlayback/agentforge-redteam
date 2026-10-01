@@ -87,6 +87,35 @@ def run_discovery(store: Store, judge: DiscoveryJudge, *, target_sha: str | None
     return summary
 
 
+_STATUSES = ("new", "confirmed", "dismissed", "promoted")
+
+
+def triage_candidates(store: Store, status: str, *, candidate_id: str | None = None,
+                      vuln_class: str | None = None, note: str | None = None) -> int:
+    """Set the triage status of one candidate (by id) or all candidates of a vuln_class. Returns the
+    number updated. `status` ∈ new|confirmed|dismissed|promoted; a confirmed candidate is one a human
+    verified and will harden into a deterministic probe, promoted means a finding already exists,
+    dismissed is a false positive or a known/duplicate class."""
+    if status not in _STATUSES:
+        raise ValueError(f"status must be one of {_STATUSES}")
+    if not (candidate_id or vuln_class):
+        raise ValueError("pass candidate_id or vuln_class")
+    where = "candidate_id = ?" if candidate_id else "vuln_class = ?"
+    param = candidate_id or vuln_class
+    note_sql = ", why = why || ' [triage: ' || ? || ']'" if note else ""
+    params: tuple = (status, note, param) if note else (status, param)
+    cur = store.conn.execute(
+        f"UPDATE discovery_candidates SET status = ?{note_sql} WHERE {where} AND status != 'promoted'",
+        params)
+    store.conn.commit()
+    store.insert("agent_actions", {
+        "ts": _now(), "agent": "triage", "action": "candidate_triage",
+        "refs": json.dumps({"by": "id" if candidate_id else "class", "key": param, "status": status}),
+        "reason": f"{cur.rowcount} candidate(s) -> {status}" + (f": {note}" if note else ""),
+    })
+    return cur.rowcount
+
+
 def list_candidates(store: Store, status: str | None = "new") -> list[dict]:
     where = "WHERE status = ?" if status else ""
     params: tuple = (status,) if status else ()

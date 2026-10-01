@@ -287,6 +287,19 @@ def cmd_disclosure(args: argparse.Namespace) -> int:
     return 1 if any(str(r.verdict.outcome) == "SUCCESS" for r in results) else 0
 
 
+def cmd_triage(args: argparse.Namespace) -> int:
+    """Set a discovery candidate's triage status (by id or by vuln_class). Records the disposition in
+    the store so the candidate→finding workflow is auditable."""
+    from redteam.discovery import triage_candidates
+
+    store = Store.open(args.store)
+    n = triage_candidates(store, args.status, candidate_id=args.candidate,
+                          vuln_class=getattr(args, "class"), note=args.note)
+    print(f"triaged {n} candidate(s) -> {args.status}")
+    store.close()
+    return 0
+
+
 def cmd_grounding(args: argparse.Namespace) -> int:
     """Run the off-condition grounding battery (OWASP LLM09): does the target present guideline
     evidence as applicable for conditions the patient does not have? Deterministic; no attacker
@@ -438,6 +451,13 @@ def build_parser() -> argparse.ArgumentParser:
     ca = sub.add_parser("candidates", help="list open discovery candidates (leads for human triage)")
     ca.add_argument("--status", default="new", help="filter by status (new|confirmed|dismissed|promoted); '' for all")
     ca.set_defaults(func=cmd_candidates)
+
+    tr = sub.add_parser("triage", help="set a discovery candidate's status (by id or vuln_class)")
+    tr.add_argument("--status", required=True, choices=["new", "confirmed", "dismissed", "promoted"])
+    tr.add_argument("--candidate", default=None, help="a candidate_id")
+    tr.add_argument("--class", default=None, dest="class", help="disposition all candidates of this vuln_class")
+    tr.add_argument("--note", default=None, help="triage rationale appended to the candidate")
+    tr.set_defaults(func=cmd_triage)
 
     ds = sub.add_parser("disclosure", help="internal-metadata disclosure probe (info-disclosure)")
     ds.add_argument("--target", required=True)
