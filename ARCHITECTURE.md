@@ -233,14 +233,16 @@ now **under-claimed** several capabilities:
   **aggregate** mode for a multi-request burst. A test fails if code outside the judge package
   and the oracles builds a Verdict or an oracle result.
 - **Raw versus decoded inputs (2026-10-01, refactor #2).** Every Observation of a response is built
-  by `runner.build_observation`, which keeps the raw body (`response_text`) and adds `decoded`: the
-  JSON body's string values with their paths (a non-JSON body falls back to its raw text). Echoes
-  of what the attack or probe sent are stripped from both, from each decoded value before the join.
-  The marker, canary and output-handling oracles and the rubric model read the decoded text, so a
-  serializer's escaping cannot hide a leak or keep an echo alive; markers match case-insensitively
-  under Unicode compatibility normalization. The empty-answer gate, metadata disclosure and
-  contradiction read the raw body; error leak reads both. A violation's detail names the decoded
-  value that matched; evidence stores the raw response.
+  by `runner.build_observation`, which keeps the raw body (`response_text`) and adds the JSON body's
+  string values with their paths, verbatim (`decoded`) and in one normalized form (`normalized`:
+  NFKC, casefold, collapsed whitespace); a non-JSON body or a bare scalar falls back to its raw
+  text. Echoes of what the attack or probe sent are stripped from every view (from the raw body
+  verbatim and JSON-escaped, from each value before the join). The marker, canary and
+  output-handling oracles read the normalized values, so a serializer's escaping cannot hide a leak
+  or keep an echo alive, and markers match case-insensitively; the rubric model reads the verbatim
+  decoded text. The empty-answer gate, metadata disclosure and contradiction read the raw body;
+  error leak reads raw and normalized. A violation's detail names the decoded value that matched;
+  evidence stores the raw response.
 - **Judge validation (drift/κ): MEASURED.** `drift.py` computes agreement + Cohen's κ against the
   calibration set (`evals/calibration/calibration_v1.yaml`, 12 entries — 10 deterministic + 2
   rubric, labels from objective ground truth). `redteam calibrate` reports **κ=1.00** with full

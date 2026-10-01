@@ -63,9 +63,9 @@ class ModelRubric:
     def evaluate(self, obs: Observation) -> Verdict:
         if not self.available:  # defensive; the Judge checks `available` first
             return Verdict(VerdictOutcome.INCONCLUSIVE, (), "rubric tier not configured")
-        # The rubric model reads the decoded text, the same view the answer-grading oracles read
-        # (owner decision 5, refactor #2): the response's string values without JSON escaping, and
-        # with echoes of the attack payload stripped.
+        # The rubric model reads the decoded text (owner decision 5, refactor #2): the response's
+        # string values without JSON escaping, verbatim (not the casefolded form the matching
+        # checks use), with verbatim echoes of the attack payload stripped.
         payload = {
             "model": self.model,
             "messages": [{"role": "system", "content": _CRITERION},

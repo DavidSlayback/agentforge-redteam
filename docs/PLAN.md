@@ -1274,32 +1274,42 @@ that each replay `BEGIN` is followed directly by finalize's first insert on ever
 
 ### 2026-10-01 — refactor #2: decode before matching (branch `refactor/decode-before-matching`)
 
-GitLab #2, on top of #3, in the plan's commit order with owner decisions 1–7. The target answers in
-JSON, so a decoded needle (marker, canary, echoed payload) was searched for in an escaped haystack.
-`runner.build_observation` now gives every Observation a `decoded` field: the body's string values
-with their JSON paths (`oracles/decode.py`; non-JSON falls back to the raw text), each stripped of
-echoes before the join. Echoes are also stripped verbatim from the raw `response_text`, as before.
+GitLab #2, on top of #3, in the plan's commit order with owner decisions 1–7, then one review
+round. The target answers in JSON, so a decoded needle (marker, canary, echoed payload) was searched
+for in an escaped haystack. `runner.build_observation` now builds every Observation of a response
+with three views, each stripped of echoes of the request before any join: the raw body
+(`response_text`, echoes removed verbatim and JSON-escaped), `decoded` (the body's string values
+with their JSON paths, verbatim; `oracles/decode.py`, iterative walk, non-JSON or a bare scalar
+falls back to the raw text) and `normalized` (the same values in `decode.normalize` form: NFKC,
+casefold, collapsed whitespace, echoes removed in that form).
 
-- **Inputs:** decoded, joined (1) for marker, canary, output handling and the rubric model (5);
-  raw for the empty-answer gate (2), metadata disclosure, contradiction; both for error leak.
-- **Markers** match case-insensitively under NFKC (3); decoded echo stripping and the canary
-  comparison fold the same way. The raw strip stays verbatim.
+- **Inputs:** normalized, joined (1) for marker, canary and output handling; verbatim decoded for
+  the rubric model (5); raw for the empty-answer gate (2), metadata disclosure, contradiction;
+  raw and normalized for error leak.
+- **Markers** match case-insensitively under NFKC (3); echo stripping and the canary match use the
+  same normalization, whitespace included, on every value.
 - **Authorization probes** strip echoes of what they sent (4), and all of them now use the shared
   builder; a guard test fails on an Observation of a response built anywhere else (the
   rate-limit burst stays an explicit aggregate).
 - **Oracle detail** names the decoded value that matched, e.g. `marker present (in
   $.answer.claims[0].text)` (6). Evidence still stores the raw response.
 - **No re-judging (7).** `tests/test_frozen_cases.py` replays every frozen case's stored attempts
-  offline through its own probe and compares the decoded and the pre-decoding views; set
+  offline through its own probe and compares the current and the pre-decoding views; set
   `REDTEAM_FROZEN_CHECK_STORE` to run it on a store (it copies the file and opens the copy
-  read-only). On a copy of `var/redteam.db`: 7 frozen cases, 44 attempts, 40 with a stored
-  exchange, no outcome or oracle-outcome change. A separate A/B (base-branch code vs this branch on
-  the same copy) agrees on all 40. Five stored outcomes differ from today's re-judge under both
-  codes (mint 400/429 and one rate-limit burst, stored FAIL, now INCONCLUSIVE): the fail-closed
-  gate, not this refactor.
-- **Deviations:** the raw strip is kept (decision 2 and the raw checks see what they saw before);
-  canary comparison gained NFKC so it reads a folded value in the form the stripper left it.
-- **Checks:** `uv run pytest -q` 347 passed, 1 skipped (the opt-in store check; baseline 311),
+  read-only). It refuses a frozen case that is not probe-origin and excludes capped stored
+  responses (counted). On a copy of `var/redteam.db`: 7 frozen cases (all probe-origin), 44
+  attempts, 40 compared, 0 capped, 4 without a stored exchange; no outcome or oracle-outcome
+  change. A separate A/B (base-branch code vs this branch on the same copy) agrees on all 40. Five
+  stored outcomes differ from today's re-judge under both codes (mint 400/429 and one rate-limit
+  burst, stored FAIL, now INCONCLUSIVE): the fail-closed gate, not this refactor.
+- **Deviations:** (a) the empty-answer gate reads the raw body after echo stripping on every path.
+  That is what run_case and the document path always did; on the probe paths, which stripped
+  nothing before, a response that is only an echo of the request is now INCONCLUSIVE ("empty
+  answer") rather than judged. Kept as the fail-closed choice; a body with no string values
+  (`{"count": 3}`) is still an answer. (b) Decoding drops keys (checks that look for key names read
+  the raw body) and the earlier value under a duplicated key (the parser keeps the last). (c) A bare
+  JSON number, boolean or null is graded on its raw text.
+- **Checks:** `uv run pytest -q` 359 passed, 1 skipped (the opt-in store check; baseline 311),
   green at every commit. `redteam calibrate` on a temp store: n=10 agree=10, κ=1.00.
 - **Residual:** an echo strip on the BOLA probe removes the victim id it sent; a canary that
   contained that id would no longer match. Fixture canaries are fact values, not ids.

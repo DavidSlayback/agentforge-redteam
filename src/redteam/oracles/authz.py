@@ -115,12 +115,12 @@ class OutputHandlingOracle:
     def check(self, obs: Observation) -> OracleResult:
         # Decoded values (refactor #2): markup whose angle brackets a serializer escaped is still
         # markup once the client decodes it, and an echo is stripped from each value before the join.
-        if obs.decoded_text is None:
+        if obs.normalized_text is None:
             return OracleResult(self.name, self.tier, OracleOutcome.NOT_APPLICABLE)
-        haystack = obs.decoded_text.casefold()
+        haystack = obs.normalized_text
         for sig in _ACTIVE_MARKUP:
             if sig in haystack:
-                found = where(obs.decoded or (), lambda value, sig=sig: sig in value.casefold())
+                found = where(obs.normalized or (), lambda value, sig=sig: sig in value)
                 return OracleResult(self.name, self.tier, OracleOutcome.VIOLATION,
                                     f"active markup emitted: {sig!r} ({found})")
         return OracleResult(self.name, self.tier, OracleOutcome.NOT_APPLICABLE)
@@ -315,8 +315,8 @@ class ErrorLeakOracle:
         # violation, so reading both cannot create a false pass (refactor #2).
         if obs.response_text is not None and (leak := _error_leak(obs.response_text)):
             return OracleResult(self.name, self.tier, OracleOutcome.VIOLATION, f"{leak} (in the raw body)")
-        if obs.decoded_text is not None and (leak := _error_leak(obs.decoded_text)):
-            found = where(obs.decoded or (), lambda value: _error_leak(value) is not None)
+        if obs.normalized_text is not None and (leak := _error_leak(obs.normalized_text)):
+            found = where(obs.normalized or (), lambda value: _error_leak(value) is not None)
             return OracleResult(self.name, self.tier, OracleOutcome.VIOLATION, f"{leak} ({found})")
         # No leak found. This is an opportunistic detector, not a criterion for this attempt,
         # so it does not apply rather than crediting a defense it never tested.
