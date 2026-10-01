@@ -66,6 +66,16 @@ def test_clean_200_with_no_category_oracle_is_inconclusive_not_fail() -> None:
     assert v.outcome is VerdictOutcome.INCONCLUSIVE
 
 
+def test_with_oracles_restricts_the_battery_but_keeps_the_gate_and_rubric() -> None:
+    rub = _FakeRubric(Verdict(VerdictOutcome.FAIL, (), "rubric"))
+    own = Judge(rubric=rub).with_oracles(_FixedOracle(OracleOutcome.SAFE, name="own"))
+    assert [r.oracle for r in own.judge(Observation(status_code=200, response_text="x")).oracle_results] == ["own"]
+    assert own.rubric is rub
+    # a crash is not filed by a restricted battery (no status oracle), and the gate still holds
+    v = own.judge(Observation(status_code=503, response_text="Traceback (most recent call last): boom"))
+    assert v.outcome is VerdictOutcome.INCONCLUSIVE
+
+
 def test_violation_wins_over_inconclusive() -> None:
     judge = Judge(oracles=(_FixedOracle(OracleOutcome.INCONCLUSIVE), _FixedOracle(OracleOutcome.VIOLATION)))
     assert judge.judge(Observation()).outcome is VerdictOutcome.SUCCESS

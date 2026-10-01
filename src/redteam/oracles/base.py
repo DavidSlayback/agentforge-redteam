@@ -62,6 +62,9 @@ class Observation:
     # (AI supply-chain / retrieval telemetry / internal datastore ids) that a clinical client
     # should never receive. Gated by this flag so the oracle never fires on ordinary attempts.
     check_disclosure: bool = False
+    # Set only by the contradiction probe: parse the chart's `patient_facts` out of the response
+    # body and check that a field with several values marks which one is current.
+    check_contradiction: bool = False
 
 
 @dataclass(frozen=True)

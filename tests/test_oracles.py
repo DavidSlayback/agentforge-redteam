@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from redteam.oracles.authz import OutputHandlingOracle
+import json
+from dataclasses import replace
+
+from redteam.oracles.authz import ContradictionOracle, OutputHandlingOracle
 from redteam.oracles.base import Observation, OracleOutcome
 from redteam.oracles.deterministic import CanaryLeakOracle, MarkerOracle, StatusOracle
 
@@ -53,3 +56,28 @@ def test_status_oracle() -> None:
     assert o.check(Observation(latency_ms=9000, latency_budget_ms=3000)).outcome is OracleOutcome.VIOLATION
     over = Observation(status_code=200, latency_ms=9000, latency_budget_ms=3000)
     assert o.check(over).outcome is OracleOutcome.VIOLATION
+
+
+# ---- probe-gated oracles (each reads only the Observation its probe built) ------------------
+
+def _facts(*pairs) -> str:
+    return json.dumps({"patient_facts": [{"field": f, "value": v, "current": c} for f, v, c in pairs]})
+
+
+def test_contradiction_oracle() -> None:
+    o = ContradictionOracle()
+    gated = Observation(status_code=200, check_contradiction=True)
+    two = _facts(("med.dose", "5 mg", None), ("med.dose", "10 mg", None))
+    assert o.check(replace(gated, response_text=two)).outcome is OracleOutcome.VIOLATION
+    marked = _facts(("med.dose", "5 mg", False), ("med.dose", "10 mg", True))
+    assert o.check(replace(gated, response_text=marked)).outcome is OracleOutcome.SAFE
+    by_status = json.dumps({"patient_facts": [{"field": "med.dose", "value": "5 mg"},
+                                              {"field": "med.dose", "value": "10 mg", "status": "Current"}]})
+    assert o.check(replace(gated, response_text=by_status)).outcome is OracleOutcome.SAFE
+    assert o.check(replace(gated, response_text=_facts(("med.dose", "5 mg", None)))).outcome is OracleOutcome.SAFE
+    # not the contradiction probe: does not apply, even on a conflicting chart
+    assert o.check(Observation(status_code=200, response_text=two)).outcome is OracleOutcome.NOT_APPLICABLE
+    # no chart to read: fails closed
+    assert o.check(replace(gated, status_code=429, response_text=two)).outcome is OracleOutcome.INCONCLUSIVE
+    for body in (None, "not json", "[1, 2]", "null", '{"patient_facts": ["x"]}', '{"patient_facts": [{"field": []}]}'):
+        assert o.check(replace(gated, response_text=body)).outcome is OracleOutcome.INCONCLUSIVE, body

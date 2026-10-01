@@ -11,7 +11,7 @@ a FAIL — a defense is only credited when the oracles actually ran and stayed c
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import Protocol
 
@@ -102,6 +102,12 @@ class Rubric(Protocol):
 class Judge:
     oracles: tuple[Oracle, ...] = DEFAULT_ORACLES
     rubric: Rubric | None = None   # optional LLM tier; used only where no oracle applies
+
+    def with_oracles(self, *oracles: Oracle) -> Judge:
+        """This Judge (same evidence gate, same rubric tier) restricted to `oracles`. A
+        deterministic probe is judged by its own oracle only, so a crash or an error leak on its
+        refusal is not filed as a second finding (owner decision D3, refactor #3)."""
+        return replace(self, oracles=tuple(oracles))
 
     def judge(self, obs: Observation) -> Verdict:
         # A provider/content-filter block is never evidence the target's defense held. The caller
