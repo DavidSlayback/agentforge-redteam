@@ -275,3 +275,30 @@ def test_a_failed_inner_scope_dooms_the_outer_unit_even_if_caught(tmp_path: Path
     cause = aborted.value.__cause__               # the swallowed failure stays visible
     assert isinstance(cause, ValueError) and str(cause) == "inner failure"
     store.close()
+
+def test_raw_connection_writes_outside_a_scope_are_refused(tmp_path: Path) -> None:
+    # The rule is enforced at the connection, so going around store.insert/execute does not
+    # reopen the row-by-row autocommit path.
+    import sqlite3
+
+    db = tmp_path / "s.db"
+    store = Store.open(db)
+    for sql in ("INSERT INTO agent_actions(ts, agent, action) VALUES ('t', 'raw', 'x')",
+                "UPDATE agent_actions SET reason = 'x'",
+                "DELETE FROM agent_actions",
+                "CREATE TABLE sneaky (x)"):
+        with pytest.raises(sqlite3.DatabaseError, match="not authorized"):
+            store.conn.execute(sql)
+    with pytest.raises(sqlite3.DatabaseError, match="not authorized"):
+        store.conn.executescript("INSERT INTO agent_actions(ts, agent, action) VALUES ('t', 'raw', 'y');")
+
+    # A statement prepared inside a scope cannot be replayed from the statement cache outside one.
+    insert = "INSERT INTO agent_actions(ts, agent, action) VALUES (?, ?, ?)"
+    with store.transaction():
+        store.conn.execute(insert, ("t", "raw", "in-scope"))
+    with pytest.raises(sqlite3.DatabaseError, match="not authorized"):
+        store.conn.execute(insert, ("t", "raw", "outside"))
+
+    assert store.conn.execute("SELECT COUNT(*) AS c FROM agent_actions").fetchone()["c"] == 1   # reads are fine
+    assert _committed_actions(db) == ["in-scope"]
+    store.close()
