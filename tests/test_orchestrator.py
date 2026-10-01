@@ -184,6 +184,34 @@ class FaultyModel:
         return _PI_CASE
 
 
+def test_each_scheduled_brief_gets_a_campaign_record_with_its_outcome(tmp_path: Path) -> None:
+    # Commit 3: a unique campaign id per run+brief; a Campaign row records the brief's outcome and
+    # route; attempts, cost rows and audit actions carry the id, so a run is attributable.
+    reg = _registry(tmp_path)
+    store = Store.open(tmp_path / "s.db")
+    clean = Executor(reg, lambda u, **k: ResponseRecord(200, "no marker here", 5.0))
+    orch = Orchestrator(registry=reg, executor=clean, judge=Judge(), store=store,
+                        agent=RedTeamAgent(), model=FakeModel(), selector=DeterministicSelector())
+    run = orch.run(
+        target_id="good", surfaces=["/v1/x"], categories=[("prompt-injection", ["LLM01"])],
+        budget=Budget(max_campaigns=2, max_model_calls=999, max_no_signal=2),
+        route_fields={"/v1/x": "message"},
+    )
+    assert run.run_id and len(run.campaign_ids) == run.campaigns == 2
+    # one Campaign row per scheduled brief, each stamped with a tested outcome and its route
+    rows = store.conn.execute(
+        "SELECT campaign_id, surface, categories, outcome, status FROM campaigns ORDER BY campaign_id"
+    ).fetchall()
+    assert [r["campaign_id"] for r in rows] == run.campaign_ids
+    assert all(r["outcome"] == "tested" and r["status"] == "done" and r["surface"] == "/v1/x" for r in rows)
+    # attempts and cost rows carry the run's campaign ids; nothing leaks a bare "orch-N"
+    spec_ids = {r["campaign_id"] for r in store.conn.execute("SELECT campaign_id FROM attack_specs")}
+    assert spec_ids <= set(run.campaign_ids) and spec_ids
+    ledger_ids = {r["campaign_id"] for r in store.conn.execute("SELECT DISTINCT campaign_id FROM cost_ledger")}
+    assert ledger_ids <= set(run.campaign_ids) and ledger_ids
+    store.close()
+
+
 def _selected_categories(store: Store) -> list[str]:
     import json as _json
 

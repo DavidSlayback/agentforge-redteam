@@ -23,7 +23,7 @@ EXPECTED_INDEXES = {
 
 def test_open_applies_migrations(tmp_path: Path) -> None:
     store = Store.open(tmp_path / "s.db")
-    assert store.schema_version() == 8
+    assert store.schema_version() == 9
     assert EXPECTED_TABLES <= store.table_names()
     assert EXPECTED_INDEXES <= store.index_names()
     # migration 0002 added the owasp column; 0003 added regression case_json
@@ -37,10 +37,10 @@ def test_migrations_are_idempotent(tmp_path: Path) -> None:
     db = tmp_path / "s.db"
     Store.open(db).close()
     reopened = Store.open(db)
-    assert reopened.schema_version() == 8
+    assert reopened.schema_version() == 9
     # one row per applied migration, none re-applied
     count = reopened.conn.execute("SELECT COUNT(*) AS c FROM schema_version").fetchone()["c"]
-    assert count == 8
+    assert count == 9
     reopened.close()
 
 
@@ -77,23 +77,23 @@ def _columns(store: Store, table: str) -> set[str]:
 
 def test_failed_migration_rolls_back_and_the_store_reopens(tmp_path: Path) -> None:
     db = tmp_path / "s.db"
-    mig = _migrations_with(tmp_path, "0009_two_statements.sql",
+    mig = _migrations_with(tmp_path, "0010_two_statements.sql",
                            "ALTER TABLE findings ADD COLUMN probe TEXT;\n"
                            "ALTER TABLE no_such_table ADD COLUMN probe TEXT;\n")
-    with pytest.raises(MigrationError, match="0009_two_statements.sql"):
+    with pytest.raises(MigrationError, match="0010_two_statements.sql"):
         Store.open(db, migrations_dir=mig)
 
     # The store reopens at the previous version, with the first statement rolled back too.
     store = Store.open(db)
-    assert store.schema_version() == 8
+    assert store.schema_version() == 9
     assert "probe" not in _columns(store, "findings")
     store.close()
 
     # Once the file is fixed it applies cleanly: no "duplicate column" from a half-applied run.
-    (mig / "0009_two_statements.sql").write_text("ALTER TABLE findings ADD COLUMN probe TEXT;\n",
+    (mig / "0010_two_statements.sql").write_text("ALTER TABLE findings ADD COLUMN probe TEXT;\n",
                                                  encoding="utf-8")
     store = Store.open(db, migrations_dir=mig)
-    assert store.schema_version() == 9 and "probe" in _columns(store, "findings")
+    assert store.schema_version() == 10 and "probe" in _columns(store, "findings")
     store.close()
 
 
@@ -101,13 +101,13 @@ def test_migrate_on_an_open_store_rolls_a_failed_file_back(tmp_path: Path) -> No
     # Called directly (not via open), so the rollback itself is what keeps the store consistent:
     # the same connection must see no half-applied column and no open transaction.
     store = Store.open(tmp_path / "s.db")
-    mig = _migrations_with(tmp_path, "0009_two_statements.sql",
+    mig = _migrations_with(tmp_path, "0010_two_statements.sql",
                            "ALTER TABLE findings ADD COLUMN probe TEXT;\n"
                            "ALTER TABLE no_such_table ADD COLUMN probe TEXT;\n")
-    with pytest.raises(MigrationError, match="0009_two_statements.sql"):
+    with pytest.raises(MigrationError, match="0010_two_statements.sql"):
         store.migrate(mig)
     assert not store.conn.in_transaction
-    assert store.schema_version() == 8 and "probe" not in _columns(store, "findings")
+    assert store.schema_version() == 9 and "probe" not in _columns(store, "findings")
     with store.transaction():                     # still usable for ordinary work
         store.insert("agent_actions", {"ts": "2026-10-01", "agent": "test", "action": "after"})
     store.close()
@@ -117,7 +117,7 @@ def test_a_failed_open_closes_its_connection(tmp_path: Path) -> None:
     import gc
     import warnings
 
-    mig = _migrations_with(tmp_path, "0009_bad.sql", "ALTER TABLE no_such_table ADD COLUMN probe TEXT;\n")
+    mig = _migrations_with(tmp_path, "0010_bad.sql", "ALTER TABLE no_such_table ADD COLUMN probe TEXT;\n")
     gc.collect()   # collect connections leaked by earlier tests first, so only this open is measured
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
@@ -132,22 +132,22 @@ def test_a_failed_open_closes_its_connection(tmp_path: Path) -> None:
 
 def test_a_migration_may_not_control_the_transaction(tmp_path: Path) -> None:
     db = tmp_path / "s.db"
-    mig = _migrations_with(tmp_path, "0009_own_txn.sql",
+    mig = _migrations_with(tmp_path, "0010_own_txn.sql",
                            "-- tries to commit its own work\nBEGIN;\n"
                            "ALTER TABLE findings ADD COLUMN probe TEXT;\nCOMMIT;\n")
-    with pytest.raises(MigrationError, match="0009_own_txn.sql.*transaction control"):
+    with pytest.raises(MigrationError, match="0010_own_txn.sql.*transaction control"):
         Store.open(db, migrations_dir=mig)
     store = Store.open(db)
-    assert store.schema_version() == 8 and "probe" not in _columns(store, "findings")
+    assert store.schema_version() == 9 and "probe" not in _columns(store, "findings")
     store.close()
 
 
 def test_a_trigger_body_is_not_mistaken_for_transaction_control(tmp_path: Path) -> None:
-    mig = _migrations_with(tmp_path, "0009_trigger.sql",
+    mig = _migrations_with(tmp_path, "0010_trigger.sql",
                            "CREATE TRIGGER trg_noop AFTER INSERT ON findings BEGIN\n"
                            "  UPDATE findings SET title = title WHERE 0;\nEND;\n")
     store = Store.open(tmp_path / "s.db", migrations_dir=mig)
-    assert store.schema_version() == 9
+    assert store.schema_version() == 10
     store.close()
 
 
@@ -164,7 +164,7 @@ def test_an_older_store_with_rows_migrates_forward_without_loss(tmp_path: Path) 
     store.close()
 
     store = Store.open(db)
-    assert store.schema_version() == 8
+    assert store.schema_version() == 9
     row = store.conn.execute("SELECT category, schema_version FROM attack_specs").fetchone()
     assert (row["category"], row["schema_version"]) == ("prompt-injection", 1)
     store.close()

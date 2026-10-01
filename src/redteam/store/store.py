@@ -275,13 +275,16 @@ class Store:
         self.conn.execute(f"INSERT INTO {table} ({columns}) VALUES ({placeholders})", tuple(row.values()))
 
     def record_action(self, agent: str, action: str, refs: dict | None = None,
-                      reason: str | None = None) -> None:
+                      reason: str | None = None, campaign_id: str | None = None) -> None:
         """Append one ``agent_actions`` audit row. Its own unit of work, or part of the unit
-        already open (scopes flatten)."""
+        already open (scopes flatten). ``campaign_id`` attributes the action to a run's campaign
+        so signal and cost can be counted per run (GitLab #4)."""
+        row = {"ts": _utcnow(), "agent": agent, "action": action,
+               "refs": json.dumps(refs) if refs is not None else None, "reason": reason}
+        if campaign_id is not None:
+            row["campaign_id"] = campaign_id
         with self.transaction():
-            self.insert("agent_actions", {"ts": _utcnow(), "agent": agent, "action": action,
-                                          "refs": json.dumps(refs) if refs is not None else None,
-                                          "reason": reason})
+            self.insert("agent_actions", row)
 
     def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
         """Run one write statement (an UPDATE, or an INSERT that ``insert`` cannot express)
