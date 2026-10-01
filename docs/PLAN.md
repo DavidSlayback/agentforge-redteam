@@ -1421,3 +1421,39 @@ fixture-patient-001, victim fixture-patient-002.
 - **Observation:** the attacker model (Qwen) timed out three times at the 90 s default; raise
   `AGENTFORGE_REDTEAM_TIMEOUT` for longer hunts.
 
+
+### 2026-10-01 â€” submission-audit fixes: observability, regression keys, typed errors, data quality (completion record)
+
+Five audit items on branch `agent-a75e6c02ac1aa8720`, each test-first and its own commit.
+
+- **Observability** (`observability/queries.py`, `report.py`, `dashboard.py`): `agent_trace` is now
+  newest-first over the most recent N (it was oldest-first, hiding recent actions on a long store);
+  `agent_trace_chronological` gives the same window in order. New `cost_by_run` / `cost_trend`
+  (per-run calls, tokens, usd, attempts, calls-per-attempt, cumulative calls, rate change; run id
+  derived from the `orch-<run>-<seq>` campaign id) and `resilience_over_time` (verdict mix per
+  category per build, builds ordered by earliest attempt, attack-success rate, improving/worsening).
+  Rendered in `redteam report` and the HTML dashboard. Cost stays in calls: no USD price is wired,
+  so `usd` is 0.0 for unpriced calls, not free.
+- **`redteam regression` needs no attacker key**: it builds executor + minter + Judge only
+  (`_wire_replay`); the rubric comes from env without raising, so a rubric-dependent frozen case with
+  no rubric configured is INCONCLUSIVE and fails the gate rather than crashing.
+- **Typed errors**: `JudgeTimeout` is raised by `ModelRubric._complete` on an httpx timeout and
+  handled in `evaluate` into an INCONCLUSIVE verdict naming `judge_timeout`; `RegressionDetected` is
+  raised by `RegressionReport.raise_if_regressed` and printed by the regression CLI (exit 1);
+  `NoFindingsInWindow` is explicitly `RESERVED` (nothing asks for a window). `tests/test_typed_errors.py`
+  asserts raised-vs-reserved against `src/` and the schema enum so it cannot drift.
+- **Documentation data quality**: `document()` now refuses, before any write, a finding missing a
+  severity level, attack category, unique identifier, reproduction steps (no captured exchange),
+  observed behavior (no oracle violation) or expected behavior (no `expected_safe`), or whose attack
+  sequence duplicates another finding's report. Raises `DataQualityError` (a `ValueError`) with named
+  `reasons`; `redteam document` prints them and exits 1. Behavior change: a finding with no captured
+  evidence is now refused, not held for approval; a severity with no level is refused (an unrecognised
+  level is still held).
+- **`--max-mutations`** on `campaign` (default 1, must be >= 0) threaded through
+  `Orchestrator.run` to `run_campaign`.
+
+**Checks:** full suite green on the default interpreter and Python 3.13 (counts in the hand-off
+report). **Docs:** this entry only; top-level READMEs and `evals/` were out of scope for this change
+and do not yet mention `--max-mutations` or the new report sections. **Not done / deferred:**
+`NoFindingsInWindow` has no raise site; none of this has been observed against the live target (no
+live run); the new report sections have only been exercised on seeded stores, not the canonical one.
