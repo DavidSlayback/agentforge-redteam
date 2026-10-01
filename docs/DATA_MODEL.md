@@ -30,7 +30,9 @@ agent_actions: an ordered, append-only trace of every agent decision (campaign_i
 - **Unique id:** every finding has `finding_id` (PK) derived from `target_id` + a deterministic
   `dedup_key`; every report/attempt/verdict/spec carries its own PK.
 - **No duplicate attack sequences / findings:** `findings.dedup_key` is `UNIQUE` over
-  `(violating_oracle, sink, category)`. `findings.promote` (`src/redteam/findings.py`) inserts, and
+  `(violating_oracle, sink, category)` — the sink is stored in the `component` column, so the schema
+  comment phrases the same tuple as `(oracle, sink, component)`. `findings.promote`
+  (`src/redteam/findings.py`) inserts, and
   on `IntegrityError` **appends the new verdict to the existing finding** instead of creating a
   duplicate — so the same weakness found by N attempts is one finding with N linked verdicts, never
   N findings. Verified by `tests/test_store.py::test_dedup_key_is_unique` and

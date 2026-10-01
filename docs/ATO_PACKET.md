@@ -26,9 +26,10 @@ existing artifacts; each row links to the authoritative source rather than resta
 
 ## 3. Dependency inventory
 
-- Pinned in `pyproject.toml` + locked in `uv.lock` (reproducible via `uv sync --frozen`). Direct
-  deps: pydantic ≥2.13, httpx ≥0.28, pyyaml ≥6, jsonschema ≥4.26, datamodel-code-generator 0.83.0,
-  typesafe-sdk ≥0.7.2, pytest ≥9.1. No target code is vendored (black-box HTTP only).
+- Pinned in `pyproject.toml` + locked in `uv.lock` (reproducible via `uv sync --frozen`). Runtime
+  core: pydantic ≥2.13, httpx ≥0.28, pyyaml ≥6; plus jsonschema ≥4.26, datamodel-code-generator
+  0.83.0, pytest ≥9.1 (dev/tooling) and typesafe-sdk ≥0.7.2 (optional Jev). See `pyproject.toml` for
+  exact grouping. No target code is vendored (black-box HTTP only).
 
 ## 4. Platform self-scan / self-checks
 
