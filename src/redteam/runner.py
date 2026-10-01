@@ -177,75 +177,79 @@ def finalize(store, case: SeedCase, target, exchanges: list[dict], verdict: Verd
     """Persist a judged attempt (spec, attempt, verdict, action) and promote/freeze on a
     confirmed exploit. Shared by run_case and the document-attack flow so lineage, dedup,
     finding promotion, and regression freezing are identical."""
-    first_route = sorted(case.turns, key=lambda t: t.ordinal)[0].route if case.turns else None
-    store.insert("attack_specs", {
-        "schema_version": 1,
-        "spec_id": case.case_id,
-        "parent_spec_id": case.parent_id,
-        "mutation_op": case.mutation_op,
-        "category": case.category,
-        "owasp": json.dumps(case.owasp),
-        "target_route": first_route,
-        "turns": json.dumps([t.model_dump() for t in case.turns]),
-        "expected_safe_ref": case.expected_safe,
-        "created_at": _now(),
-    })
-
-    attempt_id = _new_id("att")
-    evidence_id = _new_id("ev")
-    is_local = (urlsplit(target.origin).hostname or "") in {"localhost", "127.0.0.1", "::1"}
-    # A lean projection stays on the attempt for compact queries; the full request/response
-    # bodies go to the evidence table, so a verdict can always be audited against what the
-    # target actually returned. exchanges may be rich (with request/response) or already lean.
-    lean = [{"route": e.get("route"), "status_code": e.get("status_code"),
-             "latency_ms": e.get("latency_ms")} for e in exchanges]
-    store.insert("attempts", {
-        "schema_version": 1,
-        "attempt_id": attempt_id,
-        "spec_id": case.case_id,
-        "target_id": target.id,
-        "target_sha": target_sha,   # the build under test; enables resilience-by-version trends
-        "target_env": "local" if is_local else "deployed",
-        "exchanges": json.dumps(lean),
-        "provider_events": json.dumps(provider_events),
-        "evidence_ref": evidence_id,
-        "started_at": _now(),
-    })
-    store.insert("evidence", {
-        "evidence_id": evidence_id,
-        "attempt_id": attempt_id,
-        "exchanges": json.dumps(exchanges),   # full request+response bodies (synthetic)
-        "created_at": _now(),
-    })
-    verdict_id = _new_id("ver")
-    store.insert("verdicts", {
-        "schema_version": 1,
-        "verdict_id": verdict_id,
-        "attempt_id": attempt_id,
-        "outcome": str(verdict.outcome),
-        "oracle_results": json.dumps([{"oracle": r.oracle, "tier": r.tier, "outcome": str(r.outcome), "detail": r.detail} for r in verdict.oracle_results]),
-        "evidence_ref": evidence_id,
-        "judged_at": _now(),
-    })
-    store.insert("agent_actions", {
-        "ts": _now(),
-        "agent": "judge",
-        "action": "verdict",
-        "refs": json.dumps({"case": case.case_id, "attempt": attempt_id, "verdict": verdict_id}),
-        "reason": verdict.reason,
-    })
-
-    # A confirmed exploit graduates into a deduplicated Finding, and a new Finding is
-    # frozen into the regression suite so future builds are checked against it.
-    if verdict.outcome is VerdictOutcome.SUCCESS:
-        finding_id, is_new = findings.promote(store, case, verdict, verdict_id)
-        store.insert("agent_actions", {
-            "ts": _now(), "agent": "runner", "action": "finding" if is_new else "finding_dedup",
-            "refs": json.dumps({"finding": finding_id, "verdict": verdict_id}),
-            "reason": f"{'new' if is_new else 'duplicate'} finding {finding_id}",
+    # One unit of work: the spec, attempt, evidence, verdict and actions — and, on a confirmed
+    # exploit, the finding and its frozen regression case — commit together or not at all, so a
+    # crash or lock mid-way never leaves an attempt without its verdict or an unfrozen finding.
+    with store.transaction():
+        first_route = sorted(case.turns, key=lambda t: t.ordinal)[0].route if case.turns else None
+        store.insert("attack_specs", {
+            "schema_version": 1,
+            "spec_id": case.case_id,
+            "parent_spec_id": case.parent_id,
+            "mutation_op": case.mutation_op,
+            "category": case.category,
+            "owasp": json.dumps(case.owasp),
+            "target_route": first_route,
+            "turns": json.dumps([t.model_dump() for t in case.turns]),
+            "expected_safe_ref": case.expected_safe,
+            "created_at": _now(),
         })
-        if is_new:
-            regression.freeze(store, finding_id, case)
+
+        attempt_id = _new_id("att")
+        evidence_id = _new_id("ev")
+        is_local = (urlsplit(target.origin).hostname or "") in {"localhost", "127.0.0.1", "::1"}
+        # A lean projection stays on the attempt for compact queries; the full request/response
+        # bodies go to the evidence table, so a verdict can always be audited against what the
+        # target actually returned. exchanges may be rich (with request/response) or already lean.
+        lean = [{"route": e.get("route"), "status_code": e.get("status_code"),
+                 "latency_ms": e.get("latency_ms")} for e in exchanges]
+        store.insert("attempts", {
+            "schema_version": 1,
+            "attempt_id": attempt_id,
+            "spec_id": case.case_id,
+            "target_id": target.id,
+            "target_sha": target_sha,   # the build under test; enables resilience-by-version trends
+            "target_env": "local" if is_local else "deployed",
+            "exchanges": json.dumps(lean),
+            "provider_events": json.dumps(provider_events),
+            "evidence_ref": evidence_id,
+            "started_at": _now(),
+        })
+        store.insert("evidence", {
+            "evidence_id": evidence_id,
+            "attempt_id": attempt_id,
+            "exchanges": json.dumps(exchanges),   # full request+response bodies (synthetic)
+            "created_at": _now(),
+        })
+        verdict_id = _new_id("ver")
+        store.insert("verdicts", {
+            "schema_version": 1,
+            "verdict_id": verdict_id,
+            "attempt_id": attempt_id,
+            "outcome": str(verdict.outcome),
+            "oracle_results": json.dumps([{"oracle": r.oracle, "tier": r.tier, "outcome": str(r.outcome), "detail": r.detail} for r in verdict.oracle_results]),
+            "evidence_ref": evidence_id,
+            "judged_at": _now(),
+        })
+        store.insert("agent_actions", {
+            "ts": _now(),
+            "agent": "judge",
+            "action": "verdict",
+            "refs": json.dumps({"case": case.case_id, "attempt": attempt_id, "verdict": verdict_id}),
+            "reason": verdict.reason,
+        })
+
+        # A confirmed exploit graduates into a deduplicated Finding, and a new Finding is
+        # frozen into the regression suite so future builds are checked against it.
+        if verdict.outcome is VerdictOutcome.SUCCESS:
+            finding_id, is_new = findings.promote(store, case, verdict, verdict_id)
+            store.insert("agent_actions", {
+                "ts": _now(), "agent": "runner", "action": "finding" if is_new else "finding_dedup",
+                "refs": json.dumps({"finding": finding_id, "verdict": verdict_id}),
+                "reason": f"{'new' if is_new else 'duplicate'} finding {finding_id}",
+            })
+            if is_new:
+                regression.freeze(store, finding_id, case)
     return RunResult(attempt_id=attempt_id, verdict=verdict)
 
 
