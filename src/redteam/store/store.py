@@ -56,6 +56,11 @@ class UnscopedWrite(RuntimeError):
     its unit of work; nothing commits row by row."""
 
 
+class HotJournal(RuntimeError):
+    """A read-only open found an uncommitted rollback journal from an interrupted write. Only a
+    normal (writable) open can roll it back; a read-only check must not, so it stops here."""
+
+
 class TransactionAborted(RuntimeError):
     """An inner transaction scope failed, so the enclosing unit of work was rolled back even
     though the exception was caught before the outer scope ended."""
@@ -141,10 +146,18 @@ class Store:
         return cls(conn)
 
     def integrity(self) -> IntegrityReport:
-        """Report half-written units (read-only queries). A missing verdict is never silent."""
-        attempts = [r["attempt_id"] for r in self.conn.execute(
-            "SELECT a.attempt_id FROM attempts a WHERE NOT EXISTS "
-            "(SELECT 1 FROM verdicts v WHERE v.attempt_id = a.attempt_id) ORDER BY a.started_at")]
+        """Report half-written units (read-only queries). A missing verdict is never silent.
+        Raises ``HotJournal`` if a read-only connection meets a journal it may not roll back."""
+        try:
+            attempts = [r["attempt_id"] for r in self.conn.execute(
+                "SELECT a.attempt_id FROM attempts a WHERE NOT EXISTS "
+                "(SELECT 1 FROM verdicts v WHERE v.attempt_id = a.attempt_id) ORDER BY a.started_at")]
+        except sqlite3.OperationalError as exc:
+            if getattr(exc, "sqlite_errorname", "") == "SQLITE_READONLY_ROLLBACK":
+                raise HotJournal("the store has an uncommitted rollback journal from an interrupted write; "
+                                 "open it normally once (any write-capable redteam command) so SQLite "
+                                 "rolls it back, then re-run the check") from exc
+            raise
         findings = [r["finding_id"] for r in self.conn.execute(
             "SELECT f.finding_id FROM findings f WHERE NOT EXISTS "
             "(SELECT 1 FROM regression_cases r WHERE r.finding_id = f.finding_id) ORDER BY f.finding_id")]
