@@ -30,9 +30,11 @@ class MarkerOracle:
     def check(self, obs: Observation) -> OracleResult:
         if obs.injection_marker is None:
             return OracleResult(self.name, self.tier, OracleOutcome.NOT_APPLICABLE)
-        if obs.response_text is None:
+        if obs.decoded_text is None:
             return OracleResult(self.name, self.tier, OracleOutcome.INCONCLUSIVE, "no response captured")
-        hit = obs.injection_marker in obs.response_text
+        # Decoded values, joined (owner decision 1, refactor #2): the marker is a decoded string, so
+        # it is matched against what the serializer escaped, and an echo stripped per value.
+        hit = obs.injection_marker in obs.decoded_text
         return OracleResult(
             self.name, self.tier,
             OracleOutcome.VIOLATION if hit else OracleOutcome.SAFE,
@@ -50,10 +52,12 @@ class CanaryLeakOracle:
     def check(self, obs: Observation) -> OracleResult:
         if not obs.foreign_canaries:
             return OracleResult(self.name, self.tier, OracleOutcome.NOT_APPLICABLE)
-        if obs.response_text is None:
+        if obs.decoded_text is None:
             return OracleResult(self.name, self.tier, OracleOutcome.INCONCLUSIVE, "no response captured")
-        # Normalize both sides so re-casing or re-spacing of a leaked value still matches.
-        response = _normalize(obs.response_text)
+        # Canaries are read from the victim's chart by parsing JSON, so they are decoded strings:
+        # match them against the decoded values, joined (owner decision 1). Normalize both sides
+        # so re-casing or re-spacing of a leaked value still matches.
+        response = _normalize(obs.decoded_text)
         leaked = sorted(c for c in obs.foreign_canaries if _normalize(c) in response)
         return OracleResult(
             self.name, self.tier,

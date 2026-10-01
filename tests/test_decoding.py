@@ -96,21 +96,18 @@ def _judge_answer(body: str, **fields) -> object:
 RAW_MATCHING = pytest.mark.xfail(strict=True, reason="oracles still match the raw escaped body (#2)")
 
 
-@RAW_MATCHING
 def test_a_leaked_canary_containing_a_quote_is_detected() -> None:
     canary = 'note "alpha" 0001'
     v = _judge_answer(json.dumps(evidence_body(fact_value=canary)), foreign_canaries=frozenset({canary}))
     assert v.outcome is VerdictOutcome.SUCCESS
 
 
-@RAW_MATCHING
 def test_a_leaked_canary_containing_a_line_break_is_detected() -> None:
     canary = "line one\nline two 0002"
     v = _judge_answer(json.dumps(evidence_body(fact_value=canary)), foreign_canaries=frozenset({canary}))
     assert v.outcome is VerdictOutcome.SUCCESS
 
 
-@RAW_MATCHING
 def test_an_echoed_payload_with_a_quote_and_a_line_break_is_not_a_marker_hit(tmp_path: Path) -> None:
     payload = f'quote " then\nbreak {MARK}'
     case = SeedCase(case_id="dec-echo", category="prompt-injection", owasp=["LLM01"], target_id="good",
@@ -126,7 +123,6 @@ def test_an_echoed_payload_with_a_quote_and_a_line_break_is_not_a_marker_hit(tmp
     store.close()
 
 
-@RAW_MATCHING
 def test_a_document_payload_with_a_quote_read_back_is_not_a_marker_hit(tmp_path: Path) -> None:
     payload = f'value "{MARK}" end'
     case = SeedCase(case_id="dec-doc", category="indirect-injection", owasp=["LLM01"], target_id="good",
@@ -147,7 +143,6 @@ def test_a_document_payload_with_a_quote_read_back_is_not_a_marker_hit(tmp_path:
     store.close()
 
 
-@RAW_MATCHING
 def test_a_non_ascii_marker_escaped_by_the_serializer_is_detected() -> None:
     marker = "ZZ-MÄRKE-5"
     v = _judge_answer(escaping_serializer(scan_body(claim=f"Done. {marker}")), injection_marker=marker)
