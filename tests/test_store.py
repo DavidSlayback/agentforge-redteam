@@ -48,21 +48,14 @@ def test_dedup_key_is_unique(tmp_path: Path) -> None:
     import sqlite3
 
     store = Store.open(tmp_path / "s.db")
-    row = ("f1", "t", "new", "2026-09-28")
-    store.conn.execute(
-        "INSERT INTO findings(finding_id, title, dedup_key, status, updated_at) VALUES (?,?,?,?,?)",
-        ("f1", row[1], "oracle:sink:component", row[2], row[3]),
-    )
-    store.conn.commit()
-    try:
-        store.conn.execute(
-            "INSERT INTO findings(finding_id, title, dedup_key, status, updated_at) VALUES (?,?,?,?,?)",
-            ("f2", "t2", "oracle:sink:component", "new", "2026-09-28"),
-        )
-        raised = False
-    except sqlite3.IntegrityError:
-        raised = True
-    assert raised, "duplicate dedup_key was accepted; findings would double-count"
+    with store.transaction():
+        store.insert("findings", {"finding_id": "f1", "title": "t", "dedup_key": "oracle:sink:component",
+                                  "status": "new", "updated_at": "2026-09-28"})
+    with pytest.raises(sqlite3.IntegrityError):  # else findings would double-count
+        with store.transaction():
+            store.insert("findings", {"finding_id": "f2", "title": "t2", "dedup_key": "oracle:sink:component",
+                                      "status": "new", "updated_at": "2026-09-28"})
+    assert store.count("findings") == 1
     store.close()
 
 

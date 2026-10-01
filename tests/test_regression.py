@@ -87,8 +87,8 @@ def test_replay_surfaces_unreplayable_pre_migration_cases(tmp_path: Path) -> Non
     echo = Executor(reg, lambda u, **k: ResponseRecord(200, f"ok {MARK}", 4.0))
     run_case(_vuln_case(), reg, echo, Judge(), store)
     # simulate a case frozen before case_json existed
-    store.conn.execute("UPDATE regression_cases SET case_json = NULL")
-    store.conn.commit()
+    with store.transaction():
+        store.execute("UPDATE regression_cases SET case_json = NULL")
     r = replay(store, reg, echo, Judge(), target_sha="sha-x")
     assert r.unreplayable and not r.reappeared and not r.held
     store.close()
