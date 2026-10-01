@@ -184,6 +184,23 @@ def cmd_evidence(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_integrity(args: argparse.Namespace) -> int:
+    """Read-only check for half-written units: attempts with no verdict and findings never frozen
+    into the regression suite. Opens the store read-only (no migrations, no writes); exits 1 if
+    anything is found, so a missing verdict is never silent."""
+    store = Store.open_readonly(args.store)
+    r = store.integrity()
+    store.close()
+    for attempt_id in r.attempts_without_verdict:
+        print(f"  attempt without verdict: {attempt_id}")
+    for finding_id in r.findings_without_regression_case:
+        print(f"  finding without regression case: {finding_id}")
+    print(f"integrity: attempts_without_verdict={len(r.attempts_without_verdict)} "
+          f"findings_without_regression_case={len(r.findings_without_regression_case)} "
+          f"-> {'OK' if r.ok else 'ATTENTION'}")
+    return 0 if r.ok else 1
+
+
 def cmd_regression(args: argparse.Namespace) -> int:
     from redteam.regression import replay
 
@@ -435,6 +452,9 @@ def build_parser() -> argparse.ArgumentParser:
     ev = sub.add_parser("evidence", help="dump the captured request/response for an attempt")
     ev.add_argument("attempt_id")
     ev.set_defaults(func=cmd_evidence)
+
+    sub.add_parser("integrity", help="read-only: report attempts without verdicts and unfrozen findings"
+                   ).set_defaults(func=cmd_integrity)
 
     rg = sub.add_parser("regression", help="replay the regression suite against a build")
     rg.add_argument("--target", required=True)

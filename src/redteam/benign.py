@@ -193,20 +193,24 @@ def run_benign(store: Store, executor, minter, target, bset: BenignSet,
             "reasons": json.dumps(list(cls.reasons)), "detail": cls.detail,
             "latency_ms": latency, "observed_at": _now(),
         }
-        store.insert("benign_runs", row)
         summary.results.append(row)
 
     rate = summary.over_refusal_rate
-    store.insert("agent_actions", {
-        "ts": _now(), "agent": "benign", "action": "over_refusal_run",
-        "refs": json.dumps({"run_id": summary.run_id, "set_version": bset.version, "sha": target_sha,
-                            "answer_measured": summary.answer_measured,
-                            "over_refusals": summary.over_refusals,
-                            "controls": f"{summary.controls_passed}/{summary.controls_measured}",
-                            "inconclusive": summary.inconclusive}),
-        "reason": ("over-refusal NOT MEASURED (no measurable benign answers)" if rate is None
-                   else f"over-refusal {summary.over_refusals}/{summary.answer_measured} = {rate:.0%}"),
-    })
+    # The run is one unit, written after the target calls so no write lock is held during them: a
+    # partial run would skew the over-refusal rate for this SHA, so it lands whole or not at all.
+    with store.transaction():
+        for row in summary.results:
+            store.insert("benign_runs", row)
+        store.insert("agent_actions", {
+            "ts": _now(), "agent": "benign", "action": "over_refusal_run",
+            "refs": json.dumps({"run_id": summary.run_id, "set_version": bset.version, "sha": target_sha,
+                                "answer_measured": summary.answer_measured,
+                                "over_refusals": summary.over_refusals,
+                                "controls": f"{summary.controls_passed}/{summary.controls_measured}",
+                                "inconclusive": summary.inconclusive}),
+            "reason": ("over-refusal NOT MEASURED (no measurable benign answers)" if rate is None
+                       else f"over-refusal {summary.over_refusals}/{summary.answer_measured} = {rate:.0%}"),
+        })
     return summary
 
 

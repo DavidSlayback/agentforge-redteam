@@ -87,7 +87,8 @@ def _classify(case: SeedCase, verdict: Verdict) -> tuple[str, str, list[str]]:
 
 
 def promote(store, case: SeedCase, verdict: Verdict, verdict_id: str) -> tuple[str, bool]:
-    """Create or update a Finding from a SUCCESS verdict. Returns (finding_id, is_new)."""
+    """Create or update a Finding from a SUCCESS verdict. Returns (finding_id, is_new).
+    Called inside ``runner.finalize``'s transaction scope, so it commits with the attempt."""
     violating, category, owasp = _classify(case, verdict)
     sink = case.turns[0].route if case.turns else "unknown"
     key = dedup_key(violating, sink, category)
@@ -117,9 +118,8 @@ def promote(store, case: SeedCase, verdict: Verdict, verdict_id: str) -> tuple[s
         ids = json.loads(row["verdict_ids"] or "[]")
         if verdict_id not in ids:
             ids.append(verdict_id)
-        store.conn.execute(
+        store.execute(
             "UPDATE findings SET verdict_ids = ?, updated_at = ? WHERE finding_id = ?",
             (json.dumps(ids), _now(), row["finding_id"]),
         )
-        store.conn.commit()
         return row["finding_id"], False

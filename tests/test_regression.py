@@ -193,3 +193,64 @@ def test_replay_orders_mint_exhausting_probes_last() -> None:
     ordered = sorted(rows, key=lambda r: _mint_exhausting(r["case_json"]))  # stable sort
     assert [r["case_id"] for r in ordered[:2]] == ["gr", "co"]              # mint-dependent first
     assert {r["case_id"] for r in ordered[2:]} == {"rl", "dos"}            # mint-exhausting last
+
+
+# --- atomic persistence: a replay's attempt and its recorded result are one unit (issue #1) --
+
+import sqlite3  # noqa: E402
+
+import pytest  # noqa: E402
+
+
+class _FaultyStore(Store):
+    """A real store that raises on its Nth write, the way a lock timeout or a crash would."""
+
+    fail_on: int | None = None
+    writes = 0
+
+    def _tick(self) -> None:
+        self.writes += 1
+        if self.writes == self.fail_on:
+            raise sqlite3.OperationalError(f"injected fault at write {self.writes}")
+
+    def insert(self, table, row):
+        self._tick()
+        return super().insert(table, row)
+
+    def execute(self, sql, params=()):
+        self._tick()
+        return super().execute(sql, params)
+
+
+def _frozen_store(db: Path, reg) -> None:
+    store = Store.open(db)
+    echo = Executor(reg, lambda u, **k: ResponseRecord(200, f"ok {MARK}", 4.0))
+    run_case(_vuln_case(), reg, echo, Judge(), store)   # one finding, one frozen case
+    store.close()
+
+
+def test_a_fault_mid_replay_leaves_neither_the_attempt_nor_the_result(tmp_path: Path) -> None:
+    reg = _registry(tmp_path)
+    fixed = Executor(reg, lambda u, **k: ResponseRecord(200, "refused", 4.0))
+
+    _frozen_store(tmp_path / "count.db", reg)
+    counting = _FaultyStore.open(tmp_path / "count.db")
+    replay(counting, reg, fixed, Judge(), target_sha="sha-fixed")
+    total = counting.writes                  # the replay's attempt rows + the last_result update
+    counting.close()
+
+    for n in range(1, total + 1):
+        db = tmp_path / f"fault-{n}.db"
+        _frozen_store(db, reg)
+        store = _FaultyStore.open(db)
+        store.fail_on = n
+        with pytest.raises(sqlite3.OperationalError, match="injected fault"):
+            replay(store, reg, fixed, Judge(), target_sha="sha-fixed")
+        store.close()
+
+        after = Store.open(db)
+        assert after.count("attempts") == 1 and after.count("verdicts") == 1, f"fault at write {n}/{total}"
+        row = after.conn.execute("SELECT last_result, last_sha FROM regression_cases").fetchone()
+        assert (row["last_result"], row["last_sha"]) == (None, None), f"fault at write {n}/{total}"
+        assert after.integrity().ok
+        after.close()

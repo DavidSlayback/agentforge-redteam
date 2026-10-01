@@ -61,10 +61,11 @@ def test_candidates_favor_untested_categories(tmp_path: Path) -> None:
 
 def test_candidates_favor_categories_with_open_findings(tmp_path: Path) -> None:
     store = Store.open(tmp_path / "s.db")
-    store.insert("findings", {
-        "finding_id": "F-1", "title": "t", "primary_category": "denial-of-service",
-        "status": "new", "dedup_key": "k1", "updated_at": "2026-09-28",
-    })
+    with store.transaction():
+        store.insert("findings", {
+            "finding_id": "F-1", "title": "t", "primary_category": "denial-of-service",
+            "status": "new", "dedup_key": "k1", "updated_at": "2026-09-28",
+        })
     cats = [("prompt-injection", ["LLM01"]), ("denial-of-service", ["LLM10"])]
     cands = build_candidates(store, "good", ["/v1/x"], cats)
     assert cands[0].brief["category"] == "denial-of-service"   # exploit weight ranks it first

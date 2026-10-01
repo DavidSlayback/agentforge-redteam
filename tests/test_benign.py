@@ -169,3 +169,47 @@ def test_report_shows_over_refusal_by_sha(tmp_path: Path) -> None:
     assert latest_by_sha(store)[0]["over_refusals"] == 1
     assert "over-refusal 1/3 = 33%" in render_markdown(store)
     store.close()
+
+
+# --- atomic persistence: a benign run and its summary action are one unit (issue #1) ---------
+
+import sqlite3  # noqa: E402
+
+
+class _FaultyStore(Store):
+    """A real store that raises on its Nth write, the way a lock timeout or a crash would."""
+
+    fail_on: int | None = None
+    writes = 0
+
+    def _tick(self) -> None:
+        self.writes += 1
+        if self.writes == self.fail_on:
+            raise sqlite3.OperationalError(f"injected fault at write {self.writes}")
+
+    def insert(self, table, row):
+        self._tick()
+        return super().insert(table, row)
+
+    def execute(self, sql, params=()):
+        self._tick()
+        return super().execute(sql, params)
+
+
+def test_a_fault_mid_run_leaves_no_partial_benign_run(tmp_path: Path) -> None:
+    # A partial run would skew the over-refusal rate by SHA; it must be all of the run or none.
+    total = len(_set().cases) + 1   # one benign_runs row per case, then the over_refusal_run action
+    for n in range(1, total + 1):
+        db = tmp_path / f"fault-{n}.db"
+        store = _FaultyStore.open(db)
+        store.fail_on = n
+        with pytest.raises(sqlite3.OperationalError, match="injected fault"):
+            run_benign(store, _Exec(), _Minter(), _Target(), _set(), target_sha="sha1")
+        assert store.writes == n
+        store.close()
+
+        after = Store.open(db)
+        assert after.count("benign_runs") == 0, f"fault at write {n}/{total} left a partial run"
+        assert after.count("agent_actions") == 0, f"fault at write {n}/{total} left the summary action"
+        assert latest_by_sha(after) == []
+        after.close()

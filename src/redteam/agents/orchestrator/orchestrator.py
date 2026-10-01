@@ -49,10 +49,11 @@ class Orchestrator:
     minter: object | None = None
 
     def _record(self, action: str, refs: dict, reason: str) -> None:
-        self.store.insert("agent_actions", {
-            "ts": _now(), "agent": "orchestrator", "action": action,
-            "refs": json.dumps(refs), "reason": reason,
-        })
+        with self.store.transaction():
+            self.store.insert("agent_actions", {
+                "ts": _now(), "agent": "orchestrator", "action": action,
+                "refs": json.dumps(refs), "reason": reason,
+            })
 
     def run(
         self,

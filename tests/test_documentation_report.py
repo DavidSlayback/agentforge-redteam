@@ -248,3 +248,55 @@ def test_a_later_inconclusive_replay_is_not_held_and_the_origin_build_is_not_a_f
     assert "`build-a`" not in md
     assert fixval["sha"] == "build-b" and fixval["result"] == "inconclusive"
     store.close()
+
+
+# ---- atomic persistence: a report and its audit action are one unit (issue #1) -------------
+
+import sqlite3  # noqa: E402
+
+import pytest  # noqa: E402
+
+
+class _FaultyStore(Store):
+    """A real store that raises on its Nth write, the way a lock timeout or a crash would."""
+
+    fail_on: int | None = None
+    writes = 0
+
+    def _tick(self) -> None:
+        self.writes += 1
+        if self.writes == self.fail_on:
+            raise sqlite3.OperationalError(f"injected fault at write {self.writes}")
+
+    def insert(self, table, row):
+        self._tick()
+        return super().insert(table, row)
+
+    def execute(self, sql, params=()):
+        self._tick()
+        return super().execute(sql, params)
+
+
+def test_a_fault_while_documenting_leaves_no_report_and_no_action(tmp_path: Path) -> None:
+    reg, store, fid = _mint_finding(tmp_path)
+    db = tmp_path / "s.db"                          # the store _mint_finding opened
+    actions_before = store.count("agent_actions")
+    store.close()
+
+    total = 2   # the vuln_reports row and its "report" agent action
+    for n in range(1, total + 1):
+        faulty = _FaultyStore.open(db)
+        faulty.fail_on = n
+        with pytest.raises(sqlite3.OperationalError, match="injected fault"):
+            DocumentationAgent().document(faulty, fid, registry=reg)
+        assert faulty.writes == n
+        faulty.close()
+        after = Store.open(db)
+        assert after.count("vuln_reports") == 0, f"fault at write {n}/{total} left a report"
+        assert after.count("agent_actions") == actions_before, f"fault at write {n}/{total} left an action"
+        after.close()
+
+    store = _FaultyStore.open(db)
+    DocumentationAgent().document(store, fid, registry=reg)          # no fault: both rows land
+    assert store.writes == total and store.count("vuln_reports") == 1
+    store.close()
