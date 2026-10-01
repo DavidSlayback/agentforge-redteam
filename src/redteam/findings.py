@@ -13,11 +13,14 @@ import hashlib
 import json
 import sqlite3
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
-from redteam.agents.judge.judge import Verdict
 from redteam.evals.case import SeedCase
 from redteam.oracles.base import OracleOutcome
 from redteam.owasp import owasp_scheme
+
+if TYPE_CHECKING:   # annotations only: verdicts are built by the judge package (tests/test_verdict_path.py)
+    from redteam.agents.judge.judge import Verdict
 
 # Provisional severity by category, only to gate human approval. Confirm with CVSS v4.
 # Every category a promoted finding can carry MUST have an entry — a missing one falls to the

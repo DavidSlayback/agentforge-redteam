@@ -15,12 +15,17 @@ from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
 from redteam import findings, regression
-from redteam.agents.judge.judge import Judge, Verdict, VerdictOutcome, no_evidence
+from typing import TYPE_CHECKING
+
+from redteam.agents.judge.judge import Judge, VerdictOutcome, no_evidence
 from redteam.errors import AuthorizationDenied, TargetUnreachable
 from redteam.evals.case import OracleConfig, SeedCase
 from redteam.executor.executor import Executor
 from redteam.executor.authorization import AuthorizationRegistry
 from redteam.oracles.base import Observation
+
+if TYPE_CHECKING:   # annotations only: verdicts are built by the judge package (tests/test_verdict_path.py)
+    from redteam.agents.judge.judge import Verdict
 
 
 def _now() -> str:
