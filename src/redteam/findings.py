@@ -52,8 +52,10 @@ _OPPORTUNISTIC = {
     "output_handling": ("improper-output-handling", ["LLM05"]),
 }
 # Oracles tied to the attack's stated aim; if one of these fired, the case's own category is
-# the right label for the finding.
-_AIMED = frozenset({"marker", "canary_leak", "unauthorized_access", "grounding", "metadata_disclosure"})
+# the right label for the finding. The names are dedup-key inputs (and so finding ids): never
+# rename one without migrating stored findings.
+_AIMED = frozenset({"marker", "canary_leak", "unauthorized_access", "grounding", "metadata_disclosure",
+                    "rate_limit", "enumeration", "contradiction"})
 
 
 def _now() -> str:
