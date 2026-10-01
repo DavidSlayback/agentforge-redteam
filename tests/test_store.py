@@ -104,6 +104,38 @@ def test_failed_migration_rolls_back_and_the_store_reopens(tmp_path: Path) -> No
     store.close()
 
 
+def test_migrate_on_an_open_store_rolls_a_failed_file_back(tmp_path: Path) -> None:
+    # Called directly (not via open), so the rollback itself is what keeps the store consistent:
+    # the same connection must see no half-applied column and no open transaction.
+    store = Store.open(tmp_path / "s.db")
+    mig = _migrations_with(tmp_path, "0009_two_statements.sql",
+                           "ALTER TABLE findings ADD COLUMN probe TEXT;\n"
+                           "ALTER TABLE no_such_table ADD COLUMN probe TEXT;\n")
+    with pytest.raises(MigrationError, match="0009_two_statements.sql"):
+        store.migrate(mig)
+    assert not store.conn.in_transaction
+    assert store.schema_version() == 8 and "probe" not in _columns(store, "findings")
+    with store.transaction():                     # still usable for ordinary work
+        store.insert("agent_actions", {"ts": "2026-10-01", "agent": "test", "action": "after"})
+    store.close()
+
+
+def test_a_failed_open_closes_its_connection(tmp_path: Path) -> None:
+    import gc
+    import warnings
+
+    mig = _migrations_with(tmp_path, "0009_bad.sql", "ALTER TABLE no_such_table ADD COLUMN probe TEXT;\n")
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        try:
+            Store.open(tmp_path / "s.db", migrations_dir=mig)
+        except MigrationError:
+            pass
+        gc.collect()                              # an unclosed sqlite3 connection warns when collected
+    leaked = [w for w in caught if issubclass(w.category, ResourceWarning) and "sqlite" in str(w.message).lower()]
+    assert leaked == []
+
+
 def test_a_migration_may_not_control_the_transaction(tmp_path: Path) -> None:
     db = tmp_path / "s.db"
     mig = _migrations_with(tmp_path, "0009_own_txn.sql",
