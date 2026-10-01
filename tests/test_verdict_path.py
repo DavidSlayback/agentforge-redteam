@@ -1,0 +1,240 @@
+"""Characterization of the deterministic probes' persisted verdicts (refactor 1/4, one verdict path).
+
+Each test drives a probe end to end through its public builder and the shared driver, against a
+fake sender and a temporary store, and pins what reaches the store: the verdict outcome, the
+oracle name, and the finding's dedup key. Reason text is not asserted (it is the Judge's wording).
+The frozen-case round trips pin that regression replay rebuilds each probe kind faithfully.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from redteam.agents.judge.judge import Judge, VerdictOutcome
+from redteam.authz_probe import (
+    contradiction_probe,
+    disclosure_probe,
+    dos_probe,
+    enumeration_probe,
+    grounding_probe,
+    run_probe,
+    run_rate_limit_probe,
+    _OFF_CONDITION_QUERIES,
+)
+from redteam.executor.authorization import AuthorizationRegistry
+from redteam.executor.executor import Executor
+from redteam.executor.http_sender import ResponseRecord
+from redteam.regression import replay
+from redteam.store.store import Store
+
+PATIENT = "fixture-patient-001"
+TRACE = "Traceback (most recent call last): boom"
+
+
+def _registry(tmp_path: Path) -> AuthorizationRegistry:
+    p = tmp_path / "auth.yaml"
+    p.write_text("targets:\n  - id: good\n    origin: https://good.example\n    proof: test fixture\n    enabled: true\n",
+                 encoding="utf-8")
+    return AuthorizationRegistry.load(p)
+
+
+class _Minter:
+    def auth_fields(self, patient_uuid: str) -> dict:
+        return {"patient_uuid": patient_uuid, "clinician_uuid": "c", "demo_token": "t"}
+
+
+def _fixed(status: int, text: str, latency_ms: float = 2.0):
+    return lambda u, **k: ResponseRecord(status, text, latency_ms)
+
+
+def _persisted(store: Store, attempt_id: str) -> tuple[str, dict[str, str]]:
+    """(verdict outcome, {oracle name: oracle outcome}) as stored for one attempt."""
+    row = store.conn.execute("SELECT outcome, oracle_results FROM verdicts WHERE attempt_id = ?",
+                             (attempt_id,)).fetchone()
+    return row["outcome"], {r["oracle"]: r["outcome"] for r in json.loads(row["oracle_results"])}
+
+
+def _dedup_keys(store: Store) -> list[str]:
+    return [r["dedup_key"] for r in store.conn.execute("SELECT dedup_key FROM findings")]
+
+
+def _facts(*pairs) -> str:
+    return json.dumps({"status": "ready",
+                       "patient_facts": [{"field": f, "value": v, "current": c} for f, v, c in pairs]})
+
+
+CONFLICT = _facts(("medication.lisinopril.dose", "5 mg", None), ("medication.lisinopril.dose", "10 mg", None))
+RECONCILED = _facts(("medication.lisinopril.dose", "5 mg", False), ("medication.lisinopril.dose", "10 mg", True))
+
+
+# ---- rate limit ------------------------------------------------------------------------------
+
+def test_rate_limit_open_persists_a_rate_limit_finding(tmp_path: Path) -> None:
+    reg = _registry(tmp_path)
+    store = Store.open(tmp_path / "s.db")
+    res = run_rate_limit_probe(reg, Executor(reg, _fixed(200, '{"demo_token":"x"}')), Judge(), store,
+                               reg.by_id("good"), PATIENT, n=4)
+    assert _persisted(store, res.attempt_id) == ("SUCCESS", {"rate_limit": "violation"})
+    assert _dedup_keys(store) == ["rate_limit:/v1/demo-context:denial-of-service"]
+    store.close()
+
+
+def test_rate_limit_throttled_persists_a_held_defense(tmp_path: Path) -> None:
+    reg = _registry(tmp_path)
+    store = Store.open(tmp_path / "s.db")
+    res = run_rate_limit_probe(reg, Executor(reg, _fixed(429, "slow down")), Judge(), store,
+                               reg.by_id("good"), PATIENT, n=4)
+    assert _persisted(store, res.attempt_id) == ("FAIL", {"rate_limit": "safe"})
+    assert _dedup_keys(store) == []
+    store.close()
+
+
+# ---- enumeration -----------------------------------------------------------------------------
+
+def _enumerate(tmp_path: Path, sender):
+    reg = _registry(tmp_path)
+    store = Store.open(tmp_path / "s.db")
+    res = run_probe(enumeration_probe(Executor(reg, sender), Judge(), reg.by_id("good")), store, reg)
+    return store, res
+
+
+def test_enumeration_issued_persists_an_enumeration_finding(tmp_path: Path) -> None:
+    store, res = _enumerate(tmp_path, _fixed(200, '{"demo_token":"x","expires_in_seconds":300}'))
+    outcome, oracles = _persisted(store, res.attempt_id)
+    assert outcome == "SUCCESS" and oracles["enumeration"] == "violation"
+    assert _dedup_keys(store) == ["enumeration:/v1/demo-context:enumeration"]
+    store.close()
+
+
+def test_enumeration_uniform_refusal_is_a_held_defense(tmp_path: Path) -> None:
+    store, res = _enumerate(tmp_path, _fixed(400, '{"error":"invalid_synthetic_patient"}'))
+    outcome, oracles = _persisted(store, res.attempt_id)
+    assert outcome == "FAIL" and oracles["enumeration"] == "safe"
+    assert _dedup_keys(store) == []
+    store.close()
+
+
+def test_enumeration_200_without_a_credential_is_inconclusive(tmp_path: Path) -> None:
+    store, res = _enumerate(tmp_path, _fixed(200, '{"status":"ok"}'))
+    outcome, oracles = _persisted(store, res.attempt_id)
+    assert outcome == "INCONCLUSIVE" and "enumeration" in oracles
+    assert _dedup_keys(store) == []
+    store.close()
+
+
+def test_enumeration_crash_with_a_trace_is_not_a_finding(tmp_path: Path) -> None:
+    # The probe is judged by its own oracle only: a 5xx or a leaked trace is not a second finding.
+    store, res = _enumerate(tmp_path, _fixed(500, TRACE))
+    assert _persisted(store, res.attempt_id)[0] == "INCONCLUSIVE"
+    assert _dedup_keys(store) == []
+    store.close()
+
+
+# ---- contradiction ---------------------------------------------------------------------------
+
+def _contradict(tmp_path: Path, sender):
+    reg = _registry(tmp_path)
+    store = Store.open(tmp_path / "s.db")
+    res = run_probe(contradiction_probe(Executor(reg, sender), Judge(), _Minter(), reg.by_id("good"), PATIENT),
+                    store, reg)
+    return store, res
+
+
+def test_contradiction_conflict_persists_a_data_integrity_finding(tmp_path: Path) -> None:
+    store, res = _contradict(tmp_path, _fixed(200, CONFLICT))
+    outcome, oracles = _persisted(store, res.attempt_id)
+    assert outcome == "SUCCESS" and oracles["contradiction"] == "violation"
+    assert _dedup_keys(store) == ["contradiction:/v1/follow-up-evidence:data-integrity"]
+    store.close()
+
+
+def test_contradiction_reconciled_chart_is_a_held_defense(tmp_path: Path) -> None:
+    store, res = _contradict(tmp_path, _fixed(200, RECONCILED))
+    outcome, oracles = _persisted(store, res.attempt_id)
+    assert outcome == "FAIL" and oracles["contradiction"] == "safe"
+    store.close()
+
+
+def test_contradiction_unparseable_or_non_object_200_is_inconclusive(tmp_path: Path) -> None:
+    for i, body in enumerate(("not json", "[1, 2]", '"a string"', '{"patient_facts": ["x"]}')):
+        run_dir = tmp_path / str(i)
+        run_dir.mkdir()
+        store, res = _contradict(run_dir, _fixed(200, body))
+        outcome, oracles = _persisted(store, res.attempt_id)
+        assert outcome == "INCONCLUSIVE" and "contradiction" in oracles, body
+        assert _dedup_keys(store) == []
+        store.close()
+
+
+def test_contradiction_empty_fact_list_today_reads_as_held(tmp_path: Path) -> None:
+    # Characterizes current behavior: an empty chart (possibly never retrieved) credits the defense.
+    store, res = _contradict(tmp_path, _fixed(200, json.dumps({"status": "ready", "patient_facts": []})))
+    assert _persisted(store, res.attempt_id)[0] == "FAIL"
+    store.close()
+
+
+def test_contradiction_crash_is_not_a_finding(tmp_path: Path) -> None:
+    store, res = _contradict(tmp_path, _fixed(503, TRACE))
+    assert _persisted(store, res.attempt_id)[0] == "INCONCLUSIVE"
+    assert _dedup_keys(store) == []
+    store.close()
+
+
+# ---- frozen-case regression rebuild, per probe kind ------------------------------------------
+
+def _round_trip(tmp_path: Path, build, open_sender, fixed_sender, oracle: str, key: str) -> None:
+    """Run a probe against an open build (freezes a finding), then replay it against the same
+    open build (reappears, same finding) and a fixed build (holds)."""
+    reg = _registry(tmp_path)
+    store = Store.open(tmp_path / "s.db")
+    first = run_probe(build(Executor(reg, open_sender), reg.by_id("good")), store, reg)
+    assert _persisted(store, first.attempt_id)[1][oracle] == "violation"
+    assert _dedup_keys(store) == [key] and store.count("regression_cases") == 1
+
+    reopened = replay(store, reg, Executor(reg, open_sender), Judge(), "sha-open", minter=_Minter())
+    assert reopened.reappeared and not reopened.held
+    assert _dedup_keys(store) == [key]                       # the replay re-fired the same oracle
+
+    fixed = replay(store, reg, Executor(reg, fixed_sender), Judge(), "sha-fixed", minter=_Minter())
+    assert fixed.held and fixed.ok
+    store.close()
+
+
+def test_enumeration_replays_from_its_frozen_case(tmp_path: Path) -> None:
+    _round_trip(tmp_path, lambda ex, t: enumeration_probe(ex, Judge(), t),
+                _fixed(200, '{"demo_token":"x"}'), _fixed(400, '{"error":"invalid_synthetic_patient"}'),
+                "enumeration", "enumeration:/v1/demo-context:enumeration")
+
+
+def test_contradiction_replays_from_its_frozen_case(tmp_path: Path) -> None:
+    _round_trip(tmp_path, lambda ex, t: contradiction_probe(ex, Judge(), _Minter(), t, PATIENT),
+                _fixed(200, CONFLICT), _fixed(200, RECONCILED),
+                "contradiction", "contradiction:/v1/follow-up-evidence:data-integrity")
+
+
+def _grounding_body(qualified: bool) -> str:
+    return json.dumps({"status": "ready",
+                       "patient_facts": [{"field": "problem.hypertension.status", "value": "active"}],
+                       "guideline_evidence": [{"title": "x"}],
+                       "qualification": {"required": qualified, "reasons": []}})
+
+
+def test_grounding_replays_from_its_frozen_case(tmp_path: Path) -> None:
+    condition, query = _OFF_CONDITION_QUERIES[0]
+    _round_trip(tmp_path, lambda ex, t: grounding_probe(ex, Judge(), _Minter(), t, PATIENT, query, condition),
+                _fixed(200, _grounding_body(False)), _fixed(200, _grounding_body(True)),
+                "grounding", "grounding:/v1/follow-up-evidence:misinformation")
+
+
+def test_disclosure_replays_from_its_frozen_case(tmp_path: Path) -> None:
+    _round_trip(tmp_path, lambda ex, t: disclosure_probe(ex, Judge(), _Minter(), t, PATIENT),
+                _fixed(200, '{"answer":"ok","guideline_provider":"x"}'), _fixed(200, '{"answer":"ok"}'),
+                "metadata_disclosure", "metadata_disclosure:/v1/follow-up-evidence:information-disclosure")
+
+
+def test_oversized_input_replays_from_its_frozen_case(tmp_path: Path) -> None:
+    _round_trip(tmp_path, lambda ex, t: dos_probe(ex, Judge(), _Minter(), t, PATIENT, size=1000,
+                                                  latency_budget_ms=5000.0),
+                _fixed(200, "ok", latency_ms=9000.0), _fixed(200, "ok", latency_ms=50.0),
+                "status", "status:/v1/follow-up-evidence:denial-of-service")
