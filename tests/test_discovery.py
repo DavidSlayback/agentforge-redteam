@@ -86,3 +86,50 @@ def test_errors_do_not_create_candidates(tmp_path: Path) -> None:
     assert s.reviewed == 1 and s.errors == 1 and len(s.candidates) == 0
     assert store.count("discovery_candidates") == 0
     store.close()
+
+
+# --- atomic persistence: a discovery pass and its audit action are one unit (issue #1) -------
+
+import sqlite3  # noqa: E402
+
+import pytest  # noqa: E402
+
+class _FaultyStore(Store):
+    """A real store that raises on its Nth write, the way a lock timeout or a crash would."""
+
+    fail_on: int | None = None
+    writes = 0
+
+    def _tick(self) -> None:
+        self.writes += 1
+        if self.writes == self.fail_on:
+            raise sqlite3.OperationalError(f"injected fault at write {self.writes}")
+
+    def insert(self, table, row):
+        self._tick()
+        return super().insert(table, row)
+
+    def execute(self, sql, params=()):
+        self._tick()
+        return super().execute(sql, params)
+
+def test_a_fault_mid_pass_leaves_no_candidates_and_no_pass_action(tmp_path: Path) -> None:
+    total = 3   # two candidates and the discovery_pass action
+    for n in range(1, total + 1):
+        db = tmp_path / f"fault-{n}.db"
+        seed = Store.open(db)
+        _seed_attempt(seed, "att-1", "sha1", '{"answer": "LEAK one"}')
+        _seed_attempt(seed, "att-2", "sha1", '{"answer": "LEAK two"}')
+        seed.close()
+
+        store = _FaultyStore.open(db)
+        store.fail_on = n
+        with pytest.raises(sqlite3.OperationalError, match="injected fault"):
+            run_discovery(store, _FakeJudge(), target_sha="sha1")
+        assert store.writes == n
+        store.close()
+
+        after = Store.open(db)
+        assert after.count("discovery_candidates") == 0, f"fault at write {n}/{total} left a candidate"
+        assert after.count("agent_actions") == 0, f"fault at write {n}/{total} left the pass action"
+        after.close()

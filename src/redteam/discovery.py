@@ -47,11 +47,12 @@ def run_discovery(store: Store, judge: DiscoveryJudge, *, target_sha: str | None
     summary = DiscoverySummary()
     where = "WHERE a.target_sha = ?" if target_sha else ""
     params: tuple = (target_sha,) if target_sha else ()
-    rows = store.conn.execute(
+    evidence = store.conn.execute(
         f"SELECT a.attempt_id, a.target_sha, e.exchanges FROM attempts a "
         f"JOIN evidence e ON e.attempt_id = a.attempt_id {where} "
         f"ORDER BY a.started_at DESC LIMIT ?", (*params, limit)).fetchall()
-    for row in rows:
+    pending: list[dict] = []   # candidate rows, written in one unit after the review loop
+    for row in evidence:
         try:
             exchanges = json.loads(row["exchanges"]) if row["exchanges"] else []
         except ValueError:
@@ -68,7 +69,7 @@ def run_discovery(store: Store, judge: DiscoveryJudge, *, target_sha: str | None
             continue
         if result.suspected and result.confidence >= min_confidence:
             cid = "cand-" + uuid.uuid4().hex[:10]
-            store.insert("discovery_candidates", {
+            pending.append({
                 "candidate_id": cid, "attempt_id": row["attempt_id"], "target_sha": row["target_sha"],
                 "vuln_class": result.vuln_class, "severity": result.severity,
                 "confidence": result.confidence, "why": result.why, "route": route,
@@ -77,13 +78,18 @@ def run_discovery(store: Store, judge: DiscoveryJudge, *, target_sha: str | None
             summary.candidates.append({"candidate_id": cid, "vuln_class": result.vuln_class,
                                        "severity": result.severity, "confidence": result.confidence,
                                        "why": result.why, "route": route})
-    store.insert("agent_actions", {
-        "ts": _now(), "agent": "discovery", "action": "discovery_pass",
-        "refs": json.dumps({"sha": target_sha, "reviewed": summary.reviewed,
-                            "candidates": len(summary.candidates), "errors": summary.errors}),
-        "reason": (f"{len(summary.candidates)} candidate(s) from {summary.reviewed} reviewed"
-                   if summary.candidates else f"no candidates from {summary.reviewed} reviewed"),
-    })
+    # The pass is one unit, written after the model calls so no write lock is held during them:
+    # its candidates and its audit action land together or not at all.
+    with store.transaction():
+        for candidate in pending:
+            store.insert("discovery_candidates", candidate)
+        store.insert("agent_actions", {
+            "ts": _now(), "agent": "discovery", "action": "discovery_pass",
+            "refs": json.dumps({"sha": target_sha, "reviewed": summary.reviewed,
+                                "candidates": len(summary.candidates), "errors": summary.errors}),
+            "reason": (f"{len(summary.candidates)} candidate(s) from {summary.reviewed} reviewed"
+                       if summary.candidates else f"no candidates from {summary.reviewed} reviewed"),
+        })
     return summary
 
 
@@ -104,15 +110,15 @@ def triage_candidates(store: Store, status: str, *, candidate_id: str | None = N
     param = candidate_id or vuln_class
     note_sql = ", why = why || ' [triage: ' || ? || ']'" if note else ""
     params: tuple = (status, note, param) if note else (status, param)
-    cur = store.conn.execute(
-        f"UPDATE discovery_candidates SET status = ?{note_sql} WHERE {where} AND status != 'promoted'",
-        params)
-    store.conn.commit()
-    store.insert("agent_actions", {
-        "ts": _now(), "agent": "triage", "action": "candidate_triage",
-        "refs": json.dumps({"by": "id" if candidate_id else "class", "key": param, "status": status}),
-        "reason": f"{cur.rowcount} candidate(s) -> {status}" + (f": {note}" if note else ""),
-    })
+    with store.transaction():   # the disposition and its audit action land together
+        cur = store.execute(
+            f"UPDATE discovery_candidates SET status = ?{note_sql} WHERE {where} AND status != 'promoted'",
+            params)
+        store.insert("agent_actions", {
+            "ts": _now(), "agent": "triage", "action": "candidate_triage",
+            "refs": json.dumps({"by": "id" if candidate_id else "class", "key": param, "status": status}),
+            "reason": f"{cur.rowcount} candidate(s) -> {status}" + (f": {note}" if note else ""),
+        })
     return cur.rowcount
 
 
