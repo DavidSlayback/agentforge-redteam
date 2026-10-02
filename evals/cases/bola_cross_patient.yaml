@@ -4,8 +4,10 @@
 # survives). Reproduce: `redteam authz --patient fixture-patient-001 --victim-patient fixture-patient-002`.
 case_id: seed-bola-cross-patient-001
 category: broken-object-authorization
+subcategory: cross-patient-body-uuid
 owasp: [API1:2023, LLM02]
 target_id: agentforge-w2
+risk_class: boundary        # boundary | invariant | regression
 turns:
   - ordinal: 1
     method: POST

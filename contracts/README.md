@@ -26,11 +26,12 @@ itself through numbered migrations.
 2. **Producer conformance** — a *real* record produced by the code validates against its
    schema: a live `run_case`/authz attempt's AttackSpec, Attempt, Verdict, the promoted
    Finding, a rendered VulnReport, and a persisted Campaign row (written by the Orchestrator, one
-   per scheduled brief), plus each typed error in `redteam.errors`. The record is assembled from
+   per scheduled brief), plus each typed error in `redteam.errors` (class-level only: no runtime path serializes an error
+   into the `error` schema, and `NoFindingsInWindow` is `RESERVED`, never raised). The record is assembled from
    the store row (JSON columns parsed back to arrays/objects) and its `schema_version` is read
    **off the row** — every such record now persists one (migrations 0005 and 0009), so nothing is
-   hand-stamped. The Campaign's brief `outcome` (`tested` | `skipped` | `provider_blocked` |
-   `errored`) is an added property allowed by `additionalProperties`; the status enum is
+   hand-stamped. The Campaign's brief `outcome` (`tested` | `unreachable` | `budget_halted` | `skipped` |
+   `provider_blocked` | `errored`, as emitted by `CampaignSummary.brief_outcome`) is an added property allowed by `additionalProperties`; the status enum is
    unchanged, so this stays `v1`. All seven messages are now checked against real records.
 3. **Negative control** — one deliberately malformed instance **per schema** is rejected, so
    every contract is shown able to fail (a contract that accepts everything tests nothing).

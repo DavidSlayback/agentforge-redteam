@@ -5,7 +5,7 @@
     --bg:#f6f5f2; --surface:#fffdfa; --surface-2:#f0eee9; --ink:#1c1b19; --muted:#6b675f;
     --line:#d9d5cc; --line-strong:#b9b3a7; --accent:#b4531f;
     --c-orch:#2563eb; --c-red:#d6402c; --c-judge:#0d8a7a; --c-doc:#7c3aed;
-    --c-exec:#b4691a; --c-det:#5b6472; --c-store:#334155; --c-target:#7a8290; --c-human:#b8860b;
+    --hub-ink:#fff; --c-exec:#b4691a; --c-ctrl:#0f766e; --c-det:#5b6472; --c-store:#334155; --c-target:#7a8290; --c-human:#b8860b;
     --shadow:0 1px 2px rgba(28,27,25,.06),0 6px 20px rgba(28,27,25,.06);
     font-synthesis-weight:none;
   }
@@ -13,13 +13,13 @@
     --bg:#16171a; --surface:#1e2024; --surface-2:#25282d; --ink:#e9e7e2; --muted:#a2a09a;
     --line:#33363c; --line-strong:#484c54; --accent:#e8895a; color-scheme:dark;
     --c-orch:#6ea8fe; --c-red:#f0806e; --c-judge:#3fc7b4; --c-doc:#b699f5;
-    --c-exec:#e0a244; --c-det:#9aa4b2; --c-store:#c7cfda; --c-target:#9aa4b2; --c-human:#e6c34d;
+    --hub-ink:#16171a; --c-exec:#e0a244; --c-ctrl:#5eead4; --c-det:#9aa4b2; --c-store:#c7cfda; --c-target:#9aa4b2; --c-human:#e6c34d;
   }}
   :root[data-theme="dark"]{
     --bg:#16171a; --surface:#1e2024; --surface-2:#25282d; --ink:#e9e7e2; --muted:#a2a09a;
     --line:#33363c; --line-strong:#484c54; --accent:#e8895a; color-scheme:dark;
     --c-orch:#6ea8fe; --c-red:#f0806e; --c-judge:#3fc7b4; --c-doc:#b699f5;
-    --c-exec:#e0a244; --c-det:#9aa4b2; --c-store:#c7cfda; --c-target:#9aa4b2; --c-human:#e6c34d;
+    --hub-ink:#16171a; --c-exec:#e0a244; --c-ctrl:#5eead4; --c-det:#9aa4b2; --c-store:#c7cfda; --c-target:#9aa4b2; --c-human:#e6c34d;
   }
   *{box-sizing:border-box}
   body{background:var(--bg);color:var(--ink);
@@ -40,6 +40,7 @@
   .stage{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:14px;
     box-shadow:var(--shadow);padding:14px}
   svg.diagram{display:block;width:100%;height:auto}
+  @media(max-width:720px){.stage{overflow-x:auto} svg.diagram{min-width:760px}}  /* scroll, don't shrink the text to ~4px */
   .legend{display:flex;flex-wrap:wrap;gap:6px 14px;margin:12px 2px 0;
     font-family:ui-sans-serif,system-ui,sans-serif;font-size:12px;color:var(--muted)}
   .legend span{display:inline-flex;align-items:center;gap:6px}
@@ -57,15 +58,15 @@
   .node:focus{outline:none}
   .node:focus .box{stroke-dasharray:0;filter:drop-shadow(0 0 0 2px var(--accent))}
   .node.active .box{stroke-width:3.5}
-  .hub .box{fill:var(--store);stroke:var(--store)}
-  .hub .ttl,.hub .tag{fill:#fff}
-  :root[data-theme="dark"] .hub .ttl,:root[data-theme="dark"] .hub .tag{fill:#16171a}
-  :root:not([data-theme="light"]) .hub .ttl,:root:not([data-theme="light"]) .hub .tag{fill:#16171a}
+  .hub .box{fill:var(--c-store);stroke:var(--c-store)}
+  .hub .ttl,.hub .tag{fill:var(--hub-ink)}
   .edge{fill:none;stroke:var(--line-strong);stroke-width:1.6}
   .edge.data{stroke:var(--muted)}
+  .edge.persist{stroke:var(--line-strong);stroke-dasharray:5 4}
+  .edge.net{stroke:var(--c-exec);stroke-width:2.2}
   .elab{font-family:ui-sans-serif,system-ui,sans-serif;font-size:11px;fill:var(--muted)}
   .elab.key{fill:var(--accent);font-weight:600}
-  .boundary{fill:none;stroke:var(--c-exec);stroke-width:1.6;stroke-dasharray:6 5;rx:14}
+  .boundary{fill:none;stroke:var(--c-exec);stroke-width:1.6;stroke-dasharray:6 5}
   .blab{font-family:ui-sans-serif,system-ui,sans-serif;font-size:11px;font-weight:700;fill:var(--c-exec);letter-spacing:.02em}
   /* tooltip */
   .tip{position:absolute;z-index:5;max-width:290px;background:var(--surface);color:var(--ink);
@@ -107,6 +108,7 @@
   <p class="lede">A multi-agent system that continuously attacks one authorized target — the AgentForge Clinical Co-Pilot — and proves whether its weaknesses are found, fixed, and stay fixed. This page shows the shapes we considered, the one we chose, and the fifteen decisions behind it.</p>
   <div class="meta ui">
     <span><b>Decided</b> 2026-09-28</span>
+    <span><b>Reconciled with code</b> 2026-10-01</span>
     <span><b>Source</b> grilling session Q1–Q15</span>
     <span><b>Records</b> ADR 0001 · 0002 · 0003</span>
     <span><b>Scope</b> synthetic data · one authorized target</span>
@@ -114,152 +116,175 @@
 
   <p class="eyebrow">The mechanism</p>
   <h2>One control plane, one store, isolated agents</h2>
-  <p class="sub">A deterministic controller coordinates four LLM agents and three deterministic services over a single SQLite store that is at once the work queue, the audit trail, and the data the Orchestrator reads. <b>Click any box to pin its role, inputs and outputs, and trust level.</b></p>
+  <p class="sub">Four agent roles (three call a model; Documentation is a deterministic report builder) and a set of deterministic services run in one process under a campaign loop. Control flow is plain function calls; a single SQLite store records every handoff and is what the Orchestrator reads back to decide what to attack next. <b>Click any box to pin its role, inputs and outputs, and trust level.</b></p>
 
   <figure>
     <div class="stage" id="stage">
-      <svg class="diagram" viewBox="0 0 1040 600" role="img" aria-label="Interaction diagram: the Orchestrator writes campaigns to the central store; the Red Team agent, which has no network access, writes attack specifications as data; the Executor is the only component that reaches the Target and checks authorization on every request; the Judge scores attempts; the Documentation agent writes reports behind a human approval gate; Recon and the Regression runner feed the store.">
-        <defs>
-          <marker id="ah" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-            <path d="M0.5,0.5 L9,5 L0.5,9.5" fill="none" stroke="context-stroke" stroke-width="1.6"/>
-          </marker>
-        </defs>
+      <svg class="diagram" viewBox="0 0 1040 700" role="img" aria-label="Architecture diagram. The Orchestrator ranks briefs from the store and hands one to the campaign loop and runner. The runner asks the Red Team for an attack case as data, sends it through the Executor, which is the only component that reaches the target and checks authorization on every request, then passes the response to the Judge and persists the spec, attempt, evidence, verdict, finding and regression case to the SQLite store in one transaction. Recon watches the target build and triggers the Regression runner on a new git SHA. Documentation builds reports from findings behind a human approval gate; Discovery writes candidate leads; a read-only dashboard reads the store.">
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0.5,0.5 L9,5 L0.5,9.5" fill="none" stroke="context-stroke" stroke-width="1.6"/>
+    </marker>
+  </defs>
 
-        <!-- trust boundary around Executor + Target -->
-        <rect class="boundary" x="806" y="30" width="212" height="356" rx="14"/>
-        <text class="blab" x="912" y="20" text-anchor="middle">only path to the Target</text>
-        <text class="blab" x="912" y="402" text-anchor="middle" style="font-weight:600;fill:var(--muted)">authorization checked per request</text>
+  <!-- trust boundary: Executor + Target -->
+  <rect class="boundary" x="684" y="226" width="346" height="150" rx="14"/>
+  <text class="blab" x="857" y="364" text-anchor="middle">only path to the Target · authz on every request</text>
 
-        <!-- edges (drawn before nodes) -->
-        <!-- Orchestrator <-> Store (corridor at x252, clear of Recon) -->
-        <path class="edge data" d="M230,108 L252,108 L252,292 L268,292" marker-end="url(#ah)" marker-start="url(#ah)"/>
-        <text class="elab key" x="150" y="200">state / campaign</text>
-        <!-- Recon -> Store -->
-        <path class="edge" d="M212,314 L268,314" marker-end="url(#ah)"/>
-        <text class="elab" x="150" y="334">routes · SHA</text>
-        <!-- Store -> Red Team (up) -->
-        <path class="edge" d="M470,246 L470,152" marker-end="url(#ah)"/>
-        <text class="elab" x="430" y="205">brief</text>
-        <!-- Red Team -> Store (down) -->
-        <path class="edge data" d="M540,152 L540,246" marker-end="url(#ah)"/>
-        <text class="elab key" x="548" y="205">specs (data)</text>
-        <!-- Store -> Executor (specs) -->
-        <path class="edge data" d="M672,288 L822,288" marker-end="url(#ah)"/>
-        <text class="elab" x="712" y="280">specs</text>
-        <!-- Executor -> Store (attempts) -->
-        <path class="edge data" d="M822,322 L672,322" marker-end="url(#ah)"/>
-        <text class="elab key" x="706" y="340">attempts</text>
-        <!-- Executor <-> Target -->
-        <path class="edge" d="M912,258 L912,152" marker-end="url(#ah)" marker-start="url(#ah)"/>
-        <text class="elab" x="920" y="208">HTTP</text>
-        <!-- Store -> Dashboard -->
-        <path class="edge" d="M616,246 L686,144" marker-end="url(#ah)"/>
-        <text class="elab" x="628" y="200">read-only</text>
-        <!-- Store -> Judge (down) -->
-        <path class="edge data" d="M420,356 L420,450" marker-end="url(#ah)"/>
-        <text class="elab" x="428" y="406">attempts</text>
-        <!-- Judge -> Store (up) -->
-        <path class="edge data" d="M360,450 L360,356" marker-end="url(#ah)"/>
-        <text class="elab key" x="300" y="406">verdicts</text>
-        <!-- Store -> Documentation -->
-        <path class="edge data" d="M600,354 L700,450" marker-end="url(#ah)"/>
-        <text class="elab key" x="628" y="404">findings</text>
-        <!-- Documentation -> Human gate -->
-        <path class="edge" d="M812,496 L892,496" marker-end="url(#ah)"/>
-        <text class="elab" x="812" y="486">crit/high</text>
-        <!-- Regression -> Store (replay on new SHA) -->
-        <path class="edge" d="M212,472 L296,356" marker-end="url(#ah)"/>
-        <text class="elab" x="150" y="430">on new SHA</text>
+  <!-- EDGES (before nodes) -->
+  <!-- Orchestrator <-> Store (persist; reads state, writes campaigns/audit) -->
+  <path class="edge persist" d="M50,140 L50,448" marker-end="url(#ah)" marker-start="url(#ah)"/>
+  <text class="elab key" x="62" y="176">reads coverage + findings</text>
+  <text class="elab" x="62" y="192">writes campaign, audit, cost</text>
+  <!-- Orchestrator -> Runner -->
+  <path class="edge" d="M230,110 L330,110 L330,266 L398,266" marker-end="url(#ah)"/>
+  <text class="elab key" x="238" y="102">campaign brief</text>
+  <!-- Red Team <-> Runner -->
+  <path class="edge data" d="M505,140 L505,248" marker-end="url(#ah)" marker-start="url(#ah)"/>
+  <text class="elab key" x="493" y="188" text-anchor="end">brief ⇄ SeedCase</text>
+  <text class="elab" x="493" y="204" text-anchor="end">(data only)</text>
+  <!-- Runner <-> Judge -->
+  <path class="edge" d="M398,310 L302,310" marker-end="url(#ah)" marker-start="url(#ah)"/>
+  <text class="elab" x="310" y="302">observation</text>
+  <text class="elab key" x="320" y="328">verdict</text>
+  <!-- Runner <-> Executor -->
+  <path class="edge" d="M612,300 L698,300" marker-end="url(#ah)" marker-start="url(#ah)"/>
+  <text class="elab" x="622" y="292">request</text>
+  <text class="elab" x="622" y="318">response</text>
+  <!-- Executor <-> Target (the network edge) -->
+  <path class="edge net" d="M842,300 L888,300" marker-end="url(#ah)" marker-start="url(#ah)"/>
+  <text class="elab key" x="865" y="284" text-anchor="middle">HTTP</text>
+  <!-- Regression -> Runner (replay through the same dispatch) -->
+  <path class="edge" d="M720,140 L720,190 L580,190 L580,248" marker-end="url(#ah)"/>
+  <text class="elab" x="590" y="182">replay frozen cases</text>
+  <!-- Recon -> Regression -->
+  <path class="edge" d="M890,96 L822,96" marker-end="url(#ah)"/>
+  <text class="elab key" x="856" y="88" text-anchor="middle">new SHA</text>
+  <!-- Recon -> Executor (health poll) -->
+  <path class="edge" d="M940,140 L940,190 L780,190 L780,253" marker-end="url(#ah)"/>
+  <text class="elab" x="800" y="182">GET /health</text>
+  <!-- Runner -> Store (one transaction) -->
+  <path class="edge persist" d="M505,350 L505,448" marker-end="url(#ah)"/>
+  <text class="elab key" x="517" y="402">one transaction:</text>
+  <text class="elab" x="517" y="418">spec · attempt · evidence · verdict · finding · frozen case</text>
+  <!-- Store <-> Documentation -->
+  <path class="edge persist" d="M130,536 L130,588" marker-end="url(#ah)" marker-start="url(#ah)"/>
+  <text class="elab" x="140" y="566">finding → report</text>
+  <!-- Documentation -> Human -->
+  <path class="edge" d="M232,632 L268,632" marker-end="url(#ah)"/>
+  <!-- Store <-> Discovery -->
+  <path class="edge persist" d="M590,536 L590,588" marker-end="url(#ah)" marker-start="url(#ah)"/>
+  <text class="elab" x="600" y="566">evidence → candidates</text>
+  <!-- Store -> Dashboard -->
+  <path class="edge persist" d="M885,536 L885,588" marker-end="url(#ah)"/>
+  <text class="elab" x="895" y="566">read-only</text>
 
-        <!-- NODES -->
-        <!-- Store hub -->
-        <g class="node hub" id="n-store" tabindex="0" role="button" aria-label="SQLite store">
-          <rect class="box" x="270" y="246" width="402" height="108" rx="12"/>
-          <text class="ttl" x="471" y="288" text-anchor="middle">SQLite store</text>
-          <text class="tag" x="471" y="312" text-anchor="middle">queue · audit trail · observability</text>
-          <text class="tag" x="471" y="330" text-anchor="middle" style="opacity:.8">single source of truth</text>
-        </g>
+  <!-- NODES -->
+  <!-- Store (bottom bar) -->
+  <g class="node hub" id="n-store" tabindex="0" role="button" aria-label="SQLite store">
+    <rect class="box" x="30" y="450" width="980" height="84" rx="12"/>
+    <text class="ttl" x="520" y="480" text-anchor="middle">SQLite store · system of record</text>
+    <text class="tag" x="520" y="502" text-anchor="middle">campaigns · attack_specs · attempts · evidence · verdicts · findings · regression_cases · vuln_reports</text>
+    <text class="tag" x="520" y="520" text-anchor="middle" style="opacity:.85">agent_actions (ordered audit) · cost_ledger · target_health · discovery_candidates</text>
+  </g>
 
-        <!-- Orchestrator -->
-        <g class="node" id="n-orch" tabindex="0" role="button" aria-label="Orchestrator agent" data-c="--c-orch">
-          <rect class="box" x="30" y="66" width="200" height="84" rx="11" style="stroke:var(--c-orch)"/>
-          <text class="ttl" x="46" y="98">Orchestrator</text>
-          <text class="tag" x="46" y="120" style="fill:var(--c-orch)">AGENT · deterministic + Jev</text>
-          <text class="tag" x="46" y="137" style="fill:var(--muted)">picks what to attack next</text>
-        </g>
+  <!-- Orchestrator -->
+  <g class="node" id="n-orch" tabindex="0" role="button" aria-label="Orchestrator" data-c="--c-orch">
+    <rect class="box" x="30" y="52" width="200" height="88" rx="11" style="stroke:var(--c-orch)"/>
+    <text class="ttl" x="46" y="82">Orchestrator</text>
+    <text class="tag" x="46" y="103" style="fill:var(--c-orch)">AGENT · ranker + optional Jev</text>
+    <text class="tag" x="46" y="121" style="fill:var(--muted)">budget + no-signal halt</text>
+  </g>
 
-        <!-- Red Team -->
-        <g class="node" id="n-red" tabindex="0" role="button" aria-label="Red Team agent" data-c="--c-red">
-          <rect class="box" x="370" y="66" width="200" height="84" rx="11" style="stroke:var(--c-red)"/>
-          <text class="ttl" x="386" y="98">Red Team</text>
-          <text class="tag" x="386" y="120" style="fill:var(--c-red)">AGENT · least trusted</text>
-          <text class="tag" x="386" y="137" style="fill:var(--muted)">no network · no credentials</text>
-        </g>
+  <!-- Red Team -->
+  <g class="node" id="n-red" tabindex="0" role="button" aria-label="Red Team" data-c="--c-red">
+    <rect class="box" x="400" y="52" width="210" height="88" rx="11" style="stroke:var(--c-red)"/>
+    <text class="ttl" x="416" y="82">Red Team</text>
+    <text class="tag" x="416" y="103" style="fill:var(--c-red)">AGENT · Qwen · least trusted</text>
+    <text class="tag" x="416" y="121" style="fill:var(--muted)">no network · no credentials</text>
+  </g>
 
-        <!-- Target -->
-        <g class="node" id="n-target" tabindex="0" role="button" aria-label="Target Clinical Co-Pilot" data-c="--c-target">
-          <rect class="box" x="822" y="66" width="180" height="84" rx="11" style="stroke:var(--c-target);stroke-dasharray:5 4"/>
-          <text class="ttl" x="838" y="98">Target</text>
-          <text class="tag" x="838" y="120" style="fill:var(--c-target)">EXTERNAL · authorized</text>
-          <text class="tag" x="838" y="137" style="fill:var(--muted)">Clinical Co-Pilot</text>
-        </g>
+  <!-- Regression -->
+  <g class="node" id="n-reg" tabindex="0" role="button" aria-label="Regression runner" data-c="--c-det">
+    <rect class="box" x="680" y="52" width="142" height="88" rx="11" style="stroke:var(--c-det)"/>
+    <text class="ttl" x="694" y="82">Regression</text>
+    <text class="tag" x="694" y="103" style="fill:var(--c-det)">DETERMINISTIC</text>
+    <text class="tag" x="694" y="121" style="fill:var(--muted)">replays frozen cases</text>
+  </g>
 
-        <!-- Recon -->
-        <g class="node" id="n-recon" tabindex="0" role="button" aria-label="Recon service" data-c="--c-det">
-          <rect class="box" x="30" y="258" width="182" height="84" rx="11" style="stroke:var(--c-det)"/>
-          <text class="ttl" x="46" y="290">Recon</text>
-          <text class="tag" x="46" y="312" style="fill:var(--c-det)">DETERMINISTIC</text>
-          <text class="tag" x="46" y="329" style="fill:var(--muted)">routes · polls SHA</text>
-        </g>
+  <!-- Recon -->
+  <g class="node" id="n-recon" tabindex="0" role="button" aria-label="Recon poller" data-c="--c-det">
+    <rect class="box" x="892" y="52" width="130" height="88" rx="11" style="stroke:var(--c-det)"/>
+    <text class="ttl" x="906" y="82">Recon</text>
+    <text class="tag" x="906" y="103" style="fill:var(--c-det)">DETERMINISTIC</text>
+    <text class="tag" x="906" y="121" style="fill:var(--muted)">polls build SHA</text>
+  </g>
 
-        <!-- Executor -->
-        <g class="node" id="n-exec" tabindex="0" role="button" aria-label="Executor service" data-c="--c-exec">
-          <rect class="box" x="822" y="258" width="180" height="84" rx="11" style="stroke:var(--c-exec)"/>
-          <text class="ttl" x="838" y="290">Executor</text>
-          <text class="tag" x="838" y="312" style="fill:var(--c-exec)">DETERMINISTIC · the gate</text>
-          <text class="tag" x="838" y="329" style="fill:var(--muted)">holds credentials</text>
-        </g>
+  <!-- Judge -->
+  <g class="node" id="n-judge" tabindex="0" role="button" aria-label="Judge" data-c="--c-judge">
+    <rect class="box" x="90" y="255" width="210" height="90" rx="11" style="stroke:var(--c-judge)"/>
+    <text class="ttl" x="106" y="285">Judge</text>
+    <text class="tag" x="106" y="306" style="fill:var(--c-judge)">AGENT · independent</text>
+    <text class="tag" x="106" y="324" style="fill:var(--muted)">oracles → DeepSeek rubric</text>
+  </g>
 
-        <!-- Dashboard -->
-        <g class="node" id="n-dash" tabindex="0" role="button" aria-label="Dashboard" data-c="--c-det">
-          <rect class="box" x="624" y="70" width="150" height="74" rx="11" style="stroke:var(--c-det)"/>
-          <text class="ttl" x="640" y="100">Dashboard</text>
-          <text class="tag" x="640" y="121" style="fill:var(--c-det)">DETERMINISTIC</text>
-          <text class="tag" x="640" y="137" style="fill:var(--muted)">read-only view</text>
-        </g>
+  <!-- Campaign loop + Runner (the spine) -->
+  <g class="node" id="n-runner" tabindex="0" role="button" aria-label="Campaign loop and Runner" data-c="--c-ctrl">
+    <rect class="box" x="400" y="250" width="212" height="100" rx="11" style="stroke:var(--c-ctrl);stroke-width:2.6"/>
+    <text class="ttl" x="416" y="280">Campaign loop + Runner</text>
+    <text class="tag" x="416" y="301" style="fill:var(--c-ctrl)">DETERMINISTIC · the spine</text>
+    <text class="tag" x="416" y="319" style="fill:var(--muted)">generate → dispatch → judge</text>
+    <text class="tag" x="416" y="334" style="fill:var(--muted)">→ persist → promote</text>
+  </g>
 
-        <!-- Regression -->
-        <g class="node" id="n-reg" tabindex="0" role="button" aria-label="Regression runner" data-c="--c-det">
-          <rect class="box" x="30" y="454" width="182" height="84" rx="11" style="stroke:var(--c-det)"/>
-          <text class="ttl" x="46" y="486">Regression</text>
-          <text class="tag" x="46" y="508" style="fill:var(--c-det)">DETERMINISTIC</text>
-          <text class="tag" x="46" y="525" style="fill:var(--muted)">replays on new SHA</text>
-        </g>
+  <!-- Executor -->
+  <g class="node" id="n-exec" tabindex="0" role="button" aria-label="Executor" data-c="--c-exec">
+    <rect class="box" x="700" y="255" width="142" height="90" rx="11" style="stroke:var(--c-exec)"/>
+    <text class="ttl" x="714" y="285">Executor</text>
+    <text class="tag" x="714" y="306" style="fill:var(--c-exec)">DETERMINISTIC</text>
+    <text class="tag" x="714" y="324" style="fill:var(--muted)">the gate</text>
+  </g>
 
-        <!-- Judge -->
-        <g class="node" id="n-judge" tabindex="0" role="button" aria-label="Judge agent" data-c="--c-judge">
-          <rect class="box" x="300" y="454" width="220" height="84" rx="11" style="stroke:var(--c-judge)"/>
-          <text class="ttl" x="316" y="486">Judge</text>
-          <text class="tag" x="316" y="508" style="fill:var(--c-judge)">AGENT · independent</text>
-          <text class="tag" x="316" y="525" style="fill:var(--muted)">oracles first, then rubric</text>
-        </g>
+  <!-- Target -->
+  <g class="node" id="n-target" tabindex="0" role="button" aria-label="Target: Clinical Co-Pilot" data-c="--c-target">
+    <rect class="box" x="890" y="255" width="128" height="90" rx="11" style="stroke:var(--c-target);stroke-dasharray:5 4"/>
+    <text class="ttl" x="904" y="285">Target</text>
+    <text class="tag" x="904" y="306" style="fill:var(--c-target)">EXTERNAL</text>
+    <text class="tag" x="904" y="324" style="fill:var(--muted)">Clinical Co-Pilot</text>
+  </g>
 
-        <!-- Documentation -->
-        <g class="node" id="n-doc" tabindex="0" role="button" aria-label="Documentation agent" data-c="--c-doc">
-          <rect class="box" x="600" y="454" width="212" height="84" rx="11" style="stroke:var(--c-doc)"/>
-          <text class="ttl" x="616" y="486">Documentation</text>
-          <text class="tag" x="616" y="508" style="fill:var(--c-doc)">AGENT</text>
-          <text class="tag" x="616" y="525" style="fill:var(--muted)">writes vuln reports</text>
-        </g>
+  <!-- Documentation -->
+  <g class="node" id="n-doc" tabindex="0" role="button" aria-label="Documentation" data-c="--c-doc">
+    <rect class="box" x="30" y="590" width="200" height="88" rx="11" style="stroke:var(--c-doc)"/>
+    <text class="ttl" x="46" y="620">Documentation</text>
+    <text class="tag" x="46" y="641" style="fill:var(--c-doc)">DETERMINISTIC · no LLM</text>
+    <text class="tag" x="46" y="659" style="fill:var(--muted)">finding → vuln report</text>
+  </g>
 
-        <!-- Human gate -->
-        <g class="node" id="n-human" tabindex="0" role="button" aria-label="Human approval gate" data-c="--c-human">
-          <rect class="box" x="892" y="454" width="118" height="84" rx="11" style="stroke:var(--c-human)"/>
-          <text class="ttl" x="908" y="486" style="font-size:13px">Human</text>
-          <text class="tag" x="908" y="507" style="fill:var(--c-human)">CLI approval</text>
-          <text class="tag" x="908" y="524" style="fill:var(--muted)">crit/high</text>
-        </g>
-      </svg>
+  <!-- Human gate -->
+  <g class="node" id="n-human" tabindex="0" role="button" aria-label="Human approval gate" data-c="--c-human">
+    <rect class="box" x="270" y="590" width="170" height="88" rx="11" style="stroke:var(--c-human)"/>
+    <text class="ttl" x="286" y="620">Human gate</text>
+    <text class="tag" x="286" y="641" style="fill:var(--c-human)">CLI approval</text>
+    <text class="tag" x="286" y="659" style="fill:var(--muted)">crit/high held</text>
+  </g>
+
+  <!-- Discovery -->
+  <g class="node" id="n-disc" tabindex="0" role="button" aria-label="Discovery tier" data-c="--c-judge">
+    <rect class="box" x="480" y="590" width="220" height="88" rx="11" style="stroke:var(--c-judge);stroke-dasharray:5 4"/>
+    <text class="ttl" x="496" y="620">Discovery tier</text>
+    <text class="tag" x="496" y="641" style="fill:var(--c-judge)">LLM · leads, never verdicts</text>
+    <text class="tag" x="496" y="659" style="fill:var(--muted)">human triages candidates</text>
+  </g>
+
+  <!-- Dashboard -->
+  <g class="node" id="n-dash" tabindex="0" role="button" aria-label="Dashboard and report" data-c="--c-det">
+    <rect class="box" x="760" y="590" width="250" height="88" rx="11" style="stroke:var(--c-det)"/>
+    <text class="ttl" x="776" y="620">Dashboard · report · evidence</text>
+    <text class="tag" x="776" y="641" style="fill:var(--c-det)">DETERMINISTIC · read-only</text>
+    <text class="tag" x="776" y="659" style="fill:var(--muted)">approvals go through the CLI</text>
+  </g>
+</svg>
 
       <div class="tip" id="tip" role="dialog" aria-live="polite">
         <button class="close" id="tipClose" aria-label="Close">×</button>
@@ -278,17 +303,21 @@
       <span><i style="border-color:var(--c-red);background:color-mix(in srgb,var(--c-red) 22%,transparent)"></i>Red Team (least trusted)</span>
       <span><i style="border-color:var(--c-judge);background:color-mix(in srgb,var(--c-judge) 22%,transparent)"></i>Judge (independent)</span>
       <span><i style="border-color:var(--c-doc);background:color-mix(in srgb,var(--c-doc) 22%,transparent)"></i>Documentation</span>
+      <span><i style="border-color:var(--c-ctrl);background:color-mix(in srgb,var(--c-ctrl) 22%,transparent)"></i>Campaign loop + Runner</span>
       <span><i style="border-color:var(--c-exec);background:color-mix(in srgb,var(--c-exec) 22%,transparent)"></i>Executor (the gate)</span>
       <span><i style="border-color:var(--c-det);background:color-mix(in srgb,var(--c-det) 22%,transparent)"></i>Deterministic service</span>
       <span><i style="border-color:var(--c-store);background:var(--c-store)"></i>Store</span>
       <span><i style="border-color:var(--c-target);background:transparent;border-style:dashed"></i>External target</span>
       <span><i style="border-color:var(--c-human);background:color-mix(in srgb,var(--c-human) 22%,transparent)"></i>Human gate</span>
+      <span><svg width="26" height="8" aria-hidden="true"><path d="M0,4 H26" stroke="var(--muted)" stroke-width="1.6"/></svg>in-process call</span>
+      <span><svg width="26" height="8" aria-hidden="true"><path d="M0,4 H26" stroke="var(--muted)" stroke-width="1.6" stroke-dasharray="5 4"/></svg>persisted to / read from the store</span>
+      <span><svg width="26" height="8" aria-hidden="true"><path d="M0,4 H26" stroke="var(--c-exec)" stroke-width="2.6"/></svg>network (only via the Executor)</span>
     </div>
     <p class="hint ui" id="hint">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 11.5 4 6.5m0 0V11m0-4.5H8.5M13 5l7 7-3.2.9 2.2 4-2.4 1.3-2.2-4L12 18z"/></svg>
       Click a box to pin its details. Click again, press Esc, or click empty space to dismiss.
     </p>
-    <figcaption>The hinge of the design: the <b>Executor</b> is the only component that can reach the Target, and it checks the authorization registry on every request. The <b>Red Team</b> emits attack text as data and never touches the network — so pointing the platform at an unauthorized system is impossible by construction, not by policy.</figcaption>
+    <figcaption>Two hinges. The <b>Executor</b> is the only component that can reach the Target and it checks the authorization registry on every request; the <b>Red Team</b> emits attack text as data and never touches the network, so pointing the platform at an unauthorized system is impossible by construction, not by policy. And the <b>Judge</b> is a separate component with its own oracles and a different-family rubric model, so the thing that attacks is never the thing that grades. The store is a system of record, not a message bus: a campaign is a chain of calls whose products are persisted in one transaction.</figcaption>
   </figure>
 
   <p class="eyebrow" style="margin-top:44px">The choice</p>
@@ -302,7 +331,7 @@
       <tr><td><b>One agent that attacks and judges</b></td><td class="verdict no">Rejected</td><td>Generating and grading in one context is “compromised by design.” Breaks Judge independence.</td></tr>
       <tr><td><b>Conversational multi-agent</b> (AutoGen, CrewAI)</td><td class="verdict no">Rejected</td><td>Shared conversation lets the Judge see the attacker’s reasoning; turn-taking is nondeterministic and costly.</td></tr>
       <tr><td><b>Graph framework</b> (LangGraph)</td><td class="verdict no">Rejected*</td><td>Viable, but its checkpointer is a second state store beside the one the Orchestrator must read. Revisit if roles grow.</td></tr>
-      <tr><td><b>Configure one red-team tool</b> (PyRIT, garak)</td><td class="verdict no">Rejected</td><td>None provides an orchestrator, regression harness, or documentation agent. Used as components instead.</td></tr>
+      <tr><td><b>Configure one red-team tool</b> (PyRIT, garak)</td><td class="verdict no">Rejected</td><td>None provides an orchestrator, regression harness, or documentation agent. PyRIT, garak and spikee were planned as components but are not wired in this build.</td></tr>
       <tr><td><b>Control plane + shared store + isolated agents</b></td><td class="verdict yes">Chosen</td><td>One source of truth; independence and authorization are structural, not conventional.</td></tr>
     </tbody>
   </table>
@@ -338,17 +367,19 @@
 <script>
 (function(){
   var DATA={
-    "n-store":{c:"--c-store",trust:"Coordination substrate",role:"The single source of truth. Holds the work queue, the ordered audit trail, and the observability data the Orchestrator reads.",io:"Every agent reads tasks from it and writes typed results back (JSON Schemas in /contracts).",why:"One store means handoffs, audit, and orchestration signals are the same rows — no second state store to reconcile."},
-    "n-orch":{c:"--c-orch",trust:"Trusted decision agent",role:"Chooses the next campaign: which surface, which cases, what budget. A deterministic ranker scores candidates; Jev (pinned) picks among the top-k and logs per-option probabilities.",io:"In: coverage, open findings, regressions, cost from the store. Out: a campaign.",why:"Real authority in its choice, but budget, halt, and authorization stay deterministic and replayable."},
-    "n-red":{c:"--c-red",trust:"Least-trusted agent",role:"Generates novel adversarial inputs, mutates partial successes, and specifies multi-turn sequences. Runs on Qwen.",io:"In: a campaign brief. Out: attack specifications as data.",why:"It writes adversarial text by design, so it gets no network access and no credentials — it cannot send a request itself."},
-    "n-judge":{c:"--c-judge",trust:"Independent verifier",role:"Rules on each attempt: success, partial, fail, or inconclusive. Deterministic oracles decide first; an LLM rubric tier (different family from the attacker) handles only what no oracle can.",io:"In: attempts. Out: verdicts with the evidence used.",why:"Independence from the attack engine is a hard requirement; a pinned, non-Qwen model plus a calibration set is how drift is caught."},
-    "n-doc":{c:"--c-doc",trust:"Reporting agent",role:"Turns a confirmed finding into a professional, reproducible vulnerability report — no human writing it.",io:"In: findings. Out: reports; critical/high held for approval.",why:"A report a security engineer who wasn’t present can reproduce, validate, and fix."},
-    "n-exec":{c:"--c-exec",trust:"Deterministic gate",role:"The only component that opens a connection to the Target. Checks the authorization registry on every request, holds credentials and synthetic identities, plays out multi-turn specs, and records each exchange.",io:"In: attack specs. Out: attempts (exact requests and responses).",why:"With one door, authorization is structural — the platform cannot be turned against a system it should not attack."},
-    "n-target":{c:"--c-target",trust:"External · authorized only",role:"The AgentForge Clinical Co-Pilot. A local replica carries campaign volume; the deployed build (identified by git SHA) confirms every finding.",io:"Reached over HTTP by the Executor only.",why:"Runs only if it is in the authorization registry with recorded proof of ownership or written permission."},
-    "n-recon":{c:"--c-det",trust:"Deterministic service",role:"Inventories routes and reads the Target’s build SHA; polls /health so a new deploy is noticed.",io:"Out: routes and SHA into the store.",why:"Prioritization signals must come from target-visible data, not guesses."},
-    "n-reg":{c:"--c-det",trust:"Deterministic service",role:"Replays frozen regression cases against every new Target build; detects reappearance and flags cross-category regressions.",io:"In: regression cases + a new SHA. Runs through the Executor.",why:"A test that passes because behavior shifted — not because the weakness was fixed — is worse than none."},
-    "n-dash":{c:"--c-det",trust:"Read-only output",role:"Surfaces coverage per category, pass/fail over versions, resilience trend, open findings, and cost.",io:"In: reads the store. No writes.",why:"A red-team tool with a writable web UI is itself a target; approvals go through the CLI instead."},
-    "n-human":{c:"--c-human",trust:"Human approval",role:"An operator approves critical/high reports and reviews inconclusive or clinical-harm verdicts. Approval writes a record into the lineage.",io:"In: pending reports. Out: an approval or rejection record.",why:"Humans sit exactly where a wrong autonomous call is expensive."}
+    "n-store":{c:"--c-store",trust:"System of record",role:"Not a message bus. Each judged attempt commits its spec, attempt, full evidence, verdict, and (on a confirmed exploit) the deduplicated finding and frozen regression case in one transaction, plus an ordered agent_actions audit trail. The Orchestrator ranks the next campaign by reading it back.",io:"Writes: campaigns, specs, attempts, verdicts, findings, reports, cost. Reads: Orchestrator ranking, Red Team memory, Documentation, Discovery, dashboard.",why:"Handoffs, audit, and prioritization signals are the same rows, so there is no second state store to drift. Tradeoff: one process, no independent workers or retry queue yet."},
+    "n-orch":{c:"--c-orch",trust:"Trusted decision logic",role:"Loop: build candidate (category, route) briefs from the store, score them (exploration for under-tested pairs, capped exploitation for open findings), pick one (argmax, or Jev among the top 3 with a fallback), record the decision, run it, stamp the outcome, halt on budget or no signal.",io:"In: store state. Out: a Campaign row and one brief per loop.",why:"Real authority over what to attack, but budget, halt, and authorization are deterministic and sit outside the selector."},
+    "n-red":{c:"--c-red",trust:"Least-trusted agent",role:"Qwen. Generates one SeedCase per brief and mutates a FAIL once, aimed at the oracle that held. After generation the platform overwrites identity, category, oracle, and marker, so the model cannot set its own success criterion.",io:"In: a brief plus a digest of what was already tried. Out: a schema-validated SeedCase (data).",why:"It writes adversarial text by design, so it gets no network and no credentials; it cannot send anything itself."},
+    "n-runner":{c:"--c-ctrl",trust:"Deterministic control flow",role:"The real spine of the code. run_campaign meters every model call, asks the Red Team for a case, dispatches it by category (direct turn, authz probe, document upload, or frozen probe), sends through the Executor, builds an Observation, calls the Judge, and persists the unit. A SUCCESS is deduplicated into a Finding and frozen as a regression case.",io:"In: a brief. Out: attempt, verdict, finding, frozen case.",why:"One execution path serves live campaigns, deterministic probes, and regression replay, so replay is faithful and a fix cannot read as green by taking a different route."},
+    "n-judge":{c:"--c-judge",trust:"Independent verifier",role:"Tier 0: deterministic oracles (marker, canary, status, authz, grounding, metadata, rate limit, enumeration, error leak) compose into SUCCESS, FAIL, or INCONCLUSIVE. A rubric tier (DeepSeek, non-Qwen) is consulted only when no oracle applies and can never override a tier-0 violation.",io:"In: an Observation. Out: a Verdict with per-oracle results.",why:"No response to judge, or a provider block, is INCONCLUSIVE, never FAIL. Drift is checked offline with a human-labelled calibration set (redteam calibrate)."},
+    "n-exec":{c:"--c-exec",trust:"Deterministic gate",role:"Executor.request(url): normalize the origin, assert it is an enabled entry in authorization.yaml, else raise AuthorizationDenied before the sender is called. The token minter, Recon poll, and every probe go through it.",io:"In: a URL and body. Out: a response record (status, body, latency).",why:"With one door, authorization is structural. Origin-only matching; scope in the registry is audit metadata, not enforced."},
+    "n-target":{c:"--c-target",trust:"External, authorized only",role:"The AgentForge Clinical Co-Pilot, owner-operated, synthetic patients only. Its build is identified by the git_sha its /health returns, which every attempt records.",io:"Reached over HTTP by the Executor only.",why:"A target runs only if it is enabled in authorization.yaml with recorded proof of ownership or permission."},
+    "n-recon":{c:"--c-det",trust:"Deterministic service",role:"poll(): GET /health through the Executor; if git_sha changed since the last recorded build, replay the regression suite (and optionally discovery), and only then advance the baseline. Reachable but no parseable SHA is an attention condition, not green.",io:"In: /health. Out: target_health rows and a regression trigger.",why:"A crashed verification must not silently read as held, so the baseline advances only after the replay completes."},
+    "n-reg":{c:"--c-det",trust:"Deterministic service",role:"replay(): re-run every frozen case through the same dispatch that produced it. SUCCESS is a reappearance, a clean FAIL is held, anything else is not a pass. Flags newly regressed and cross-category regressions; exits non-zero unless everything held.",io:"In: frozen cases and a SHA. Out: attempts and a RegressionReport.",why:"A test that passes because behavior shifted, not because the weakness was fixed, is worse than none."},
+    "n-doc":{c:"--c-doc",trust:"Deterministic report builder",role:"Renders a vulnerability report from the finding's own fields and its stored evidence, with curl reproduction and a pass condition for the fix. No model is called. Fail-closed gate: only an explicit low or medium finding with evidence auto-publishes; everything else is pending_approval.",io:"In: a finding. Out: a vuln_reports row.",why:"A report a security engineer who was not present can reproduce, validate, and fix."},
+    "n-disc":{c:"--c-judge",trust:"Advisory, candidates only",role:"A non-Qwen LLM reviews captured request/response pairs with no checklist and logs candidates the oracles missed. It writes only to discovery_candidates, never to verdicts or findings.",io:"In: stored evidence. Out: candidate leads for human triage.",why:"Finds classes with no oracle yet; a human hardens a real one into a deterministic oracle and probe, so a drifting LLM can never publish a verdict."},
+    "n-dash":{c:"--c-det",trust:"Read-only output",role:"report, dashboard, evidence, and integrity commands read the store: coverage per category, pass/fail by build, open findings, cost, the ordered per-agent trace, and half-written units.",io:"In: reads the store. No writes.",why:"A red-team tool with a writable web UI is itself a target; approvals go through the CLI."},
+    "n-human":{c:"--c-human",trust:"Human approval",role:"redteam approve publishes a held critical/high report and records the approver in lineage. Humans also triage discovery candidates and are the only editors of authorization.yaml.",io:"In: pending reports. Out: an approval record.",why:"Humans sit where a wrong autonomous call is expensive."}
   };
   var stage=document.getElementById('stage'), tip=document.getElementById('tip'), active=null;
   var css=getComputedStyle(document.documentElement);

@@ -83,6 +83,37 @@ def render_html(store: Store) -> str:
         for a in queries.agent_trace(store, limit=15)
     )
 
+    def _rate(x: object) -> str:
+        return "n/a" if x is None else format(x, ".0%")
+
+    def _cats(b: dict) -> str:
+        return "; ".join(
+            c + ": " + ", ".join(f"{o}={n}" for o, n in sorted(m.items()))
+            for c, m in sorted(b["categories"].items()))
+
+    resilience_rows = "".join(
+        f"<tr><td><code>{_esc(b['sha'])}</code></td><td class='muted'>{_esc(b['first_seen'])}</td>"
+        f"<td class='n'>{_rate(b['success_rate'])}</td><td>{_esc(b['trend'] or '')}</td>"
+        f"<td class='muted'>{_esc(_cats(b))}</td></tr>"
+        for b in queries.resilience_over_time(store)
+    )
+    resilience_table = (
+        "<table><tr><th>Build</th><th>First attacked</th><th>Attack success</th><th>Trend</th><th>By category</th></tr>"
+        f"{resilience_rows}</table>" if resilience_rows else '<p class="muted">(no attempts yet)</p>'
+    )
+    cost_rows = "".join(
+        f"<tr><td><code>{_esc(t['run_id'])}</code></td><td class='muted'>{_esc(t['first_ts'])}</td>"
+        f"<td class='n'>{t['calls']}</td><td class='n'>{t['attempts']}</td>"
+        f"<td class='n'>{'n/a' if t['calls_per_attempt'] is None else format(t['calls_per_attempt'], '.2f')}</td>"
+        f"<td>{_esc(t['direction'] or '')}</td><td class='n'>{t['cumulative_calls']}</td></tr>"
+        for t in queries.cost_trend(store)
+    )
+    cost_table = (
+        "<table><tr><th>Run</th><th>Started</th><th>Calls</th><th>Attempts</th><th>Calls/attempt</th>"
+        f"<th>Trend</th><th>Cumulative calls</th></tr>{cost_rows}</table>"
+        if cost_rows else '<p class="muted">(no metered runs yet)</p>'
+    )
+
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Red Team Dashboard</title><style>{_CSS}</style></head><body><div class="wrap">
@@ -97,6 +128,8 @@ def render_html(store: Store) -> str:
 <h2>Pass / fail by category</h2>{_mix_table(queries.pass_fail_by_category(store), "Category")}
 <h2>OWASP coverage</h2>{_mix_table(queries.owasp_coverage(store), "OWASP")}
 <h2>Resilience by target build</h2>{_mix_table(queries.outcomes_by_sha(store), "Build (SHA)")}
+<h2>Resilience over time</h2>{resilience_table}
+<h2>Cost per run</h2>{cost_table}
 <h2>Findings</h2>{findings_table}
 <h2>Recent agent actions</h2><table><tr><th>Time</th><th>Agent</th><th>Reason</th></tr>{trace_rows or '<tr><td class="muted" colspan="3">(none)</td></tr>'}</table>
 <p class="sub" style="margin-top:22px">Synthetic data only · one authorized target · cost in model calls (not USD).</p>
