@@ -19,8 +19,8 @@ PRD's requirement that it cannot be turned against systems it should not attack.
 - **Each agent calls the Target directly through a shared client library.** Rejected:
   authorization becomes a convention every caller must honor, and a prompt-injected or
   misbehaving agent could bypass it.
-- **Red Team drives PyRIT's HTTP target itself.** Rejected for the same reason; PyRIT is
-  used inside the Executor instead.
+- **Red Team drives PyRIT's HTTP target itself.** Rejected for the same reason; PyRIT was
+  to be used inside the Executor instead; it is not wired (ADR 0005).
 
 ## Consequences
 
@@ -29,3 +29,15 @@ PRD's requirement that it cannot be turned against systems it should not attack.
 - Multi-turn attacks are expressed as specifications the Executor plays out turn by turn,
   so the Red Team adapts between turns through the store rather than holding a live
   session.
+
+## Implementation status (2026-10-01)
+
+The boundary is built and tested: only `executor/http_sender.py` opens a socket to a target, every
+request passes `AuthorizationRegistry.assert_authorized`, redirects are never followed, and the
+registry loads fail-closed. Two consequences above are narrower than written. The Executor enforces
+**authorization and a 90 s timeout**, not rate limiting, backoff or budget: the only backoff is the
+token minter's `Retry-After` wait on a mint `429` (2 retries), and the budget lives in the
+Orchestrator's `CallBudget` and Governor. Multi-turn play-out is not implemented, because the target's
+composer is stateless. Model providers (attacker, rubric, discovery, Jev) are called directly by their
+clients and are outside the gate, which governs targets. `docs/EXTERNAL_APIS.md` has the per-API
+detail.

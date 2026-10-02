@@ -95,7 +95,7 @@ def promote(store, case: SeedCase, verdict: Verdict, verdict_id: str) -> tuple[s
     violating, category, owasp = _classify(case, verdict)
     sink = case.turns[0].route if case.turns else "unknown"
     key = dedup_key(violating, sink, category)
-    finding_id = "F-" + hashlib.sha1(f"{case.target_id}:{key}".encode()).hexdigest()[:10]
+    finding_id = "F-" + hashlib.sha1(f"{case.target_id}:{key}".encode(), usedforsecurity=False).hexdigest()[:10]
     level, score = provisional_severity(category)
 
     try:

@@ -302,7 +302,7 @@
       <tr><td><b>One agent that attacks and judges</b></td><td class="verdict no">Rejected</td><td>Generating and grading in one context is “compromised by design.” Breaks Judge independence.</td></tr>
       <tr><td><b>Conversational multi-agent</b> (AutoGen, CrewAI)</td><td class="verdict no">Rejected</td><td>Shared conversation lets the Judge see the attacker’s reasoning; turn-taking is nondeterministic and costly.</td></tr>
       <tr><td><b>Graph framework</b> (LangGraph)</td><td class="verdict no">Rejected*</td><td>Viable, but its checkpointer is a second state store beside the one the Orchestrator must read. Revisit if roles grow.</td></tr>
-      <tr><td><b>Configure one red-team tool</b> (PyRIT, garak)</td><td class="verdict no">Rejected</td><td>None provides an orchestrator, regression harness, or documentation agent. Used as components instead.</td></tr>
+      <tr><td><b>Configure one red-team tool</b> (PyRIT, garak)</td><td class="verdict no">Rejected</td><td>None provides an orchestrator, regression harness, or documentation agent. PyRIT, garak and spikee were planned as components but are not wired in this build.</td></tr>
       <tr><td><b>Control plane + shared store + isolated agents</b></td><td class="verdict yes">Chosen</td><td>One source of truth; independence and authorization are structural, not conventional.</td></tr>
     </tbody>
   </table>

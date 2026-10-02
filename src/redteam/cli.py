@@ -1,8 +1,8 @@
 """`redteam` command-line surface.
 
-Read-only / safe commands (`report`, `approve`) construct nothing live. Attack commands
-(`campaign`, `regression`) build the executor, minter, and attacker model lazily, so the
-safe commands run without a key or network. Approvals go through the CLI on purpose: the
+Read-only / safe commands (`report`, `approve`) construct nothing live. `campaign` builds the
+executor, minter, and attacker model lazily; `regression` replays frozen deterministic cases and
+builds no attacker model. The safe commands run without a key or network. Approvals go through the CLI on purpose: the
 dashboard stays read-only (Q15).
 """
 
@@ -84,6 +84,18 @@ def _wire_deterministic(target_id: str):
     return registry, target, executor, TokenMinter(executor, target), Judge()
 
 
+def _wire_replay(target_id: str):
+    """Build only what a regression replay needs: executor, minter, and a Judge. Replay re-runs
+    frozen, deterministic cases, so it never builds the attacker model (and needs no Qwen key).
+    The rubric is constructed from the environment only to serve a case no oracle decides; it never
+    raises when unconfigured -- it is simply unavailable, and that case degrades to INCONCLUSIVE."""
+    from redteam.agents.judge.rubric import ModelRubric
+
+    registry, target, executor, minter, _judge = _wire_deterministic(target_id)
+    from redteam.agents.judge.judge import Judge
+    return registry, target, executor, minter, Judge(rubric=ModelRubric.from_env())
+
+
 def cmd_authz(args: argparse.Namespace) -> int:
     from collections import Counter
 
@@ -150,7 +162,13 @@ def cmd_document(args: argparse.Namespace) -> int:
     registry = AuthorizationRegistry.load(args.authorization) if Path(args.authorization).exists() else None
     store = Store.open(args.store)
     doc = DocumentationAgent()
-    report_id = doc.document(store, args.finding_id, registry=registry)
+    from redteam.agents.documentation.agent import DataQualityError
+    try:
+        report_id = doc.document(store, args.finding_id, registry=registry)
+    except DataQualityError as exc:
+        print(f"document: {exc}", file=sys.stderr)
+        store.close()
+        return 1
     row = store.conn.execute("SELECT * FROM findings WHERE finding_id = ?", (args.finding_id,)).fetchone()
     finding = dict(row)
     level = json.loads(finding["severity"]).get("provisional_level", "medium")
@@ -212,9 +230,15 @@ def cmd_integrity(args: argparse.Namespace) -> int:
 def cmd_regression(args: argparse.Namespace) -> int:
     from redteam.regression import replay
 
-    registry, _target, executor, minter, judge, _agent, _model = _wire(args.target)
+    registry, _target, executor, minter, judge = _wire_replay(args.target)
     store = Store.open(args.store)
     r = replay(store, registry, executor, judge, args.sha, minter=minter)
+    from redteam.errors import RegressionDetected
+    regression_error: RegressionDetected | None = None
+    try:
+        r.raise_if_regressed()
+    except RegressionDetected as exc:
+        regression_error = exc
     print(f"regression @ {args.sha}: held={len(r.held)} reappeared={len(r.reappeared)} "
           f"inconclusive={len(r.inconclusive)} unreplayable={len(r.unreplayable)} "
           f"-> {'OK' if r.ok else 'ATTENTION'}")
@@ -225,6 +249,8 @@ def cmd_regression(args: argparse.Namespace) -> int:
         print(f"  CROSS-CATEGORY REGRESSION: a fix for {sorted(r.fixed_categories)} coincided with "
               f"a reopening in {sorted(r.regressed_categories - r.fixed_categories)} — inspect the change")
     store.close()
+    if regression_error is not None:
+        print(f"{regression_error.code}: {regression_error}", file=sys.stderr)
     # Non-zero unless every frozen case held: a reappearance, or a critical that couldn't be
     # verified fixed (inconclusive/unreplayable), must fail the gate loudly.
     return 0 if r.ok else 1
@@ -438,7 +464,7 @@ def cmd_campaign(args: argparse.Namespace) -> int:
     run = orch.run(target_id=args.target, surfaces=args.route, categories=categories,
                    budget=Budget(**budget_kwargs),
                    patient_uuid=args.patient, route_fields=_ROUTE_FIELDS, canaries=canaries or None,
-                   target_sha=args.target_sha)
+                   target_sha=args.target_sha, max_mutations=args.max_mutations)
     print(f"campaign done: campaigns={run.campaigns} tested={run.tested} "
           f"findings_opened={run.findings_opened} model_calls={run.model_calls} halt={run.halt_reason!r}")
     store.close()
@@ -451,6 +477,16 @@ def cmd_campaign(args: argparse.Namespace) -> int:
         print("campaign: no brief was actually tested", file=sys.stderr)
         return 1
     return 0
+
+
+def _non_negative_int(text: str) -> int:
+    try:
+        value = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"--max-mutations must be an integer, got {text!r}") from None
+    if value < 0:
+        raise argparse.ArgumentTypeError(f"--max-mutations must be >= 0, got {value}")
+    return value
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -559,6 +595,9 @@ def build_parser() -> argparse.ArgumentParser:
     cp.add_argument("--max-campaigns", type=int, default=5, dest="max_campaigns")
     cp.add_argument("--max-no-signal", type=int, default=None, dest="max_no_signal",
                     help="halt after this many findingless campaigns (default: the campaign budget, i.e. hunt fully)")
+    cp.add_argument("--max-mutations", type=_non_negative_int, default=1, dest="max_mutations",
+                    help="attacker-model mutations tried after an attempt the target defends (default 1; "
+                         "0 disables mutation). Each mutation is a metered model call")
     cp.add_argument("--selector", choices=["deterministic", "jev"], default="deterministic")
     cp.add_argument("--model", default=None, help="override the attacker model (e.g. qwen3.8-max)")
     cp.add_argument("--max-model-calls", type=int, default=None, dest="max_model_calls",

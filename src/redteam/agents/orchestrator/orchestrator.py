@@ -129,6 +129,7 @@ class Orchestrator:
         route_fields: dict[str, str] | None = None,
         canaries: list[str] | None = None,
         target_sha: str | None = None,
+        max_mutations: int = 1,
     ) -> OrchestratorRun:
         gov = Governor(budget)
         run = OrchestratorRun(run_id=uuid.uuid4().hex[:8])
@@ -164,7 +165,7 @@ class Orchestrator:
             summary = run_campaign(
                 [chosen.brief], registry=self.registry, executor=self.executor, judge=self.judge,
                 store=self.store, agent=self.agent, model=self.model, minter=self.minter,
-                campaign_id=campaign_id, max_mutations=1, canaries=canaries,
+                campaign_id=campaign_id, max_mutations=max_mutations, canaries=canaries,
                 target_sha=target_sha, call_budget=call_budget,
             )
             outcome = summary.brief_outcome()

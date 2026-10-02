@@ -33,6 +33,18 @@ def render_markdown(store: Store) -> str:
     else:
         lines.append("- (no attempts yet)")
 
+    lines += ["", "## Resilience over time (builds, earliest first)"]
+    series = queries.resilience_over_time(store)
+    if series:
+        for b in series:
+            rate = "n/a" if b["success_rate"] is None else f"{b['success_rate']:.0%}"
+            lines.append(f"- {b['sha']} (first attacked {b['first_seen']}): attack success {rate}"
+                         f"{' -- ' + b['trend'] if b['trend'] else ''}")
+            for cat, mix in sorted(b["categories"].items()):
+                lines.append(f"  - {cat}: " + ", ".join(f"{o}={n}" for o, n in sorted(mix.items())))
+    else:
+        lines.append("- (no attempts yet)")
+
     lines += ["", "## Over-refusal (benign clinician set)"]
     from redteam.benign import latest_by_sha
     benign = latest_by_sha(store)
@@ -52,6 +64,17 @@ def render_markdown(store: Store) -> str:
     # price is wired, so reporting "$0.0000 / 0 tokens" would read as "free". Show calls only.
     cost = queries.cost_summary(store)
     lines += ["", "## Cost", f"- {cost['calls']} model calls (USD pricing not wired; cost is metered in calls)"]
+
+    lines += ["", "## Cost per run"]
+    trend = queries.cost_trend(store)
+    if trend:
+        for t in trend:
+            cpa = "n/a" if t["calls_per_attempt"] is None else f"{t['calls_per_attempt']:.2f}"
+            d = f", {t['direction']} ({t['rate_change']:+.2f})" if t["direction"] else ""
+            lines.append(f"- {t['run_id']} ({t['first_ts']}): {t['calls']} calls over {t['attempts']} attempts "
+                         f"= {cpa} calls/attempt{d}; cumulative {t['cumulative_calls']} calls")
+    else:
+        lines.append("- (no metered runs yet)")
 
     q = queries.queue_depth(store)
     lines += ["", "## Queue depth (pending work)",

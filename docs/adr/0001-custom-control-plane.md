@@ -29,8 +29,8 @@ store makes handoffs, audit, and orchestration signals the same rows.
   not a long-lived campaign loop with findings and lifecycle state. May still be used as
   a component.
 - **One existing red-team tool as the platform (PyRIT, garak, promptfoo).** None provides
-  an orchestrator, regression harness, or documentation agent. They are used as
-  components (PyRIT library; garak/spikee sidecars) instead.
+  an orchestrator, regression harness, or documentation agent. They were planned as
+  components (PyRIT library; garak/spikee sidecars) instead; that half is **not wired** (ADR 0005).
 
 ## Consequences
 
@@ -38,3 +38,14 @@ store makes handoffs, audit, and orchestration signals the same rows.
   handling must be tested explicitly.
 - The W2 Co-Pilot already uses a hand-rolled supervisor for the same audit reasons, so
   the pattern is consistent across the two systems.
+
+## Implementation status (2026-10-01)
+
+The decision stands (hand-rolled control plane, one SQLite store, no framework), but the coupling it
+describes is looser than "take typed tasks from the store and write typed results back". As built,
+agents are **called in-process** by the Orchestrator and campaign loop, and each result is persisted
+to the store in one atomic unit. The store is the audit trail, the regression suite and the
+observability substrate; it is **not a work queue** (no code inserts a campaign with status `new`),
+and nothing validates a record against its schema at runtime (contract tests check persisted rows).
+The independence the ADR wants holds where it matters: the Judge receives an `Observation`, never the
+Red Team's context. See `ARCHITECTURE.md` (questions 2 and 8) and `docs/INTEGRATION_PACKET.md`.

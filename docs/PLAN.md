@@ -2,6 +2,15 @@
 
 The single plan file (see `AGENTS.md`). Keep it current at decision boundaries.
 
+```text
+As of: Thu Oct 1 16:49 CDT 2026
+In flight: nothing running. MR !8 (branch claude/w3-submission-audit-fixes-161809, HEAD after 24cd05b) open on GitLab, auto-merge off; mirrored to GitHub.
+Next: bounded live attacker-model campaign with --max-mutations 1 on a scratch store copy (see "Handoff 2026-10-01" at the end of this file).
+Waiting on: David's permission rule so the session can load the Qwen key from .env or env vars; default if absent: David runs the command himself and pastes the summary.
+Re-arm: none (no monitors or scheduled checks were set).
+Verified: `uv run --python 3.13 pytest -q` 496 passed, 1 skipped at 24cd05b; live bench and keyless regression recorded in the 2026-10-01 live-verification entry.
+```
+
 **Goal:** by Friday noon CT, a deployed multi-agent adversarial platform runs live
 against the authorized Clinical Co-Pilot target, converts confirmed exploits into a
 regression harness, documents findings professionally, and proves fixes hold without
@@ -1421,6 +1430,312 @@ fixture-patient-001, victim fixture-patient-002.
 - **Observation:** the attacker model (Qwen) timed out three times at the 90 s default; raise
   `AGENTFORGE_REDTEAM_TIMEOUT` for longer hunts.
 
+
+### 2026-10-01 — submission-audit fixes: observability, regression keys, typed errors, data quality (completion record)
+
+Five audit items on branch `worktree-agent-a75e6c02ac1aa8720`, each test-first and its own commit.
+
+- **Observability** (`observability/queries.py`, `report.py`, `dashboard.py`): `agent_trace` is now
+  newest-first over the most recent N (it was oldest-first, hiding recent actions on a long store);
+  `agent_trace_chronological` gives the same window in order. New `cost_by_run` / `cost_trend`
+  (per-run calls, tokens, usd, attempts, calls-per-attempt, cumulative calls, rate change; run id
+  derived from the `orch-<run>-<seq>` campaign id) and `resilience_over_time` (verdict mix per
+  category per build, builds ordered by earliest attempt, attack-success rate, improving/worsening).
+  Rendered in `redteam report` and the HTML dashboard. Cost stays in calls: no USD price is wired,
+  so `usd` is 0.0 for unpriced calls, not free.
+- **`redteam regression` needs no attacker key**: it builds executor + minter + Judge only
+  (`_wire_replay`); the rubric comes from env without raising, so a rubric-dependent frozen case with
+  no rubric configured is INCONCLUSIVE and fails the gate rather than crashing.
+- **Typed errors**: `JudgeTimeout` is raised by `ModelRubric._complete` on an httpx timeout and
+  handled in `evaluate` into an INCONCLUSIVE verdict naming `judge_timeout`; `RegressionDetected` is
+  raised by `RegressionReport.raise_if_regressed` and printed by the regression CLI (exit 1);
+  `NoFindingsInWindow` is explicitly `RESERVED` (nothing asks for a window). `tests/test_typed_errors.py`
+  asserts raised-vs-reserved against `src/` and the schema enum so it cannot drift.
+- **Documentation data quality**: `document()` now refuses, before any write, a finding missing a
+  severity level, attack category, unique identifier, reproduction steps (no captured exchange),
+  observed behavior (no oracle violation) or expected behavior (no `expected_safe`), or whose attack
+  sequence duplicates another finding's report. Raises `DataQualityError` (a `ValueError`) with named
+  `reasons`; `redteam document` prints them and exits 1. Behavior change: a finding with no captured
+  evidence is now refused, not held for approval; a severity with no level is refused (an unrecognised
+  level is still held).
+- **`--max-mutations`** on `campaign` (default 1, must be >= 0) threaded through
+  `Orchestrator.run` to `run_campaign`.
+
+**Checks:** full suite green on the default interpreter and Python 3.13 (counts in the hand-off
+report). **Docs:** this entry only; top-level READMEs and `evals/` were out of scope for this change
+and do not yet mention `--max-mutations` or the new report sections. **Not done / deferred:**
+`NoFindingsInWindow` has no raise site; none of this has been observed against the live target (no
+live run); the new report sections have only been exercised on seeded stores, not the canonical one.
+
+**Review follow-ups (same branch):** dashboard escaping is now tested with hostile sha, category and
+run id; added tests for `first_ts` as the minimum across a run's campaigns, `prev_rate` carry-over
+across a build with no decided verdicts, and the NULL `target_sha` -> `unknown` bucket. The
+expected-safe check stays fail-closed: the `'invariant should hold'` fallback in `document()` and the
+now-unreachable no-evidence gating branch were removed (`render_markdown` on a bare call with no
+evidence reads "not recorded", not an invented invariant). LLM-authored cases with a blank
+`expected_safe` could previously reach a finding, so `RedTeamAgent._parse` now rejects them (retried
+once on generation, a recorded brief error on mutation); `SeedCase` itself (`src/redteam/evals/`,
+owned elsewhere) still allows an empty string, so hand-written seed cases are not covered by that
+guard, only by the report-time refusal. `cost_by_run`/`cost_trend` now return `usd` and
+`usd_per_attempt` as None (unknown) when no ledger row for a run is priced.
+
+### 2026-10-01 — eval suite audit (PRD Stage 3): case inventory and enforcement
+
+**Changed:** `evals/cases/` grew from 8 to 13 cases. New: `seed-enumeration-mint-001`,
+`seed-misinformation-grounding-001`, `seed-information-disclosure-001`, `seed-data-integrity-001`
+(F-30da6790d1 / F-990345a00f / F-ca9486ff1b / F-e5d47ab7ea; result = fix-validation outcome on
+`926805ce`, first seen failing on `da7451d1`) and `seed-dos-oversized-001` (**not_run**: the only
+evidence is a prose "oversized input (handled)" in the 09-29 ledger, with no size, build or store row).
+All use existing `probe_kind`s; no runner code added. Every case now has `subcategory` and a new
+optional `SeedCase.risk_class` (boundary | invariant | regression).
+`redteam.evals.loader.validate_committed_case` enforces the Stage-3 fields on committed files only
+(variants unaffected); `tests/test_evals.py` runs it over `evals/cases`, checks unique ids, known
+OWASP tags, target in `authorization.yaml`, >=3 categories (now 11), replay data for
+`regression: true`, probe reconstruction for every `probe_kind` case, and has one negative test per
+required field. Web Top 10 ids `A01`-`A10` are accepted (the mint cases carry `A07:2021`) alongside
+the LLM/API lists in `owasp.py`.
+
+**Checks:** full suite on Python 3.14 and 3.13 (440 passed, 1 skipped on each); no live calls.
+**Docs:** `evals/README.md` rewritten (format, required fields, how to add a case, counts, table).
+**Remaining / not done:** missing/forged-token and malformed-body negatives from the ledger have no
+seed case; `seed-dos-oversized-001` needs a live probe run (operator-run) to get a result; case
+results for the first eight remain on `bfbb1eb2` (re-runs on later builds are in the ledger, not
+re-recorded per case).
+
+**Review fixes (same entry):** one result convention for all cases: `result` = latest validation
+outcome on the newest build with evidence, first-failure build/date in `observed_detail`. The
+rate-limit case is now `pass` on `926805ce` (first failed on `bfbb1eb2`); both mint cases stay `fail`
+and are re-pinned to `926805ce` (2026-10-01), since the findings record both mints as reappeared
+there (accepted risk). `A07:2021` was dropped from the mint cases (the live probes and findings carry
+only `API2:2023`, and `owasp_scheme` would mislabel a web id as LLM), and the loader no longer accepts
+web Top 10 ids. Added: non-empty `result.evidence` required for run results, and negatives for
+the empty-route check, missing/blank evidence, and the web-id tag. Both interpreters: 444 passed, 1 skipped.
+
+### 2026-10-01 — submission documentation audit and deepening (completion record)
+
+Scope: markdown documents only; no change to `src/`, `tests/`, `evals/`, `contracts/`, `.env`, `var/`
+or the live target; no model or API call; nothing pushed. Base commit `2f3ea96`. Two other workstreams
+were changing code concurrently (observability queries, `regression` key requirement, typed errors,
+Documentation required-field checks, `--max-mutations`); **this record and the documents describe only
+what exists on the base commit.** The store was read through a copy (`mode=ro`) in the scratchpad.
+
+**Changed (where).**
+- `THREAT_MODEL.md` rewritten: ~470-word summary first; per category surface, impact, difficulty,
+  defense coverage and evidence; reasoning-plane classes; attack-surface map; OWASP coverage; a
+  ranked coverage-priority table tied to store counts.
+- `ARCHITECTURE.md` rewritten against the code: ~450-word summary, diagram, rate-limit and auth
+  behavior, migration approach, queue-depth monitoring, indexes and SLO, AI-use disclosure with the
+  drift-detection section, tradeoffs, and a wired / tested / live status table.
+- `docs/COST_ANALYSIS.md`: per-scale (100 / 1K / 10K / 100K) architecture changes with reasoning; real
+  call counts; an `OWNER TO SUPPLY` section for every USD input. **No USD figure is stated.**
+- `docs/PERF.md`: named metrics M1 to M9 with how and by what command each is measured, and an honest
+  measured / recorded-earlier / not-measured status for each; reproduction appendix.
+- New `docs/INTEGRATION_PACKET.md` (solo adaptation; states no peer integration) and new
+  `docs/adr/0006-contract-corrections-v1.md`.
+- Staleness corrections in `README.md`, `KEY_METRICS.md`, `USERS.md`, `KICKOFF.md`, `docs/DATA_MODEL.md`,
+  `docs/EXTERNAL_APIS.md`, `docs/ATO_PACKET.md`, `docs/TRIAGE_EXERCISE.md`, `docs/DEMO_SCRIPT.md`,
+  `docs/HARNESS_SPEC.md`, `docs/HANDOFF-offensive.md`, `docs/findings/README.md`, ADRs 0001 to 0005.
+
+**What was stale or false, and is now corrected.**
+1. Counts: migrations "eight" (now nine, schema v9); tests "225" (415 passed, 1 skipped); cost "37
+   attempts, 5 calls" (172 attempts, 43 metered calls); findings "five" or "three" (seven); "six
+   observability queries" (eight functions); "Eight migrations (0001-0008)".
+2. Coupling: the store was described as a work queue and message bus. Agents are called in-process;
+   `campaigns_pending` is structurally always 0 because nothing inserts a campaign with status `new`.
+3. Orchestrator: four ranking signals claimed, two exist (per-route coverage, open findings); "triggers
+   regression" (Recon's `redteam poll` does); Jev "on every decision" (optional, 0 live selections).
+4. Documentation agent described as an LLM; it is deterministic and is only run by an operator CLI.
+5. Executor "backs off and queues": it does neither; only the token minter retries a mint `429` (2
+   retries, `Retry-After` capped 60 s). Budget stop described as "INCONCLUSIVE, checkpointed for
+   resume": it raises `BudgetExceeded`, stops the run, and stores no resume point.
+6. "Agent crash: work item stays queued, retry with cap": no queue and no retry; atomic transactions
+   instead. "Judge uncertain: human review queue": no queue exists.
+7. Dashboard "behind basic auth" and `redteam serve-dashboard`: the dashboard is a static file; no
+   server, no auth, no such command. `drill` and `report --finding/--format` also do not exist.
+8. `regression` listed as needing no model keys: on the base commit its wiring builds the attacker
+   model and exits `attacker model not configured` without the three attacker variables.
+9. PyRIT, garak and spikee described as used at runtime: not in `pyproject.toml`, `uv.lock` or `src/`.
+10. LLM07 (system-prompt leakage) claimed "held, rubric-judged": no campaign targets it; now "not
+    tested". Also untested: token scope escalation, expiry and replay, `clinician_uuid` binding, LLM08.
+11. Fix-holds under mutation listed "measured": replay is exact-case only; now "not measured". Over-
+    refusal "re-run after the gated-mint build": it ran once, on `da7451d1`. Time-to-first-finding and
+    planted-vuln recall "needs the drill": not built.
+12. Findings README: report statuses read from the store (F-990345a00f is `pending_approval`; four
+    report cells were wrong: three shown `new`, one shown `pending_approval`); fix status is as of `926805ce`, and no replay is recorded
+    against the later-observed `31f3722a`.
+13. Triage exercise: dispositions for findings #1 to #5 were pre-fix; two real findings added; the
+    `urllib3` false-positive rationale cited a lock entry that does not exist.
+14. Demo script: "all three findings share one root cause", "fix is on a branch": stale.
+15. ATO packet: dependency versions made exact; "CI verifies the SLO" corrected (the pipeline has no
+    runner); the platform self-scan is `not done`; demo tokens are stored in evidence (97 of 163 rows).
+16. Contracts: schema files never changed since `575af16`; the corrections were producers, columns and
+    tests; the PRD asks for both-side contract tests but only the producer side exists; typed errors
+    are never serialized at runtime and three of seven classes are never raised.
+17. Observability: "recent agent actions" panels show the oldest actions (`ORDER BY id LIMIT n`); the
+    by-build view is sorted by build id, not time.
+18. `HARNESS_SPEC` index list and CLI surface; `Campaign.budget` shape; `coverage` table is never written.
+
+**Verified how.** `uv run pytest -q`: 415 passed, 1 skipped; `uv run pytest tests/test_contracts.py -v`:
+15 passed; `uv run redteam --help` and per-command `--help`; `uv run redteam calibrate`: n=10 agree=10
+kappa=1.00 skipped=2, `NOT VALIDATED`, exit 1; `uv run redteam regression` without env: fails with
+`attacker model not configured` (confirmed the README correction); store copy: `redteam report`,
+`redteam integrity` (0 and 0, OK), and read-only SQL for every count, id and latency quoted; code reads
+of `cli.py`, `orchestrator.py`, `candidates.py`, `selector.py`, `budget.py`, `executor/`, `token.py`,
+`judge.py`, `rubric.py`, `documentation/agent.py`, `queries.py`, `dashboard.py`, `regression/`, `recon/`,
+`store.py` and `errors.py`. Offline performance runs used stub senders and scratch stores (appendix in
+`docs/PERF.md`; the scripts it embeds were re-run from the document).
+
+**Owner-supplied gaps (not filled, by design).** All USD figures: attacker, rubric, discovery, Jev and
+coding-assistant spend, plan fees, hosting, and target-side AI spend; average tokens per call. Listed with
+where to find each in `docs/COST_ANALYSIS.md` section 2.
+
+**Remaining risks and unverifiable items.**
+- Not measured: attacker-model call latency (only bounds), a live 100-LLM-attack load test, live regression
+  scaling, CPU and memory under live load (the earlier `bench.py` figures are recorded, not re-run), and
+  the near-linear speedup of a worker pool (inference).
+- Model names (`qwen3.8-flash`, `deepseek-v4-pro`) and the Jev price in older text come from `.env` or the
+  owner and cannot be verified from the repository; the unsourced "~$0.04/M tokens" Jev price was removed.
+- Offline timings are single runs on one Windows laptop and varied up to 2x between runs.
+- Fix status was last read on `926805ce`; the live target reported `31f3722a` later.
+- The findings in `docs/findings/F-*.md` are generated reports and were not hand-edited.
+
+**Flagged for others (outside this workstream's file ownership).**
+- `evals/README.md`: `seed-excessive-agency-001` shown `not_run` while its case file says `pass` and the
+  store holds 10 attempts; the results block cites older builds.
+- `evals/calibration/README.md`: says "Scaffold only, no entries" but `calibration_v1.yaml` has 12.
+- `contracts/README.md` and `tests/test_contracts.py`: `outcome` vocabulary lists four values; the code
+  emits six (`unreachable`, `budget_halted` added).
+- `AGENTS.md`: says attacks run through pinned PyRIT, garak and spikee; none is wired.
+- `docs/architecture.html`: states PyRIT and garak are "used as components".
+- `scripts/bench.py --out docs/PERF.md` overwrites the deepened PERF document; the offline measurement
+  scripts live only in the PERF appendix and should be promoted to `scripts/`.
+- Code gaps surfaced: discovery and Jev calls are not metered; `cost_ledger.tokens` and `usd` are never
+  written; `Attempt.retrieval_mode` is never populated; `coverage` table has no writer.
+
+**Reconcile after the concurrent code merges (these lines describe base-commit behavior).**
+`regression` key requirement: README (Configuration), DEMO_SCRIPT (prereq 4), this
+record item 8. Newest-first trace and per-run cost or cost-trend and pass/fail over time: README
+(dashboard paragraph), ARCHITECTURE (Human-facing outputs). Typed errors raised or RESERVED: ADR 0006,
+INTEGRATION_PACKET section 4, ARCHITECTURE (status table). Documentation required-field checks:
+DATA_MODEL (E9 paragraph). `--max-mutations`: ARCHITECTURE (Standing risks), `docs/PERF.md` appendix B,
+README (command list). Test count and any new migration or schema version: ARCHITECTURE, README, ATO_PACKET.
+
+**Status labels.** Implemented and verified: the document set above. Inferred: worker-pool speedup, 100K
+storage and query projections beyond the synthetic run. Deferred: USD figures (owner), consumer-side
+contract tests, a live load test, the platform self-scan. Blocked: nothing.
+
+### 2026-10-01 — reconciliation of the docs with the merged code, and an independent spot check (completion record)
+
+Markdown only (plus one sentence in `docs/architecture.html`); nothing under `src/`, `tests/`, `evals/cases/`
+or `contracts/v1/`; no `.env`, no `var/` write, no live call, no model call, nothing pushed. The store was
+read through a `mode=ro` copy in the scratchpad. Reviewer was not the author of the documents.
+
+**Reconciled (items from the list above).** `regression` needs no attacker key (README Configuration,
+DEMO_SCRIPT prereq 4, HARNESS_SPEC; item 8 of the audit record above is historical and no longer true).
+Newest-first `agent_trace` and cost-per-run, cost trend, resilience over time: README, ARCHITECTURE,
+KEY_METRICS. Typed errors: `JudgeTimeout` and `RegressionDetected` are raised, `NoFindingsInWindow` is
+`RESERVED` (ARCHITECTURE status table, INTEGRATION_PACKET section 4, ADR 0006, HARNESS_SPEC,
+contracts/README). Documentation `DataQualityError` refusals: DATA_MODEL E9, ARCHITECTURE. `--max-mutations`:
+README, ARCHITECTURE, HARNESS_SPEC CLI list, PERF appendix B, COST_ANALYSIS section 3. Evals Stage-3
+enforcement: confirmed `evals/README.md` already matches (13 cases, 11 categories, 9 OWASP tags, verified).
+Test count is now **496 passed, 1 skipped** (Python 3.13); `tests/test_contracts.py` is still 15 passed;
+schema is still **v9** (no new migration). Calibration README no longer says "no entries" (12 entries,
+10 deterministic and 2 rubric, unreviewed). `contracts/README.md` lists all six `outcome` values the code emits
+(`CampaignSummary.brief_outcome`); the contract JSON does not constrain `outcome` and is not wrong.
+`AGENTS.md`, `docs/architecture.html` and ADRs 0001 to 0003 no longer say PyRIT, garak or spikee are in use
+(verified absent from `pyproject.toml`, `uv.lock`, `src/`, `tests/`, `scripts/`, `tools/`); the rules in
+AGENTS.md are unchanged. `scripts/bench.py --out docs/PERF.md` hazard: the warning was already at the top of
+`docs/PERF.md`.
+
+**Spot checks (about 40 claims; store, git and code).** Held: 172 attempts, 172 verdicts, 7 findings and
+statuses, 43 cost rows (26 generation, 17 mutation, tokens and usd all NULL), 33 LLM-origin attempts (22 and
+11 mutations), 60 deterministic selections and 0 Jev, 40 of 47 brief errors are read timeouts, 12
+rubric-carrying verdicts, 3 pending and 4 published reports, 97 of 163 evidence rows with a `demo_token`,
+regression last read 5 held and 2 reappeared on `926805ce`, per-category verdict counts quoted in
+THREAT_MODEL (BOLA 14 FAIL; broken-auth 41/29; prompt-injection 12; indirect 10; excessive agency 10 with
+9 and 1 by build; DoS 16 FAIL and 5 SUCCESS), the `F-ca9486ff1b` trace (attempt, evidence, verdict,
+finding, regression case, report, replay and fix-validation ids and timestamps; audit ids 280, 281, 370,
+377, 378; ledger ids 40 and 41; 1 of 172 attempts campaign-linked), commit ids `575af16`, `f1dd5fe`, `8f34d2c`,
+rubric and campaign metering before the call, `--max-model-calls` default 200, discovery `--limit` 25, the
+offline appendix B script (re-run: 25.0 ms per campaign), COST_ANALYSIS has no USD figure and its
+`OWNER TO SUPPLY` table is intact.
+**Failed and fixed:** (1) PERF M3 table: anonymous mint was 29 exchanges at 134 ms (store: 30 at 132 ms);
+AI routes were 39 (store: 44, median 4.4 s); 14 source-document-context exchanges were missing, so the rows
+did not sum to 178 (now they do). The same "about 39" in COST_ANALYSIS row 6 corrected. (2) COST_ANALYSIS
+"33 returned a reviewer error" for discovery has no source in the store (only "no candidates from 29
+reviewed"); restated as the first pass's 29 per ATO_PACKET with the caveat. (3) `evals/README.md` says
+`seed-dos-oversized-001` is `not_run`, but the store holds 5 `dos-oversized-*` attempts (FAIL, defense held;
+2 on `bfbb1eb2`, 3 on `da7451d1`); README row corrected, case file not touched.
+
+**Follow-ups (outside this scope, not done).**
+- `evals/cases/dos_oversized_input.yaml`: update `result` to `pass` with the real build and evidence from the
+  store (the case file is stale; it must go through the loader's evidence rule).
+- `tests/test_contracts.py::test_campaign_conforms` still builds its sample from four of the six outcomes.
+- `scripts/bench.py`: refuse or default away from `--out docs/PERF.md`; promote the PERF appendix scripts
+  into `scripts/`.
+- `JudgeTimeout` and `RegressionDetected` are raised and tested, but no run on the live store has exercised
+  either; the Documentation refusals have not been run on the live store since the merge. Status:
+  `wired, tested, not observed live`.
+- Still `not done`: consumer-side contract tests, error serialization into the `error` schema, the platform
+  self-scan, a live load test, PyRIT/garak/spikee integration.
+
+**Owner-only gaps (unchanged).** Every USD figure and token average in `docs/COST_ANALYSIS.md` section 2;
+human review of the calibration labels (`review_status`); thresholds for over-refusal, kappa and fix-holds;
+peer integration; Fix status was last read on `926805ce` (the target reported `31f3722a` later).
+
+### 2026-10-01 — live verification, self-scan and cost estimate (owner-directed)
+
+Owner decisions: validate calibration labels himself; no billing export, so cost is **estimated from
+tokens**; the self-scan and live runs are required. Done here against the owned target `agentforge-w2`,
+on scratch stores (canonical `var/redteam.db` untouched; no `.env` read; no attacker-model keys set):
+
+- **Live load test (M8):** `scripts/bench.py --n 100`: 14.78 s, 6.8 cases/s, median 137 ms, p95 148 ms,
+  17% CPU, 2.9 MB; consistent with the earlier run (19.83 s). Recorded in `docs/PERF.md`.
+- **Live regression, merged code, no keys (`_wire_replay`):** against a copy of the store at build
+  `31f3722a`: held=5, reappeared=2 (the two anonymous mints, F-831d4df407 / F-24b44c5180, accepted risk),
+  inconclusive=0, unreplayable=0; the `regression_detected` line printed. This is the first live
+  observation of the keyless regression path and of the first replay on `31f3722a`. It ran on a copy,
+  so the canonical store's `last_sha` is still `926805ce`; re-run on the canonical store to record it.
+- **New report sections on the real store (copy):** `Resilience over time` and `Cost per run` render.
+  Legacy `orch-N` campaign ids (pre-D1) show 0 attempts and non-sha build labels (`live-2026-09-29`,
+  `refactor-smoke`) appear in the build series; both are cosmetic data artifacts of early runs.
+- **Self-scan (`docs/ATO_PACKET.md` section 4):** `pip-audit` clean; `bandit` 14 findings, 0 real (11
+  B608 false positives, 2 low, 1 high SHA1 id hash now `usedforsecurity=False`, ids unchanged).
+- **Cost (`docs/COST_ANALYSIS.md` 2b):** estimate only: dev spend about $1.13 (range $1-4); projection
+  $0.60 / $6 / $60 / $600 per 100 / 1K / 10K / 100K runs at the planning mix. Token counts are assumed;
+  prices from the Model Studio page (read 2026-10-01).
+- **Still not done (blocked on a human-only action):** a live run that uses the attacker model (Qwen key
+  not available to the build sandbox): the `--max-mutations` path, `JudgeTimeout` and the Documentation
+  refusals are tested but not observed live. The 100-case load test covers the platform path, not LLM latency (M2).
+- **Verification:** `uv run --python 3.13 pytest -q` 496 passed, 1 skipped.
+
+### Handoff 2026-10-01 — remaining live attacker-model run (superseded: done in the live re-validation entry below)
+
+- **Goal:** observe the merged code's attacker-model path live: `--max-mutations` producing metered
+  mutation calls, and, if they occur, `JudgeTimeout` (rubric) and Documentation `DataQualityError`
+  refusals. Everything else in the final-submission audit is done and recorded above.
+- **Blocker resolved by David:** the session could not copy the main checkout's `.env` into the
+  worktree (permission classifier). David is adding a permission rule. **Never write the key into a
+  file, commit, log or prompt;** the CLI loads `.env` from the working directory or reads real env vars
+  first (`src/redteam/config.py`). If the key was pasted in a chat, David should rotate it.
+- **Exact next action** (from a checkout with the key available; scratch store, canonical untouched):
+  1. `cp var/redteam.db var/redteam.liverun2.db` (run from the main checkout; in a worktree, copy from the main checkout's `var/`).
+  2. `uv run redteam --store var/redteam.liverun2.db campaign --target agentforge-w2 --route /v1/follow-up-evidence --category sensitive-info-disclosure --patient fixture-patient-001 --victim-patient fixture-patient-002 --max-campaigns 4 --max-model-calls 12 --max-mutations 1 --target-sha 31f3722a`
+     with `AGENTFORGE_REDTEAM_TIMEOUT` raised (90 s default timed out 3x last run).
+  3. Check the ledger copy: `cost_ledger` rows by `kind` (expect `mutation` > 0 if a brief was
+     defended), `redteam --store var/redteam.liverun2.db report` (Cost per run shows the new run id),
+     and `redteam --store var/redteam.liverun2.db integrity`.
+  4. Record the summary line and ledger counts here; update ARCHITECTURE status rows from "tested, not
+     observed live" only for what was actually observed. Commit (Conventional, `Assisted-by:`), push to
+     both remotes on the MR branch.
+- **Also open (owner):** re-run `redteam regression --target agentforge-w2 --sha 31f3722a` on the
+  canonical store to record `last_sha` (scratch run: held 5, reappeared 2 = accepted-risk mints);
+  update `evals/cases/dos_oversized_input.yaml` result from store evidence (5 `dos-oversized-*`
+  attempts, all defense-held); `scripts/bench.py` should refuse `--out docs/PERF.md`;
+  `test_campaign_conforms` samples 4 of 6 outcomes.
+- **Boundaries:** authorized target `agentforge-w2` only; synthetic data; scratch stores; no merge to
+  main without David; CI has no runners (verify on 3.13 locally).
+- **Suggested skills:** `operator-brief` (if blocked again), `evidence-ledger`.
 
 ### 2026-10-01 — live re-validation on the redeployed build + live campaign
 
