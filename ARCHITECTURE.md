@@ -78,43 +78,214 @@ no per-agent cost and no USD figure: the ledger's `tokens` and `usd` columns are
 ## Interaction diagram
 
 ```mermaid
-flowchart LR
-  Orch["Orchestrator<br/>rank + optional Jev; budget/halt"]
-  RT["Red Team (Qwen)<br/>no network / no creds"]
-  Exec["Executor<br/>only path · auth per request"]
-  Judge["Judge<br/>oracles → non-Qwen rubric"]
-  Store[("SQLite store<br/>audit · regression · observability")]
-  Doc["Documentation<br/>deterministic"]
-  Gate{"Human: redteam approve<br/>critical / high"}
-  Recon["Recon (poll)"]
+flowchart TB
+  Orch["Orchestrator<br/>rank + optional Jev · budget / halt"]
+  Loop["Campaign loop + Runner<br/>generate → dispatch → judge → persist"]
+  RT["Red Team (Qwen)<br/>no network · no creds"]
+  Judge["Judge<br/>oracles → DeepSeek rubric"]
+  Recon["Recon<br/>poll /health"]
   Reg["Regression runner"]
+  Store[("SQLite store<br/>system of record")]
+  Doc["Documentation<br/>deterministic, no LLM"]
+  Gate{"Human: CLI approval<br/>critical / high"}
   Disc["Discovery tier<br/>candidates only"]
   Dash["Dashboard / report<br/>read-only"]
-  Target["Target: Clinical Co-Pilot<br/>deployed SHA"]
 
-  Orch -- "brief (call)" --> RT
-  RT -- "case (data)" --> Exec
-  Exec == "HTTP · origin checked" ==> Target
-  Exec -- "response (call)" --> Judge
-  Judge -- "verdict" --> Store
-  Orch -. "Campaign row · actions" .-> Store
-  Store -- "finding (operator runs redteam document)" --> Doc
+  subgraph TB["Trust boundary: the only path to the target"]
+    Exec["Executor<br/>authz checked per request"]
+    Target["Target: Clinical Co-Pilot"]
+  end
+
+  Orch -- "campaign brief" --> Loop
+  Loop <-- "brief / SeedCase (data)" --> RT
+  Loop <-- "observation / verdict" --> Judge
+  Loop <-- "request / response" --> Exec
+  Exec == "HTTP" ==> Target
+  Recon -- "new SHA" --> Reg
+  Reg -- "replay frozen cases" --> Loop
+  Recon -- "GET /health" --> Exec
+
+  Orch <-. "rank / record" .-> Store
+  Loop -. "one transaction" .-> Store
+  Store -. "finding" .-> Doc
   Doc --> Gate
-  Recon -- "SHA change" --> Reg
-  Store -- "frozen cases" --> Reg
-  Reg --> Exec
-  Store -- "evidence" --> Disc
-  Disc -. "candidates" .-> Store
-  Store -- "read-only" --> Dash
+  Store <-. "evidence / candidates" .-> Disc
+  Store -. "read-only" .-> Dash
+```
 
-  subgraph TB["Trust boundary: only path to the target"]
-    Exec
-    Target
+Solid arrows are in-process calls, dashed arrows are reads and writes of the store, and the
+thick arrow is the only network edge. An interactive version with per-component trust levels is
+[docs/architecture.html](docs/architecture.html).
+
+## How the repo works
+
+A map for reading the code, checked against it on 2026-10-01. The platform is one Python
+package (`src/redteam/`, run as `uv run redteam <command>`) over one SQLite file
+(`var/redteam.db`). Every command is a thin entry point onto the same small set of mechanisms.
+
+### Seven ideas that explain most of the code
+
+1. **One currency: `SeedCase`** (`evals/case.py`). A hand-authored YAML seed, an attack the Red
+   Team generates, a mutated variant, and a frozen regression case are all the same pydantic
+   model: ordered `turns` (method, route, body), an `OracleConfig`, a category, and OWASP tags.
+2. **One execution funnel.** Anything that touches the target goes
+   `dispatch` → one of `run_case` / `run_authz_case` / `run_document_attack` / `run_probe` →
+   `Executor.request` → `build_observation` → `Judge.judge` → `finalize`. Live campaigns,
+   deterministic probes, and regression replay share it, which is what makes replay faithful.
+3. **One door.** `Executor.request` asserts the URL's origin is an enabled entry in
+   `authorization.yaml` before the sender runs. The token minter, the Recon poll, and every probe
+   go through it; the Red Team never holds a client.
+4. **One verdict path.** Only the Judge builds a `Verdict` (tier-0 oracles compose; the rubric
+   model is consulted only when no oracle applies and cannot overturn a violation). A test
+   (`tests/test_verdict_path.py`) fails if code outside the judge package builds one.
+5. **The model owns only text.** After the Red Team returns a case, the platform overwrites its
+   id, target, category, OWASP tags, oracle, marker, and auth, so the model cannot choose its own
+   success criterion or its own target.
+6. **One store, one unit of work.** `finalize` writes the spec, attempt, evidence, verdict, audit
+   row, and (on a confirmed exploit) the deduplicated finding and frozen regression case in one
+   transaction. A write outside a unit raises `UnscopedWrite`, and a sqlite authorizer denies raw
+   writes on the connection, so a crash cannot leave an attempt without its verdict.
+7. **Fail closed.** No response, a provider block, a degraded target, or a rubric call the budget
+   cannot cover is `INCONCLUSIVE`, never `FAIL`; "not measured" and "could not verify" are non-zero exits.
+
+### One campaign, end to end (`redteam campaign`)
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant O as Orchestrator
+  participant S as Store
+  participant L as Campaign loop / Runner
+  participant R as Red Team (Qwen)
+  participant X as Executor
+  participant T as Target
+  participant J as Judge
+  loop until budget / no signal / nothing runnable
+    O->>S: read coverage + open findings
+    O->>O: rank (category, route) briefs, selector picks one
+    O->>S: insert Campaign (running) + "select" audit row
+    O->>L: run_campaign(brief)
+    L->>S: read prior attempts (memory)
+    L->>R: generate(brief, history) [metered]
+    R-->>L: SeedCase (platform rewrites id, oracle, marker)
+    L->>X: mint session token (cached per patient)
+    L->>X: request(url) via dispatch
+    X->>X: assert origin enabled in authorization.yaml
+    X->>T: HTTP
+    T-->>X: response
+    X-->>L: record
+    L->>L: build Observation (strip echoes, decode JSON)
+    L->>J: judge(observation)
+    J-->>L: Verdict (oracles, rubric only if none apply)
+    L->>S: ONE transaction: spec, attempt, evidence, verdict, finding, frozen case
+    opt verdict is FAIL (at most one mutation)
+      L->>R: mutate(parent, verdict) [metered]
+      Note over L,J: same dispatch, judge, persist
+    end
+    L-->>O: brief outcome (tested, skipped, provider_blocked, errored, unreachable, budget_halted)
+    O->>S: stamp outcome on the Campaign row
   end
 ```
 
-Solid arrows between agents are in-process calls; every call's result is then persisted to the
-store inside one atomic unit. Dotted arrows are writes that are not part of a verdict path.
+The Orchestrator's score per (category, route) is `1/(1+tested)` (explore) plus
+`min(0.5 * open_findings / (1 + tries_since_last_finding), 0.49)` (exploit) minus `0.5 * untested`
+this run. The 0.49 cap keeps an open finding from out-ranking an untried pair. Halts: the run-spanning
+`CallBudget` (checked before every metered call), `max_campaigns`, and a no-signal streak that
+counts only *tested* campaigns.
+
+### Command flow
+
+```mermaid
+flowchart LR
+  hunt["campaign · authz<br/>disclosure · grounding"] --> Store[("store<br/>attempts · verdicts<br/>findings · frozen cases")]
+  Store --> document --> approve
+  deploy(["new deploy"]) --> poll --> regression --> Store
+  Store --> discover --> triage["candidates / triage"]
+  triage -. "human hardens a real one<br/>into an oracle + probe" .-> hunt
+  Store --> look["report · dashboard<br/>evidence · integrity"]
+```
+
+| Command | Model | Target traffic | Writes | Exit code |
+|---|---|---|---|---|
+| `campaign` | Qwen; rubric and Jev if configured | yes | campaigns, specs, attempts, evidence, verdicts, findings, frozen cases, cost, audit | 2 config error or no candidates; 1 nothing tested; else 0 |
+| `authz`, `disclosure`, `grounding` | none | yes | same, minus campaigns | 1 if any probe `SUCCESS` |
+| `benign` | none | yes | `benign_runs` | 1 if over-refusal was not measured or exceeds `--max-over-refusal` |
+| `regression --sha` | none | yes | replay attempts, `regression_cases.last_result` | 1 unless every frozen case held |
+| `poll` | none (a discovery model with `--discover`) | `/health`, then replay if the SHA changed | `target_health`, replays | 1 if the build is unidentifiable or the replay is not clean; 0 if unreachable |
+| `discover` | non-Qwen reviewer | no | `discovery_candidates` | 2 if no model configured |
+| `candidates`, `triage` | none | no | candidate status | 0 |
+| `document`, `approve` | none | no | `vuln_reports` | 0 |
+| `report`, `dashboard`, `evidence` | none | no | none (`dashboard` writes an HTML file) | 0 |
+| `integrity` | none | no | none (read-only open) | 1 attention; 2 hot journal |
+| `calibrate` | rubric optional | no | none | 1 unless validated |
+
+Typical loop: `poll` (or `regression`) on each deploy, `authz` and `campaign` to hunt,
+`document` then `approve` for a finding, `report` or `dashboard` to look. Authorization is the
+first thing every target-touching command does: `_wire` loads `authorization.yaml` and exits if
+the `--target` id is not in it.
+
+### Code structure
+
+```text
+src/redteam/
+  cli.py                 argparse entry point; builds live pieces lazily (_wire)
+  agents/
+    orchestrator/        orchestrator.py loop · candidates.py ranker · selector.py (Deterministic | Jev) · budget.py
+    redteam/             agent.py generate/mutate -> SeedCase · model.py (OpenAI-compatible Qwen client)
+    judge/               judge.py tier-0 composition · rubric.py (DeepSeek) · discovery.py (open-ended reviewer)
+    documentation/       agent.py report rendering + approval gate (deterministic)
+  campaign.py            generate -> dispatch -> mutate loop; meters every model call
+  dispatch.py, routing.py   category -> execution path (authz | document | direct | frozen probe)
+  runner.py              send_turns, build_observation, finalize (the persist unit), drive
+  authz_probe.py         deterministic probes: mint, BOLA, rate limit, enumeration, grounding, disclosure, DoS
+  document_attack.py     indirect injection: upload + scan flow
+  executor/              authorization.py registry · executor.py the gate · http_sender.py · token.py
+  oracles/               base.py (Observation, Oracle) · deterministic.py · authz.py · decode.py
+  findings.py            dedup key, classification, provisional severity, promote
+  regression/            freeze + replay (+ cross-category flag)
+  recon/                 /health poll -> SHA change -> regression [-> discover]
+  discovery.py           run_discovery, triage_candidates
+  memory.py, canary.py   prior-attempt digest for the Red Team · victim-only canary harvesting
+  benign.py, drift.py    over-refusal measurement · Judge calibration (Cohen's kappa)
+  owasp.py               category -> OWASP tags, objective, technique families
+  store/                 store.py (transactions, authorizer) · migrations/0001-0009
+  observability/         queries.py · report.py · dashboard.py
+  contracts/target/      pydantic generated from vendored target schemas
+authorization.yaml       the registry (human-edited only)
+contracts/v1/            wire-contract JSON Schemas (conformance-tested, not a runtime bus)
+evals/                   seed cases, benign set, calibration set
+tests/                   offline suite (no target, no keys): 496 passing, 1 skipped
+```
+
+```mermaid
+flowchart TB
+  CLI["cli"]
+  ORCH["agents.orchestrator<br/>loop · ranker · selector · budget"]
+  MID["campaign · regression · recon · discovery · benign"]
+  DISP["dispatch + routing"]
+  PATHS["runner · authz_probe · document_attack · findings"]
+  AGENTS["agents.judge · agents.redteam · agents.documentation"]
+  CORE["executor · oracles · store · evals (SeedCase) · owasp · errors"]
+  CLI --> ORCH --> MID --> DISP --> PATHS --> AGENTS --> CORE
+```
+
+Read the layers as "may depend on anything below", from the import graph: the CLI imports
+nearly everything, `dispatch` imports the three execution paths, and the paths import the Judge,
+Executor, oracles, and store. There is one import cycle, `runner` and `regression` (replay
+imports `dispatch` lazily to break it).
+
+### Soft spots to expect questions on
+
+- **Coordination is in-process**, not a durable queue (see "Design vs implementation" below):
+  no crash-resume of a half-run campaign, single Executor throughput.
+- **`poll` exits 0 when the target is unreachable** ("nothing recorded"), which is gentler than
+  the platform's own "a missing verdict is never a pass"; a scheduled job needs its own alert.
+- **Judge calibration is `NOT VALIDATED`** until a human flips `review_status`; κ=1.00 is over
+  12 entries whose labels follow from observable facts.
+- **Multi-turn attacks are N/A** (the target's composer is stateless); mutation is one guarded
+  rephrase, not a search.
+- **Jev's base model is undisclosed**, so selector independence from Qwen is owner-asserted.
+- **GitLab CI has no runners**, so the suite is verified locally on 3.13 and 3.14.
 
 ## The eight Stage-4 questions
 
@@ -314,3 +485,17 @@ Wired = called by a CLI path. Tested = a test fails if it breaks. Live = recorde
 | Fix-holds under mutation | no | n/a | n/a | replay is exact-case only |
 | State-diff oracle, tool-trace visibility | no | n/a | n/a | black-box |
 | Peer-agent integration | no | n/a | n/a | solo build |
+
+## Design vs implementation: coordination (2026-10-01, reconciled with the code)
+
+The 09-28 design (ADR 0001/0003) describes agents as isolated workers that take typed tasks
+from the store. The build is a single process: `Orchestrator.run` calls `run_campaign`, which
+calls the Red Team, `dispatch`, the Executor, and the Judge as ordinary functions, and persists
+each unit of work in one transaction. What survived intact is the part the requirements need:
+one source of truth, an ordered audit trail, Judge/attacker separation, and the single-door
+Executor. What did not get built is independent workers draining a durable queue, so there is
+no crash-resume of a half-run campaign and the Executor's throughput (docs/PERF.md) is the
+ceiling. The `queue_depth` observability query counts `campaigns` rows in status `new`, which
+the Orchestrator never writes (it inserts `running`), so `campaigns_pending` reads 0 by
+construction; treat it as unwired. `/contracts` schemas are conformance-tested against real
+persisted records (`tests/test_contracts.py`); they are not validated on a runtime message bus.

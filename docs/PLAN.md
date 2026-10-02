@@ -1797,3 +1797,7 @@ which is the attacker-model path the handoff wanted observed live. 2 victim-only
 the cross-patient disclosure attacks on the redeployed build. `redteam integrity` on the scratch
 store: OK. No `JudgeTimeout`/`DataQualityError` refusals were triggered (conditional observations;
 none occurred).
+
+### 2026-10-01 — architecture diagram + codebase tour reconciled with the code (docs only)
+
+Redrew `docs/architecture.html` and the `ARCHITECTURE.md` Mermaid diagram from the code; added "How the repo works" (campaign sequence, command map, code map) to `ARCHITECTURE.md`. Fixed: the HTML Store hub rendered black-on-black (`--store` token never existed; dark-mode hub rules were not media-guarded); the diagram now centres the Campaign loop + Runner and separates calls from store persistence. Corrected claims the code contradicts: the store is a system of record, not a work queue agents pull from (control flow is in-process); Documentation is deterministic, not an LLM; no durable work item exists for crash retry. Verification: 415 passed, 1 skipped; diagrams rendered in headless Edge (light, dark) and Mermaid; all 13 tooltips resolve. Not changed (flagged only): `poll` exits 0 on an unreachable target; `queue_depth` counts campaign status `new`, which is never written; ADR 0001/0003 still describe the queue design as originally decided.
