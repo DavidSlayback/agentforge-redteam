@@ -1801,3 +1801,14 @@ none occurred).
 ### 2026-10-01 — architecture diagram + codebase tour reconciled with the code (docs only)
 
 Redrew `docs/architecture.html` and the `ARCHITECTURE.md` Mermaid diagram from the code; added "How the repo works" (campaign sequence, command map, code map) to `ARCHITECTURE.md`. Fixed: the HTML Store hub rendered black-on-black (`--store` token never existed; dark-mode hub rules were not media-guarded); the diagram now centres the Campaign loop + Runner and separates calls from store persistence. Corrected claims the code contradicts: the store is a system of record, not a work queue agents pull from (control flow is in-process); Documentation is deterministic, not an LLM; no durable work item exists for crash retry. Verification: 415 passed, 1 skipped; diagrams rendered in headless Edge (light, dark) and Mermaid; all 13 tooltips resolve. Not changed (flagged only): `poll` exits 0 on an unreachable target; `queue_depth` counts campaign status `new`, which is never written; ADR 0001/0003 still describe the queue design as originally decided.
+
+### 2026-10-01 — worktree reconciliation into main
+
+Merged every unmerged worktree line into one branch: MR !8 (`claude/w3-submission-audit-fixes-161809`,
+which already contained the three `worktree-agent-*` branches), MR !11 (`docs/remove-demo-script`),
+and the previously uncommitted architecture-tour work (`claude/architecture-codebase-overview-1d4586`).
+Conflicts: `docs/PLAN.md` entries ordered chronologically (the audit branch's live-run handoff is marked
+superseded by the live re-validation entry); `docs/DEMO_SCRIPT.md` kept deleted (newest intent, !11);
+`ARCHITECTURE.md` keeps the audit branch's reconciled text and adds the architecture branch's redrawn
+diagram, "How the repo works" tour, and "Design vs implementation" section. Verification: 496 passed,
+1 skipped on Python 3.13 (offline suite); not run against the live target.
