@@ -9,34 +9,54 @@ from __future__ import annotations
 
 import html
 from datetime import datetime, timezone
+from pathlib import Path
 
 from redteam.observability import queries
 from redteam.store.store import Store
 
-_CSS = """
-:root{--bg:#f6f7f9;--card:#fff;--ink:#161a20;--muted:#616a76;--line:#e4e7eb;--accent:#b4531f;
---good:#0d8a7a;--bad:#d6402c;--warn:#b8860b}
-@media(prefers-color-scheme:dark){:root{--bg:#14161a;--card:#1d2026;--ink:#e9ebef;--muted:#9aa2ad;
---line:#2c313a;--accent:#e8895a;--good:#3fc7b4;--bad:#f0806e;--warn:#e6c34d}}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);
-font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
-.wrap{max-width:1040px;margin:0 auto;padding:28px 20px}
-h1{font-size:22px;margin:0 0 2px}.sub{color:var(--muted);font-size:13px;margin:0 0 20px}
-.cards{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:22px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;flex:1;min-width:150px}
-.card .n{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums}
-.card .l{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.05em}
-h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);
-border-bottom:1px solid var(--line);padding-bottom:6px;margin:26px 0 10px}
-table{width:100%;border-collapse:collapse;font-size:13px}
-th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
-th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
-td.n{font-variant-numeric:tabular-nums}
-.pill{display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px;font-weight:600}
-.s-SUCCESS,.s-new{background:color-mix(in srgb,var(--bad) 18%,transparent);color:var(--bad)}
-.s-FAIL,.s-published{background:color-mix(in srgb,var(--good) 18%,transparent);color:var(--good)}
-.s-INCONCLUSIVE,.s-pending_approval{background:color-mix(in srgb,var(--warn) 20%,transparent);color:var(--warn)}
-.muted{color:var(--muted)}code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.92em}
+# Plumb design system tokens (David's shared system, plum flavor), vendored from david-brain's
+# packs/shared/david-design/dist/tokens.css. Fonts are not loaded: no external assets, so the
+# type falls back to each stack's system faces.
+_TOKENS = Path(__file__).with_name("plumb_tokens.css").read_text(encoding="utf-8")
+
+# Outcome pills read from the attacker's side: an attack SUCCESS is a finding (fail colours),
+# an attack FAIL means the target held (pass colours).
+_CSS = _TOKENS + """
+:root{--glow:var(--glow-plum)}
+*{box-sizing:border-box}
+body{margin:0;color:var(--ink);font:400 14px/1.55 var(--font-body);background-color:var(--surface-0);
+background-image:radial-gradient(120% 60% at 50% -10%,color-mix(in srgb,var(--accent) 12%,transparent),transparent 70%),
+linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+background-size:100% 100%,var(--space-5) var(--space-5),var(--space-5) var(--space-5)}
+.wrap{max-width:1040px;margin:0 auto;padding:32px 20px}
+h1{position:relative;margin:0 0 6px;padding-bottom:12px;font:700 26px/1.2 var(--font-display);letter-spacing:1.2px;
+text-transform:uppercase;text-shadow:var(--glow-text)}
+h1::after{content:"";position:absolute;left:0;bottom:0;width:96px;height:var(--stroke-heavy);border-radius:var(--radius-pill);
+background:var(--accent);box-shadow:var(--glow)}
+.sub{color:var(--ink-muted);font:400 11px/18px var(--font-mono);margin:10px 0 24px}
+.cards{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:24px}
+.card{position:relative;flex:1;min-width:150px;padding:14px 16px;background:var(--surface-1);border:1px solid var(--line);
+border-radius:var(--radius-lg);box-shadow:var(--shadow-raised)}
+.card::before{content:"";position:absolute;top:-1px;left:20px;right:20px;height:var(--stroke-heavy);border-radius:var(--radius-pill);
+background:linear-gradient(90deg,transparent,var(--accent) 20%,var(--accent) 80%,transparent);box-shadow:var(--glow)}
+.card .n{font:500 28px/34px var(--font-mono);font-variant-numeric:tabular-nums}
+.card .l{color:var(--ink-muted);font:600 10px/16px var(--font-mono);letter-spacing:1.2px;text-transform:uppercase}
+h2{margin:32px 0 12px;font:600 14px/20px var(--font-display);letter-spacing:1.6px;text-transform:uppercase;color:var(--ink)}
+table{width:100%;border-collapse:separate;border-spacing:0;font-size:13px;background:var(--surface-1);border:1px solid var(--line);
+border-radius:var(--radius-md);box-shadow:var(--shadow-raised);overflow:hidden}
+th,td{text-align:left;padding:8px 12px;border-top:1px solid var(--line);vertical-align:top}
+tr:first-child>th,tr:first-child>td{border-top:0}
+th{background:var(--surface-2);color:var(--ink-muted);font:600 10px/16px var(--font-mono);letter-spacing:1.2px;text-transform:uppercase}
+tr:hover td{background:color-mix(in srgb,var(--accent) 6%,transparent)}
+td.n{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:1px 10px 1px 8px;border-radius:var(--radius-pill);
+font:600 10px/18px var(--font-mono);letter-spacing:1.2px;text-transform:uppercase;white-space:nowrap;
+border:1px solid color-mix(in srgb,currentColor 45%,transparent)}
+.pill::before{content:"";width:6px;height:6px;border-radius:var(--radius-pill);background:currentColor;box-shadow:0 0 6px currentColor}
+.s-SUCCESS,.s-new{background:var(--fail-soft);color:var(--fail);box-shadow:var(--glow-fail)}
+.s-FAIL,.s-published{background:var(--pass-soft);color:var(--pass)}
+.s-INCONCLUSIVE,.s-pending_approval{background:var(--warn-soft);color:var(--warn)}
+.muted{color:var(--ink-muted)}code{font-family:var(--font-mono);font-size:.88em}
 """
 
 
@@ -114,7 +134,7 @@ def render_html(store: Store) -> str:
         if cost_rows else '<p class="muted">(no metered runs yet)</p>'
     )
 
-    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+    return f"""<!doctype html><html lang="en" data-theme="dark" data-flavor="plum"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Red Team Dashboard</title><style>{_CSS}</style></head><body><div class="wrap">
 <h1>AgentForge Red Team</h1>

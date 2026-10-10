@@ -30,3 +30,13 @@ def test_render_html_shows_a_finding_and_escapes(tmp_path: Path) -> None:
     assert "<script>alert(1)</script>" not in html   # rendered field is escaped, not injected
     assert "&lt;script&gt;" in html
     store.close()
+
+
+def test_render_html_loads_no_external_assets(tmp_path: Path) -> None:
+    # The dashboard is a static attachment for a security tool: styles inline, nothing fetched.
+    store = Store.open(tmp_path / "s.db")
+    html = render_html(store)
+    assert "http://" not in html and "https://" not in html
+    assert "@import" not in html and "<link" not in html and "<script" not in html
+    assert "--accent-plum" in html   # the vendored Plumb tokens are inlined
+    store.close()
