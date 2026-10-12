@@ -3,12 +3,12 @@
 The single plan file (see `AGENTS.md`). Keep it current at decision boundaries.
 
 ```text
-As of: Thu Oct 1 16:49 CDT 2026
-In flight: nothing running. MR !8 (branch claude/w3-submission-audit-fixes-161809, HEAD after 24cd05b) open on GitLab, auto-merge off; mirrored to GitHub.
-Next: bounded live attacker-model campaign with --max-mutations 1 on a scratch store copy (see "Handoff 2026-10-01" at the end of this file).
-Waiting on: David's permission rule so the session can load the Qwen key from .env or env vars; default if absent: David runs the command himself and pastes the summary.
-Re-arm: none (no monitors or scheduled checks were set).
-Verified: `uv run --python 3.13 pytest -q` 496 passed, 1 skipped at 24cd05b; live bench and keyless regression recorded in the 2026-10-01 live-verification entry.
+As of: Mon Oct 12 2026
+In flight: draft MR chore/cleanup-deliverables (cleanup + deliverables audit, AI-performed); draft MR !14 (agent environment).
+Next: owner-only items in "Deliverables audit (2026-10-12)" below.
+Waiting on: David for the final demo video, social post, AI interview, billed USD, calibration review flip.
+Re-arm: none.
+Verified: `uv run pytest -q` 509 passed, 1 skipped on the cleanup branch; contract-drift check clean. No live calls made 2026-10-12.
 ```
 
 **Goal:** by Friday noon CT, a deployed multi-agent adversarial platform runs live
@@ -96,18 +96,40 @@ artifact), `SAFETY` (trust boundary), `SCHEDULE` (checkpoint). Status: `not star
 
 | ID | Source | Requirement | Class | Acceptance criterion | Status |
 |---|---|---|---|---|---|
-| G1 | p7 Stage 1 | Co-Pilot running locally **and** deployed; deployed URL submitted every checkpoint; platform tests the **live** system, not a mock | HARD_GATE | `/health` returns SHA at submission; a run record ties results to that SHA | live target confirmed 2026-09-28 (`git_sha bfbb1eb2…`, HTTP 200); platform not built |
-| G2 | p8 Stage 2 | `THREAT_MODEL.md`: ~500-word summary + full attack-surface map over 6 categories (injection, exfiltration, state corruption, tool misuse, DoS, identity/role); per category: surface, impact, difficulty, existing defenses | HARD_GATE | Doc opens with summary naming highest-risk categories + coverage priority; all 6 categories mapped with the 4 fields | stub |
-| G3 | p8 Stage 3 | `evals/`: reproducible suite ≥3 attack categories; each case = category/subcategory, input sequence, expected-safe, observed (pass/fail/partial), severity+exploitability, regression flag; **+ ≥1 agent role running live against deployed target** | HARD_GATE | Suite reruns to same verdicts; ≥3 categories; one live agent role demonstrated | stub |
-| G4 | p9 Stage 4 | `ARCHITECTURE.md`: ~500-word summary, names each agent (role, I/O, trust level, coordination), interaction diagram; addresses the 8 design bullets | HARD_GATE | Summary + every agent named + diagram + all 8 bullets answered defensibly | stub |
-| G5 | p6 | `KEY_METRICS.md`: metrics + rationale defensible to a hospital CTO | HARD_GATE | Small metric set, each with what-it-proves rationale | stub |
-| G6 | p14 | `USERS.md`: users, workflows, use cases, explicit justification automation is right | SUBMISSION | Users + workflows + why-automate argument | stub |
-| S1 | p14 | Independent repo: setup guide, architecture overview, deployed link, run-against-target instructions | SUBMISSION | README covers all four | partial (README scaffold) |
-| S2 | p14 | Demo video 3–5 min showing platform running **live** attacks against target | SUBMISSION | One video per submission | not started |
-| S3 | p10,14 | ≥3 distinct vuln reports, reproducible by a security engineer not present at discovery; format = id+severity, description+clinical impact, minimal repro, observed vs expected, remediation, status+fix-validation | SUBMISSION | 3 reports meeting the reproduce-bar | not started |
-| S4 | p14 | AI cost analysis: actual dev spend + projected at 100/1K/10K/100K runs; arch changes per scale; **not** per-token×n | SUBMISSION | 4 scale points + architectural notes | not started |
-| S5 | p14 | Publicly accessible deployed target; platform runs live tests against it for early + final | SUBMISSION | Same as G1, per checkpoint | target live; platform not built |
-| S6 | p14 | Technical interview (early), social post (final), AI interview (final) | SUBMISSION | Scheduled/posted at each gate | not started |
+| G1 | p7 Stage 1 | Co-Pilot running locally **and** deployed; deployed URL submitted every checkpoint; platform tests the **live** system, not a mock | HARD_GATE | `/health` returns SHA at submission; a run record ties results to that SHA | **MET (deployed)** — live runs recorded through build `34232592` (2026-10-01); local replica `agentforge-w2-local` is `enabled: false` |
+| G2 | p8 Stage 2 | `THREAT_MODEL.md`: ~500-word summary + full attack-surface map over 6 categories (injection, exfiltration, state corruption, tool misuse, DoS, identity/role); per category: surface, impact, difficulty, existing defenses | HARD_GATE | Doc opens with summary naming highest-risk categories + coverage priority; all 6 categories mapped with the 4 fields | **MET** — 473-word summary, six PRD categories + reasoning-plane classes, OWASP table |
+| G3 | p8 Stage 3 | `evals/`: reproducible suite ≥3 attack categories; each case = category/subcategory, input sequence, expected-safe, observed (pass/fail/partial), severity+exploitability, regression flag; **+ ≥1 agent role running live against deployed target** | HARD_GATE | Suite reruns to same verdicts; ≥3 categories; one live agent role demonstrated | **MET** — 13 cases, 11 categories, every result tied to a build; all four agents ran live |
+| G4 | p9 Stage 4 | `ARCHITECTURE.md`: ~500-word summary, names each agent (role, I/O, trust level, coordination), interaction diagram; addresses the 8 design bullets | HARD_GATE | Summary + every agent named + diagram + all 8 bullets answered defensibly | **MET** — 476-word summary, Mermaid diagrams, "The eight Stage-4 questions" |
+| G5 | p6 | `KEY_METRICS.md`: metrics + rationale defensible to a hospital CTO | HARD_GATE | Small metric set, each with what-it-proves rationale | **MET** |
+| G6 | p14 | `USERS.md`: users, workflows, use cases, explicit justification automation is right | SUBMISSION | Users + workflows + why-automate argument | **MET** |
+| S1 | p14 | Independent repo: setup guide, architecture overview, deployed link, run-against-target instructions | SUBMISSION | README covers all four | **MET** — GitLab primary + GitHub mirror (R2) |
+| S2 | p14 | Demo video 3–5 min showing platform running **live** attacks against target | SUBMISSION | One video per submission | **PARTIAL** — early video recorded and linked in the portal (09-29); final refreshed video not evidenced in the repo (owner) |
+| S3 | p10,14 | ≥3 distinct vuln reports, reproducible by a security engineer not present at discovery; format = id+severity, description+clinical impact, minimal repro, observed vs expected, remediation, status+fix-validation | SUBMISSION | 3 reports meeting the reproduce-bar | **MET** — 7 reports in `docs/findings/` |
+| S4 | p14 | AI cost analysis: actual dev spend + projected at 100/1K/10K/100K runs; arch changes per scale; **not** per-token×n | SUBMISSION | 4 scale points + architectural notes | **PARTIAL** — measured calls, token-based USD estimate, 4 scale points with architecture changes (`docs/COST_ANALYSIS.md`); billed USD and assistant spend are `OWNER TO SUPPLY` |
+| S5 | p14 | Publicly accessible deployed target; platform runs live tests against it for early + final | SUBMISSION | Same as G1, per checkpoint | **MET** through 2026-10-01; not re-verified 2026-10-12 (no live calls in the audit) |
+| S6 | p14 | Technical interview (early), social post (final), AI interview (final) | SUBMISSION | Scheduled/posted at each gate | **OPEN (owner, external)** — not verifiable from the repo |
+
+### Deliverables audit (2026-10-12, AI-performed)
+
+Every PRD p14 submission row and hard gate, checked against the repo on branch
+`chore/cleanup-deliverables`. Statuses are in the tables above. Missed or partial, and why:
+
+| Item | Gap | Why | Addressed / still open |
+|---|---|---|---|
+| S2 demo video | Final refreshed video not in the repo | Human-only; videos live in the portal | Open (owner). README now says where it lives |
+| S4 cost analysis | No billed USD; assistant spend absent | Store records calls, not tokens; no billing export | Open (owner rows 1–8). Token-based estimate stands |
+| S6 interviews, social post | Not verifiable here | External | Open (owner) |
+| G3 eval results | `seed-dos-oversized-001` read `not_run` though the store held 5 runs | Owner follow-up from 2026-10-01 never applied | Fixed: result filled from store attempts (held on `bfbb1eb2`, `da7451d1`) |
+| E8 AI-use disclosure | Development-time AI use not disclosed | Disclosure covered agent roles only | Fixed: paragraph added to `ARCHITECTURE.md` |
+| E15 integration packet | Solo adaptation, no peer integration | R3: build solo | Open by decision |
+| P2 calibration | Labels `unreviewed` | Needs a human review flip | Open (owner) |
+
+Cleanup in the same pass: removed the empty, unimported `src/redteam/contracts/messages/` package
+and one unused import; added tests for attacker-model reply classification (content filter is
+`ProviderBlock`, not an outage) and for discovery reviews that fail (never a candidate). Kept
+after review: `scripts/repair_probe_kind.py` (one-shot, already applied, but cited and tested),
+the unimported generated `contracts/target/` models (CI drift-gated), the test-only
+`run_mint_auth_probe`/`run_rate_limit_probe` wrappers, and `dashboard.html` (a cited snapshot).
 
 ### Platform (multi-agent) — CORE
 
@@ -129,10 +151,10 @@ artifact), `SAFETY` (trust boundary), `SCHEDULE` (checkpoint). Status: `not star
 | E2 | p12 | Every case exercises a boundary, invariant, or regression risk; static payload lists insufficient | OPTIONAL | **DONE** — boundary/invariant mapping table in `evals/README.md` (E2 section) |
 | E3 | p12 | Build-vs-configure decision records (Burp/ZAP/Semgrep/garak/commercial) — required Architecture Defense deliverable | OPTIONAL | **DONE** — `docs/adr/0005-build-vs-configure.md` (per-tool matrix) |
 | E4 | p12 | Triage exercise: simulated scan report ≥10 findings across critical/high/medium/false-positive; validate/remediate/defer/document each | OPTIONAL | **DONE** — `docs/TRIAGE_EXERCISE.md`: 12 findings (5 real + 7 simulated incl. 3 false positives), each validated + dispositioned (remediate/defer/document). Richer offensive LLM-attack rows can be swapped in by David/unfiltered |
-| E5 | p12–13 | Versioned JSON-Schema contracts in `/contracts` for every inter-agent message; contract tests both sides; breaking change → version bump | OPTIONAL | stub (`contracts/` README) |
-| E6 | p13 | Explicit typed error schemas (target unreachable, budget exceeded, judge timeout, no findings in window, regression detected) in `/contracts` | OPTIONAL | not started |
+| E5 | p12–13 | Versioned JSON-Schema contracts in `/contracts` for every inter-agent message; contract tests both sides; breaking change → version bump | OPTIONAL | **DONE** — `contracts/v1/*.schema.json`; `tests/test_contracts.py` checks persisted records against them |
+| E6 | p13 | Explicit typed error schemas (target unreachable, budget exceeded, judge timeout, no findings in window, regression detected) in `/contracts` | OPTIONAL | **DONE** — `contracts/v1/error.schema.json`; `tests/test_typed_errors.py` (`NoFindingsInWindow` RESERVED) |
 | E7 | p13 | Rate limits + auth documented for every external API (LLM providers, target, observability); handling = backoff/queue/abort in `ARCHITECTURE.md` | OPTIONAL | **DONE** — `docs/EXTERNAL_APIS.md` (per-API auth/rate-limit/handling table; honest about budget-cap vs backoff) |
-| E8 | p12–13 | AI-use disclosure in `ARCHITECTURE.md`: each AI role, following deterministic verification/human gate, residual risk; judge-drift detect+correct | OPTIONAL | not started |
+| E8 | p12–13 | AI-use disclosure in `ARCHITECTURE.md`: each AI role, following deterministic verification/human gate, residual risk; judge-drift detect+correct | OPTIONAL | **DONE** — `ARCHITECTURE.md` "AI-use disclosure" (agent roles, development-time AI use, drift detection) |
 | E9 | p13 | Exploit DB data-quality: unique id, required fields, no dup attack sequences; validated in Doc Agent before write | OPTIONAL | **DONE** — `dedup_key UNIQUE` + promote-dedup + fail-closed validation; `docs/DATA_MODEL.md` E9; `tests/test_data_quality.py` |
 | E10 | p13 | Exploit DB migration support (add field without data loss); document approach; queue-depth monitoring if a queue is used | OPTIONAL | **DONE** — 8 idempotent additive migrations; `queries.queue_depth` + report section; `docs/DATA_MODEL.md` E10 |
 | E11 | p13 | Data model + access controls: who writes/reads exploits, human approval before publish; lineage/reporting | OPTIONAL | **DONE** — `docs/DATA_MODEL.md` E11 (writer/reader model, approval-before-publish, lineage) |

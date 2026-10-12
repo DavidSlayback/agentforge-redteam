@@ -36,7 +36,9 @@ observability substrate; it is not a work queue. Details, diagram, and tradeoffs
 | Key metrics | [KEY_METRICS.md](KEY_METRICS.md) |
 | Eval dataset + results | [evals/](evals/) |
 | Vulnerability reports | [docs/findings/](docs/findings/) |
-| AI cost analysis (USD inputs are `OWNER TO SUPPLY`) | [docs/COST_ANALYSIS.md](docs/COST_ANALYSIS.md) |
+| AI cost analysis (token-based estimate; billed USD is `OWNER TO SUPPLY`) | [docs/COST_ANALYSIS.md](docs/COST_ANALYSIS.md) |
+| AI-use disclosure (agent roles + development-time AI use) | [ARCHITECTURE.md](ARCHITECTURE.md#ai-use-disclosure) |
+| Demo video (3–5 min) | Submitted through the Gauntlet portal, not stored in this repo; see [docs/PLAN.md](docs/PLAN.md) "Deliverables audit" |
 | Inter-agent contracts (v1 JSON Schema) | [contracts/](contracts/) |
 | Integration packet (solo adaptation; no peer integration) | [docs/INTEGRATION_PACKET.md](docs/INTEGRATION_PACKET.md) |
 | Observability snapshot | [dashboard.html](dashboard.html) (regenerate with `redteam dashboard`) |
@@ -58,7 +60,7 @@ uv run pytest -q
 ```
 
 The test suite runs offline (no target, no model keys) and includes the contract tests. On the
-reconciled commit it reads `496 passed, 1 skipped` (the skip is an opt-in
+2026-10-12 cleanup branch it reads `509 passed, 1 skipped` (the skip is an opt-in
 real-store check); the GitLab pipeline in `.gitlab-ci.yml` has no runner, so run it locally.
 
 ### Configuration

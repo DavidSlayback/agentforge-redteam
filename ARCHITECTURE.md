@@ -254,7 +254,7 @@ src/redteam/
 authorization.yaml       the registry (human-edited only)
 contracts/v1/            wire-contract JSON Schemas (conformance-tested, not a runtime bus)
 evals/                   seed cases, benign set, calibration set
-tests/                   offline suite (no target, no keys): 496 passing, 1 skipped
+tests/                   offline suite (no target, no keys): 509 passing, 1 skipped
 ```
 
 ```mermaid
@@ -397,6 +397,15 @@ Full per-API table: `docs/EXTERNAL_APIS.md`. The behavior, as built:
 
 Model names above are configuration read from the environment; they cannot be verified from the
 repository, which holds no key or model pin beyond `jev-1.13.0`.
+
+**Development-time AI use.** The platform's code, tests and docs were written with an AI coding
+assistant (Claude Code): all 270 non-merge commits through 2026-10-10 carry an `Assisted-by:` or
+`Co-Authored-By:` trailer naming it, and the 2026-10-12 cleanup and deliverables audit was also
+AI-performed. Independently checked: the offline test suite and contract-drift check (run locally;
+GitLab has no runner), and live runs against the owned target recorded in the store with their build
+SHA. Not recorded: the assistant's own spend (`docs/COST_ANALYSIS.md`, OWNER row 5). Residual risk:
+AI-written docs can overclaim; the implementation-status table below is the reconciled check against
+the code.
 
 **Detecting and correcting a drifting Judge.** The deterministic tier cannot drift: it is pure code,
 so a drift question applies only to the rubric tier and to oracle rules.
