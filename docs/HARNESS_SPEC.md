@@ -106,8 +106,8 @@ The Executor loads this once, and every outbound request asserts the target's or
 agentforge-redteam/
   pyproject.toml            # uv; pydantic v2, httpx, pytest, (PyRIT later)
   authorization.yaml        # the registry
-  contracts/                # JSON Schemas (our messages + typed errors), versioned  [graded]
-  evals/                    # seed cases, OWASP-mapped — CONTENT authored unfiltered  [graded]
+  contracts/                # JSON Schemas (our messages + typed errors), versioned
+  evals/                    # seed cases, OWASP-mapped — CONTENT authored unfiltered
   tools/generate_contracts.py   # target Zod → pydantic (ported)
   src/redteam/
     store/                  # schema, migrations, dao
@@ -144,26 +144,26 @@ built:** `drill`, `serve-dashboard`, and `report --finding` / `--format sarif`.
 
 ## Execution slices
 
-Sized for the two checkpoints. `D4 (resolved: S0–S5):` the **Tuesday** cut adds a minimal
+Two cuts, in build order. `D4 (resolved: S0–S5):` the first cut adds a minimal
 Red Team on top of Executor/oracles/Judge/seed-evals/dashboard — so two live agent roles
 (Red Team + Judge) run against the target, not just the deterministic path. Orchestrator,
-Documentation, and the regression harness land by **Friday**. This makes S3 and S5
-interdependent under deadline: land the seed-eval runner first (S3) so the Red Team (S5) has
+Documentation, and the regression harness land in the second cut. S3 and S5 are
+interdependent: land the seed-eval runner first (S3) so the Red Team (S5) has
 a working execute→judge loop to mutate into; keep S5 minimal (generate + one mutation op),
-defer multi-turn and operator variety to Friday.
+defer multi-turn and operator variety to the second cut.
 
-| Slice | Tue/Fri | What | Done when | Reqs |
+| Slice | Cut | What | Done when | Reqs |
 |---|---|---|---|---|
-| S0 | Tue | Scaffold: uv package, layout, ported contract-gen, CI stub | repo installs, `pytest` + drift test pass | — |
-| S1 | Tue | **Safety core**: `authorization.yaml` + Executor + store schema/migrations | a test proves the Executor refuses an unlisted origin | SA1, E10, E12 |
-| S2 | Tue | Deterministic oracles + Judge emitting `Verdict` | oracles pass/fail on known-positive & clean cases; Judge live | P2, P6(trace) |
-| S3 | Tue | Seed evals (≥3 OWASP categories, content authored unfiltered) run live via Executor | Attempts+Verdicts produced against the deployed SHA; reproducible | G3, E1 |
-| S4 | Tue | Observability: dashboard reads the store | answers the 6 PRD questions from stored rows | P6 |
-| S5 | Tue | **Minimal Red Team** (Qwen): generate + one mutation op, over the S3 loop | a partial success mutates into a live variant | P1 |
-| S6 | Fri | Orchestrator: ranker + Jev selector + budget/halt | picks a campaign from state; halts on budget | P3 |
-| S7 | Fri | Documentation agent + ≥3 reports + human gate | a report reproduces from its `minimal_spec_id` | P4, S3(reports) |
-| S8 | Fri | Regression harness + regression-on-deploy; Red Team multi-turn + more operators | a fixed finding's case flips correctly across SHAs | P5, P1 |
-| S9 | Fri | Drill mode, metrics, cost analysis, deploy, demo | one-command bounded drill; cost at 100/1K/10K/100K | H, S4 |
+| S0 | 1 | Scaffold: uv package, layout, ported contract-gen, CI stub | repo installs, `pytest` + drift test pass | — |
+| S1 | 1 | **Safety core**: `authorization.yaml` + Executor + store schema/migrations | a test proves the Executor refuses an unlisted origin | SA1, E10, E12 |
+| S2 | 1 | Deterministic oracles + Judge emitting `Verdict` | oracles pass/fail on known-positive & clean cases; Judge live | P2, P6(trace) |
+| S3 | 1 | Seed evals (≥3 OWASP categories, content authored unfiltered) run live via Executor | Attempts+Verdicts produced against the deployed SHA; reproducible | G3, E1 |
+| S4 | 1 | Observability: dashboard reads the store | answers the 6 PRD questions from stored rows | P6 |
+| S5 | 1 | **Minimal Red Team** (Qwen): generate + one mutation op, over the S3 loop | a partial success mutates into a live variant | P1 |
+| S6 | 2 | Orchestrator: ranker + Jev selector + budget/halt | picks a campaign from state; halts on budget | P3 |
+| S7 | 2 | Documentation agent + ≥3 reports + human gate | a report reproduces from its `minimal_spec_id` | P4, S3(reports) |
+| S8 | 2 | Regression harness + regression-on-deploy; Red Team multi-turn + more operators | a fixed finding's case flips correctly across SHAs | P5, P1 |
+| S9 | 2 | Drill mode, metrics, cost analysis, deploy | one-command bounded drill; cost at 100/1K/10K/100K | H, S4 |
 
 `D5 (resolved: yes):` eval seed **content** (the actual case inputs) is authored by David or
 an unfiltered model; this harness provides the case *schema*, loader, and runner.
@@ -171,5 +171,5 @@ an unfiltered model; this harness provides the case *schema*, loader, and runner
 ## Decisions (all resolved 2026-09-28)
 
 D1 port contract-gen ✓ · D2 sqlite+migrations ✓ · D3 auth as git-tracked YAML ✓ ·
-D4 Tuesday = S0–S5 (Red Team + Judge both live) ✓ · D5 eval-content authoring split ✓.
+D4 first cut = S0–S5 (Red Team + Judge both live) ✓ · D5 eval-content authoring split ✓.
 Spec is decision-complete; ready for implementation handoff.

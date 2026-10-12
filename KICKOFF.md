@@ -15,7 +15,7 @@ Handoff into this repo's first working session. Read this, then `AGENTS.md`, the
 
 A **multi-agent adversarial evaluation platform** that continuously red-teams the
 AgentForge Clinical Co-Pilot (the OpenEMR AI layer from Weeks 1–2) and proves fixes
-hold without breaking the clinician. Graded PRD; separate repo from the Co-Pilot.
+hold without breaking the clinician. Separate repo from the Co-Pilot.
 
 Full PRD text: `.scratch/assignments/w3.txt`. The teaser it expands:
 
@@ -30,15 +30,14 @@ Full PRD text: `.scratch/assignments/w3.txt`. The teaser it expands:
 The target is **the Clinical Co-Pilot David owns and deploys** — nothing else. The
 platform is target-agnostic in architecture but **authorization-gated in execution**: a
 target runs only if it is in an authorization registry with recorded proof. This is both a
-safety line and a graded requirement (PRD Appendix, item 9). This repo is **not** a
+safety line and a PRD requirement (PRD Appendix, item 9). This repo is **not** a
 general scanner for third-party/public systems. See `AGENTS.md`.
 
 ## The target
 
 - Deployed W2 Co-Pilot: `https://dtstest.64.177.10.182.nip.io/agentforge-w2/`
-  (`/health` returns `{status, git_sha}`). Confirm it is live and SHA-pinned at the start
-  of every checkpoint (Stage 1 hard gate: the deployed target URL is submitted each time,
-  and the platform must run against the live system, not a mock).
+  (`/health` returns `{status, git_sha}`). Confirm it is live and SHA-pinned before each run
+  (Stage 1 hard gate: the platform must run against the live system, not a mock).
 - Architecture and HTTP routes: the `agentforge-week1` repo
   (`W2_ARCHITECTURE.md`, `agentforge/src/server.js`). The platform reaches it over HTTP
   only; it does not import Co-Pilot code.
@@ -118,11 +117,5 @@ model from the prior-art surface map). Key design questions to decide and defend
 The prior-art note maps each of these to published patterns and is the backbone for
 `ARCHITECTURE.md`. Start `docs/PLAN.md` as the single plan file.
 
-## Cadence
-
-One-week sprint, Central time. Early submission **Tuesday 11:59 PM** (deployed target,
-eval framework, observability wired, demo video; technical interview Wed/Thu). Final
-**Friday noon** (production-ready platform, demo video, social post; AI interview after).
-
 ## Standard: build to what a hospital CISO would trust to run continuously against
-systems their physicians depend on — not the flashiest demo jailbreak.
+systems their physicians depend on — not the most impressive single jailbreak.

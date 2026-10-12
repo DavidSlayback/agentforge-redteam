@@ -26,7 +26,7 @@
 
 **Fact:** the repo's W3 plan section records a Python 3.13 `redteam/` scaffold, generated pydantic contracts and drift checks; it says the scaffold has no attack code and is not deployed. [PLAN.md, W3 section](PLAN.md)
 
-**Fact:** the W3 platform reaches the Node AgentForge service over HTTP only (PLAN.md, W3 section). The architecture is described in `W2_ARCHITECTURE.md` and the routes are defined in `agentforge/src/server.js`. [W2_ARCHITECTURE.md](../../W2_ARCHITECTURE.md), [server.js](../../agentforge/src/server.js)
+**Fact:** the W3 platform reaches the Node AgentForge service over HTTP only (PLAN.md, W3 section). The architecture is described in `W2_ARCHITECTURE.md` and the routes are defined in `agentforge/src/server.js`. (both in the target repo, `agentforge-week1`)
 
 **Inference:** the natural boundary is a black-box HTTP harness whose authoritative observations are response data and explicitly exposed state such as traces, read-back routes, and synthetic OpenEMR effects. Do not assume access to target internals or treat hidden implementation coverage as measured.
 
@@ -52,7 +52,7 @@
 
 ### Fit for AgentForge
 
-**Inference:** use the generated JSON Schemas already present in the repository to create valid and boundary HTTP inputs, then maintain explicit workflow sequences for upload, scan/read-back, answer, draft, confirmation, and authorization-sensitive operations. [W2 schemas](schemas/), [Schemathesis](https://schemathesis.readthedocs.io/en/stable/)
+**Inference:** use the generated JSON Schemas already present in the repository to create valid and boundary HTTP inputs, then maintain explicit workflow sequences for upload, scan/read-back, answer, draft, confirmation, and authorization-sensitive operations. [W2 schemas (vendored)](../vendor/agentforge-schemas/), [Schemathesis](https://schemathesis.readthedocs.io/en/stable/)
 
 **Inference:** stateful exploration should record a case graph: action, response, created resource identifier, observable state change, and next permitted action. Check patient scope, stale/missing identifiers, denied-action side effects, and read-after-write behavior using synthetic identities.
 
@@ -344,7 +344,7 @@
 
 ## Open questions for the W3 PRD
 
-1. What exact target must the drill evaluate: our deployed W2 service, a local candidate build, or a grader-provided application? Must every finding be confirmed on a public URL?
+1. What exact target must the drill evaluate: our deployed W2 service, a local candidate build, or a separately provided application? Must every finding be confirmed on a public URL?
 2. Does “multi-agent” describe the evaluator architecture, target environment, or both? Are specific frameworks mandatory?
 3. What does “system state” mean: source diff, HTTP traces, deployment config, runtime coverage, queue state, or all of these? Which signals are available over HTTP?
 4. Which attack classes, identity roles, data flows, upload types, and mutation families are required? Are external benchmark datasets permitted under the synthetic-only constraint?
@@ -405,5 +405,5 @@ The following sources support the claims in this note.
 
 ### Repository-specific references
 
-- [AgentForge plan](PLAN.md) · [AgentForge architecture](../../W2_ARCHITECTURE.md) · [HTTP server](../../agentforge/src/server.js) · [Generated schemas](schemas/)
+- [AgentForge plan](PLAN.md) · AgentForge architecture and HTTP server: `W2_ARCHITECTURE.md`, `agentforge/src/server.js` in `agentforge-week1` · [Generated schemas (vendored)](../vendor/agentforge-schemas/)
 - The W3 idea bank (`.scratch/assignments/w3-idea-bank.md`) is gitignored and speculative; it is a local planning aid, not an authoritative requirement.

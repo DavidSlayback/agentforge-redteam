@@ -3,15 +3,15 @@
 The single plan file (see `AGENTS.md`). Keep it current at decision boundaries.
 
 ```text
-As of: Thu Oct 1 16:49 CDT 2026
-In flight: nothing running. MR !8 (branch claude/w3-submission-audit-fixes-161809, HEAD after 24cd05b) open on GitLab, auto-merge off; mirrored to GitHub.
-Next: bounded live attacker-model campaign with --max-mutations 1 on a scratch store copy (see "Handoff 2026-10-01" at the end of this file).
-Waiting on: David's permission rule so the session can load the Qwen key from .env or env vars; default if absent: David runs the command himself and pastes the summary.
-Re-arm: none (no monitors or scheduled checks were set).
-Verified: `uv run --python 3.13 pytest -q` 496 passed, 1 skipped at 24cd05b; live bench and keyless regression recorded in the 2026-10-01 live-verification entry.
+As of: Mon Oct 12 2026
+In flight: draft MR chore/cleanup-deliverables (cleanup + deliverables audit, AI-performed); draft MR !14 (agent environment).
+Next: owner-only items in "Deliverables audit (2026-10-12)" below.
+Waiting on: David for billed USD and the calibration review flip.
+Re-arm: none.
+Verified: `uv run pytest -q` 509 passed, 1 skipped on the cleanup branch; contract-drift check clean. No live calls made 2026-10-12.
 ```
 
-**Goal:** by Friday noon CT, a deployed multi-agent adversarial platform runs live
+**Goal:** a deployed multi-agent adversarial platform runs live
 against the authorized Clinical Co-Pilot target, converts confirmed exploits into a
 regression harness, documents findings professionally, and proves fixes hold without
 raising over-refusal — every claim tied to a target SHA and a reproducible run.
@@ -43,11 +43,6 @@ this session: requirements matrix (below), architecture grilling Q1–Q15 (all c
 shareable decision page (artifact `CAJNwV8dqwQbs2fttuMHLJ`). Next: `THREAT_MODEL.md`
 (Stage 2) and `USERS.md`, then first live agent role + seed evals (Stage 3).
 
-**Architecture Defense (peer session):** 1 hour, groups of 3–5, 5-min present + 5-min Q&A
-each, alphabetical order. David presents and defends this architecture live. `ARCHITECTURE.md`
-"Known tradeoffs / failure modes" is written to serve that Q&A (why-X-over-Y, failure
-modes, edge cases). Source: `~/Downloads/architecture_review_guide (2).pdf`.
-
 ## Course clarifications (kickoff call, 2026-09-28)
 
 From the recorded intro call (Byron). These override convenience where they narrow scope.
@@ -61,19 +56,15 @@ From the recorded intro call (Byron). These override convenience where they narr
   only. The platform should in principle be pointable at another chatbot. Matches the
   single-Executor / HTTP-only design.
 - **Fixes are REQUIRED, not stretch.** "When you find a vulnerability, fix it and show that
-  you fixed it." Elevates the fix → regression-holds loop (P5) to a graded requirement.
+  you fixed it." Elevates the fix → regression-holds loop (P5) to a required capability.
 - **Auto-fix is a bonus, not required.** Surface the bug + proposed fix; do not auto-apply
   unless deliberately wired. Matches the "platform never applies fixes to the target" gate.
 - **Separate/greenfield repo is allowed and encouraged.** Our standalone repo is right.
-- **Deadlines show in LOCAL time (portal bug), not Central.** Early = **Tue midnight**,
-  final = **Fri noon** — confirm the local offset in the portal. (SC1/SC2.)
 - **Model refusals are expected by design.** Frontier models refuse offensive-security work
   and are too costly to run continuously → open-weights attacker on a cheap key. This is
   also why detailed offensive content trips output safety classifiers in *this* assistant
   session; the specific offensive text (threat-model findings, attack seeds) is authored by
   David or a model without that filter. See `[[claude-safety-blocks-w3]]`.
-- **Architecture Defense:** today 2:30 CT, via the portal (not Google Meet), **plan-only
-  and ungraded** (reflective survey), one-slide norm. David is handling it.
 
 ## Source record
 
@@ -87,27 +78,45 @@ From the recorded intro call (Byron). These override convenience where they narr
 
 Built from `.scratch/assignments/w3.txt` (18 pp) on 2026-09-28. Source column cites the
 PRD page. Classes: `HARD_GATE` (named hard gate), `CORE` (required platform capability),
-`GRADED` (engineering requirement graded alongside core), `OPTIONAL` (PRD "Optional Engineering Deliverables"), `SUBMISSION` (submission
-artifact), `SAFETY` (trust boundary), `SCHEDULE` (checkpoint). Status: `not started`
+`GRADED` (engineering requirement graded alongside core), `OPTIONAL` (PRD "Optional Engineering Deliverables"), `DELIVERABLE` (PRD p14
+deliverable), `SAFETY` (trust boundary). Status: `not started`
 (scaffold/stub only) until a wired, tested, live-observed path exists (see `AGENTS.md`
 "done").
 
-### Hard gates + submission artifacts
+### Hard gates + deliverables
 
 | ID | Source | Requirement | Class | Acceptance criterion | Status |
 |---|---|---|---|---|---|
-| G1 | p7 Stage 1 | Co-Pilot running locally **and** deployed; deployed URL submitted every checkpoint; platform tests the **live** system, not a mock | HARD_GATE | `/health` returns SHA at submission; a run record ties results to that SHA | live target confirmed 2026-09-28 (`git_sha bfbb1eb2…`, HTTP 200); platform not built |
-| G2 | p8 Stage 2 | `THREAT_MODEL.md`: ~500-word summary + full attack-surface map over 6 categories (injection, exfiltration, state corruption, tool misuse, DoS, identity/role); per category: surface, impact, difficulty, existing defenses | HARD_GATE | Doc opens with summary naming highest-risk categories + coverage priority; all 6 categories mapped with the 4 fields | stub |
-| G3 | p8 Stage 3 | `evals/`: reproducible suite ≥3 attack categories; each case = category/subcategory, input sequence, expected-safe, observed (pass/fail/partial), severity+exploitability, regression flag; **+ ≥1 agent role running live against deployed target** | HARD_GATE | Suite reruns to same verdicts; ≥3 categories; one live agent role demonstrated | stub |
-| G4 | p9 Stage 4 | `ARCHITECTURE.md`: ~500-word summary, names each agent (role, I/O, trust level, coordination), interaction diagram; addresses the 8 design bullets | HARD_GATE | Summary + every agent named + diagram + all 8 bullets answered defensibly | stub |
-| G5 | p6 | `KEY_METRICS.md`: metrics + rationale defensible to a hospital CTO | HARD_GATE | Small metric set, each with what-it-proves rationale | stub |
-| G6 | p14 | `USERS.md`: users, workflows, use cases, explicit justification automation is right | SUBMISSION | Users + workflows + why-automate argument | stub |
-| S1 | p14 | Independent repo: setup guide, architecture overview, deployed link, run-against-target instructions | SUBMISSION | README covers all four | partial (README scaffold) |
-| S2 | p14 | Demo video 3–5 min showing platform running **live** attacks against target | SUBMISSION | One video per submission | not started |
-| S3 | p10,14 | ≥3 distinct vuln reports, reproducible by a security engineer not present at discovery; format = id+severity, description+clinical impact, minimal repro, observed vs expected, remediation, status+fix-validation | SUBMISSION | 3 reports meeting the reproduce-bar | not started |
-| S4 | p14 | AI cost analysis: actual dev spend + projected at 100/1K/10K/100K runs; arch changes per scale; **not** per-token×n | SUBMISSION | 4 scale points + architectural notes | not started |
-| S5 | p14 | Publicly accessible deployed target; platform runs live tests against it for early + final | SUBMISSION | Same as G1, per checkpoint | target live; platform not built |
-| S6 | p14 | Technical interview (early), social post (final), AI interview (final) | SUBMISSION | Scheduled/posted at each gate | not started |
+| G1 | p7 Stage 1 | Co-Pilot running locally **and** deployed; deployed URL published; platform tests the **live** system, not a mock | HARD_GATE | `/health` returns the SHA; a run record ties results to that SHA | **MET (deployed)** — live runs recorded through build `34232592` (2026-10-01); local replica `agentforge-w2-local` is `enabled: false` |
+| G2 | p8 Stage 2 | `THREAT_MODEL.md`: ~500-word summary + full attack-surface map over 6 categories (injection, exfiltration, state corruption, tool misuse, DoS, identity/role); per category: surface, impact, difficulty, existing defenses | HARD_GATE | Doc opens with summary naming highest-risk categories + coverage priority; all 6 categories mapped with the 4 fields | **MET** — 473-word summary, six PRD categories + reasoning-plane classes, OWASP table |
+| G3 | p8 Stage 3 | `evals/`: reproducible suite ≥3 attack categories; each case = category/subcategory, input sequence, expected-safe, observed (pass/fail/partial), severity+exploitability, regression flag; **+ ≥1 agent role running live against deployed target** | HARD_GATE | Suite reruns to same verdicts; ≥3 categories; one live agent role demonstrated | **MET** — 13 cases, 11 categories, every result tied to a build; all four agents ran live |
+| G4 | p9 Stage 4 | `ARCHITECTURE.md`: ~500-word summary, names each agent (role, I/O, trust level, coordination), interaction diagram; addresses the 8 design bullets | HARD_GATE | Summary + every agent named + diagram + all 8 bullets answered defensibly | **MET** — 476-word summary, Mermaid diagrams, "The eight Stage-4 questions" |
+| G5 | p6 | `KEY_METRICS.md`: metrics + rationale defensible to a hospital CTO | HARD_GATE | Small metric set, each with what-it-proves rationale | **MET** |
+| G6 | p14 | `USERS.md`: users, workflows, use cases, explicit justification automation is right | DELIVERABLE | Users + workflows + why-automate argument | **MET** |
+| S1 | p14 | Independent repo: setup guide, architecture overview, deployed link, run-against-target instructions | DELIVERABLE | README covers all four | **MET** — GitLab primary + GitHub mirror (R2) |
+| S3 | p10,14 | ≥3 distinct vuln reports, reproducible by a security engineer not present at discovery; format = id+severity, description+clinical impact, minimal repro, observed vs expected, remediation, status+fix-validation | DELIVERABLE | 3 reports meeting the reproduce-bar | **MET** — 7 reports in `docs/findings/` |
+| S4 | p14 | AI cost analysis: actual dev spend + projected at 100/1K/10K/100K runs; arch changes per scale; **not** per-token×n | DELIVERABLE | 4 scale points + architectural notes | **PARTIAL** — measured calls, token-based USD estimate, 4 scale points with architecture changes (`docs/COST_ANALYSIS.md`); billed USD and assistant spend are `OWNER TO SUPPLY` |
+| S5 | p14 | Publicly accessible deployed target; platform runs live tests against it | DELIVERABLE | Same as G1 | **MET** through 2026-10-01; not re-verified 2026-10-12 (no live calls in the audit) |
+
+### Deliverables audit (2026-10-12, AI-performed)
+
+Every PRD p14 repo deliverable and hard gate, checked against the repo on branch
+`chore/cleanup-deliverables`. Statuses are in the tables above. Missed or partial, and why:
+
+| Item | Gap | Why | Addressed / still open |
+|---|---|---|---|
+| S4 cost analysis | No billed USD; assistant spend absent | Store records calls, not tokens; no billing export | Open (owner rows 1–8). Token-based estimate stands |
+| G3 eval results | `seed-dos-oversized-001` read `not_run` though the store held 5 runs | Owner follow-up from 2026-10-01 never applied | Fixed: result filled from store attempts (held on `bfbb1eb2`, `da7451d1`) |
+| E8 AI-use disclosure | Development-time AI use not disclosed | Disclosure covered agent roles only | Fixed: paragraph added to `ARCHITECTURE.md` |
+| E15 integration packet | Solo adaptation, no peer integration | R3: build solo | Open by decision |
+| P2 calibration | Labels `unreviewed` | Needs a human review flip | Open (owner) |
+
+Cleanup in the same pass: removed the empty, unimported `src/redteam/contracts/messages/` package
+and one unused import; added tests for attacker-model reply classification (content filter is
+`ProviderBlock`, not an outage) and for discovery reviews that fail (never a candidate). Kept
+after review: `scripts/repair_probe_kind.py` (one-shot, already applied, but cited and tested),
+the unimported generated `contracts/target/` models (CI drift-gated), the test-only
+`run_mint_auth_probe`/`run_rate_limit_probe` wrappers, and `dashboard.html` (a cited snapshot).
 
 ### Platform (multi-agent) — CORE
 
@@ -129,10 +138,10 @@ artifact), `SAFETY` (trust boundary), `SCHEDULE` (checkpoint). Status: `not star
 | E2 | p12 | Every case exercises a boundary, invariant, or regression risk; static payload lists insufficient | OPTIONAL | **DONE** — boundary/invariant mapping table in `evals/README.md` (E2 section) |
 | E3 | p12 | Build-vs-configure decision records (Burp/ZAP/Semgrep/garak/commercial) — required Architecture Defense deliverable | OPTIONAL | **DONE** — `docs/adr/0005-build-vs-configure.md` (per-tool matrix) |
 | E4 | p12 | Triage exercise: simulated scan report ≥10 findings across critical/high/medium/false-positive; validate/remediate/defer/document each | OPTIONAL | **DONE** — `docs/TRIAGE_EXERCISE.md`: 12 findings (5 real + 7 simulated incl. 3 false positives), each validated + dispositioned (remediate/defer/document). Richer offensive LLM-attack rows can be swapped in by David/unfiltered |
-| E5 | p12–13 | Versioned JSON-Schema contracts in `/contracts` for every inter-agent message; contract tests both sides; breaking change → version bump | OPTIONAL | stub (`contracts/` README) |
-| E6 | p13 | Explicit typed error schemas (target unreachable, budget exceeded, judge timeout, no findings in window, regression detected) in `/contracts` | OPTIONAL | not started |
+| E5 | p12–13 | Versioned JSON-Schema contracts in `/contracts` for every inter-agent message; contract tests both sides; breaking change → version bump | OPTIONAL | **DONE** — `contracts/v1/*.schema.json`; `tests/test_contracts.py` checks persisted records against them |
+| E6 | p13 | Explicit typed error schemas (target unreachable, budget exceeded, judge timeout, no findings in window, regression detected) in `/contracts` | OPTIONAL | **DONE** — `contracts/v1/error.schema.json`; `tests/test_typed_errors.py` (`NoFindingsInWindow` RESERVED) |
 | E7 | p13 | Rate limits + auth documented for every external API (LLM providers, target, observability); handling = backoff/queue/abort in `ARCHITECTURE.md` | OPTIONAL | **DONE** — `docs/EXTERNAL_APIS.md` (per-API auth/rate-limit/handling table; honest about budget-cap vs backoff) |
-| E8 | p12–13 | AI-use disclosure in `ARCHITECTURE.md`: each AI role, following deterministic verification/human gate, residual risk; judge-drift detect+correct | OPTIONAL | not started |
+| E8 | p12–13 | AI-use disclosure in `ARCHITECTURE.md`: each AI role, following deterministic verification/human gate, residual risk; judge-drift detect+correct | OPTIONAL | **DONE** — `ARCHITECTURE.md` "AI-use disclosure" (agent roles, development-time AI use, drift detection) |
 | E9 | p13 | Exploit DB data-quality: unique id, required fields, no dup attack sequences; validated in Doc Agent before write | OPTIONAL | **DONE** — `dedup_key UNIQUE` + promote-dedup + fail-closed validation; `docs/DATA_MODEL.md` E9; `tests/test_data_quality.py` |
 | E10 | p13 | Exploit DB migration support (add field without data loss); document approach; queue-depth monitoring if a queue is used | OPTIONAL | **DONE** — 8 idempotent additive migrations; `queries.queue_depth` + report section; `docs/DATA_MODEL.md` E10 |
 | E11 | p13 | Data model + access controls: who writes/reads exploits, human approval before publish; lineage/reporting | OPTIONAL | **DONE** — `docs/DATA_MODEL.md` E11 (writer/reader model, approval-before-publish, lineage) |
@@ -149,17 +158,10 @@ artifact), `SAFETY` (trust boundary), `SCHEDULE` (checkpoint). Status: `not star
 | SA2 | AGENTS.md; p2 | Synthetic data only; no real PHI processed/logged/stored; redaction tested against a real workflow trace | SAFETY | **DONE (partial)** — synthetic-only honored; `runner._redact_request` redacts captured evidence. Gap: no formal redaction test against a real workflow trace (minor) |
 | SA3 | p18 §9 | Access controls: who triggers runs / views reports; approval before Doc Agent files a critical report; auditable per-agent trace of any unattended run | SAFETY | **DONE** — CLI `approve` writes approval into lineage; fail-closed critical/high gate; ordered `agent_actions` trace; poller exits non-zero for cron alerting |
 
-### Schedule
-
-| ID | Source | Milestone | Class |
-|---|---|---|---|
-| SC1 | p6 | **Early: Tue 11:59 PM CT** — deployed agent, eval framework, observability wired, demo video; technical interview Wed/Thu | SCHEDULE |
-| SC2 | p6 | **Final: Fri noon CT** — production-ready platform, demo video, social post; AI interview 24 h after | SCHEDULE |
-
 ### Reconciliation (resolve before decomposition)
 
 - **R1 — "optional" contradiction. RESOLVED 2026-09-28 (revised same day): optional.** p12 header reads "Optional Engineering Deliverables" while its body copies the preceding section's "not optional" intro. David's final call: the heading governs; **E2–E15 are optional**, E1 (OWASP mapping) stays graded. Parts still arrive via other routes and are *not* optional: agent I/O, message format, AI-vs-deterministic split and rate-limit/cost handling are G4 Stage-4 bullets (overlapping E5/E7/E8); versioned `/contracts` schemas are a repo rule (`AGENTS.md`) and R3's plug-in-able contract (overlapping E5/E6); a "defend the model choice" record is P1 (overlapping E3). Pick further optional items by value once core slices are sized.
-- **R2 — GitHub vs GitLab.** PRD S1 says "GitHub Repository"; repo `AGENTS.md` says GitLab `origin` on `labs.gauntletai.com` is the graded source of truth, GitHub a mirror. *Interpretation:* push both; GitLab is primary/graded, GitHub satisfies the PRD's public-repo wording. No conflict if both stay in sync.
+- **R2 — GitHub vs GitLab.** PRD S1 says "GitHub Repository"; repo `AGENTS.md` says GitLab `origin` on `labs.gauntletai.com` is the source of truth, GitHub a mirror. *Interpretation:* push both; GitLab is primary/graded, GitHub satisfies the PRD's public-repo wording. No conflict if both stay in sync.
 - **R3 — integration-week peer exercise. RESOLVED 2026-09-28: build solo.** p12–13 describe each student building one agent role and integrating a *classmate's* agent through published contracts only. David's call: we own and build every role; contracts are written so an independently built agent *could* plug in through `/contracts` alone. Integration packet deferred unless a cohort swap is assigned. *Recommended interpretation:* build all agents solo but honor the contract discipline (E5/E6) so a peer *could* integrate; produce the integration packet only if the cohort exercise is actually assigned. Consequence if wrong: a missing integration-week artifact. **Confirm with course staff.**
 - **R4 — metric thresholds (`OPEN`).** PRD leaves pass thresholds open (over-refusal ceiling, fix-holds criteria). Decide numeric thresholds in `KEY_METRICS.md` during that gate; the prior-art note declines to set them from the teaser alone.
 
@@ -181,7 +183,7 @@ artifact), `SAFETY` (trust boundary), `SCHEDULE` (checkpoint). Status: `not star
   regression case, every record linkable end-to-end on demand. See `CONTEXT.md`. (Q1.)
 - **Campaign execution:** local replica of the real Co-Pilot for volume (mutation, load
   test, sweeps); every finding re-confirmed once on the deployed SHA; regression-on-deploy
-  and demo run live. Target change: move its query embeddings off the free-tier Gemini key
+  runs live. Target change: move its query embeddings off the free-tier Gemini key
   (see Q12 below) and document it as a Stage 1 testability change. Degraded
   retrieval → `INCONCLUSIVE`, never a pass. (Q3.)
 - **Orchestrator: hybrid** — deterministic ranking + hard budget/halt/auth rules; a small
@@ -249,10 +251,10 @@ decisions: Red Team model bake-off (Q5) and Judge bake-off (Q8′/Q14).
 
 ## Execution slices
 
-Specced in `docs/HARNESS_SPEC.md` (S0–S9, mapped to requirement IDs). **Tuesday cut: S0–S5**
+Specced in `docs/HARNESS_SPEC.md` (S0–S9, mapped to requirement IDs). **First cut: S0–S5**
 — scaffold, safety core (authorization.yaml + Executor + store), oracles + Judge, seed evals
 (≥3 OWASP categories, content authored unfiltered), dashboard, and a minimal Red Team — so
-Red Team + Judge both run live against the deployed target. **Friday: S6–S9** — Orchestrator,
+Red Team + Judge both run live against the deployed target. **Second cut: S6–S9** — Orchestrator,
 Documentation + reports, regression harness + Red Team multi-turn, drill/metrics/cost/deploy.
 
 Harness spec is decision-complete (D1–D5 resolved). Still authored separately (safety
@@ -308,7 +310,6 @@ scorable: `--victim-patient` derives the victim's unique fact values as canaries
    Jev selector; deterministic selector is the live default otherwise.
 5. **Cost pricing (S9)** — wire qwen3.8-flash price so `cost_summary` reports USD and the
    AI Cost Analysis is real.
-6. **Submission** — demo video, social post; confirm local-time deadlines in the portal.
 
 **S5 live-demonstrated (2026-09-28):** the full multi-agent loop ran against the **deployed**
 target — Red Team (qwen3.8-flash, target's own endpoint) generated 3 cases across 3 OWASP

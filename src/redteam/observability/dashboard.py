@@ -2,7 +2,7 @@
 
 Server-side rendered from the store into one static file (no server, no JavaScript, no
 external assets), so it adds no attack surface to a security tool and can be opened locally
-or attached to a submission. Regenerate after a run to refresh it.
+or shared as one file. Regenerate after a run to refresh it.
 """
 
 from __future__ import annotations

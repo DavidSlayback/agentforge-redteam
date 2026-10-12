@@ -10,6 +10,8 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+import httpx
+
 from redteam.agents.judge.discovery import DiscoveryJudge, DiscoveryResult
 from redteam.discovery import list_candidates, run_discovery
 from redteam.store.store import Store
@@ -134,3 +136,35 @@ def test_a_fault_mid_pass_leaves_no_candidates_and_no_pass_action(tmp_path: Path
         assert after.count("discovery_candidates") == 0, f"fault at write {n}/{total} left a candidate"
         assert after.count("agent_actions") == 0, f"fault at write {n}/{total} left the pass action"
         after.close()
+
+
+# --- the model call itself (httpx patched; no network) -------------------------------------
+
+def _reply(content: str | None) -> httpx.Response:
+    return httpx.Response(200, json={"choices": [{"message": {"content": content}, "finish_reason": "stop"}]})
+
+
+@pytest.mark.parametrize("outcome", [
+    httpx.ConnectError("endpoint down"),
+    _reply(""),
+    _reply("I cannot help with that."),
+    httpx.Response(200, json={"error": "quota"}),
+], ids=["unreachable", "empty-content", "not-json", "unexpected-shape"])
+def test_a_review_that_could_not_run_is_never_a_candidate(monkeypatch, outcome) -> None:
+    def post(*_a, **_k):
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    monkeypatch.setattr("redteam.agents.judge.discovery.httpx.post", post)
+    r = DiscoveryJudge(base_url="u", api_key="k", model="deepseek-v4-pro").review("req", "resp")
+    assert r.suspected is False and r.error
+
+
+def test_a_parsed_suspicion_is_a_candidate_with_clamped_confidence(monkeypatch) -> None:
+    body = json.dumps({"suspected": True, "vuln_class": "metadata-leak", "why": "w",
+                       "severity": "HIGH", "confidence": 7})
+    monkeypatch.setattr("redteam.agents.judge.discovery.httpx.post", lambda *a, **k: _reply(body))
+    r = DiscoveryJudge(base_url="u", api_key="k", model="deepseek-v4-pro").review("req", "resp")
+    assert (r.suspected, r.vuln_class, r.severity, r.confidence, r.error) == (
+        True, "metadata-leak", "high", 1.0, None)

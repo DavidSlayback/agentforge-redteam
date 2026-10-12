@@ -14,8 +14,8 @@ provisional (assigned by category, CVSS v4 scoring pending).
 
 > Scope note: the detailed *offensive content* for additional LLM-specific simulated findings is
 > authored outside this assistant (its output classifier truncates offensive specifics — see
-> `[[claude-safety-blocks-w3]]`). The triage *framework, validation, and dispositions* below are the
-> graded skill and are complete; swap in richer simulated LLM-attack rows if desired.
+> `[[claude-safety-blocks-w3]]`). The triage *framework, validation, and dispositions* below are
+> complete; swap in richer simulated LLM-attack rows if desired.
 
 | # | Severity | Finding (summary) | Validated? | Disposition | Rationale |
 |---|---|---|---|---|---|

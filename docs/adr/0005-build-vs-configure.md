@@ -30,7 +30,7 @@ sidecars — see `docs/PLAN.md` settled decisions). The reasons, per candidate:
 - We own the retry/timeout/recovery logic a framework would provide (documented standing risk in
   `ARCHITECTURE.md`); failure drills must test it.
 - The deterministic core (Executor boundary, oracles, regression replay, dedup, reports) is the
-  graded differentiator and is built; offensive *content/technique* generation leans on pinned
+  differentiator and is built; offensive *content/technique* generation leans on pinned
   tools/models at runtime, not reimplemented.
 - Judge independence and honest verdicts — the properties a configured scanner cannot guarantee —
   are structural here (deterministic oracles first; non-Qwen rubric; candidates-not-verdicts for the

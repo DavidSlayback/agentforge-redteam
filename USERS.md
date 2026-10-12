@@ -1,7 +1,7 @@
 # Users
 
 Who this platform is for, how they work, and why continuous automation — not manual
-pen-testing — is the right solution. (PRD submission requirement.)
+pen-testing — is the right solution.
 
 ## Primary users
 
