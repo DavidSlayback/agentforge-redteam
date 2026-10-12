@@ -40,7 +40,7 @@ computed from the store, and its current status (measured now vs. needs a compon
   two-judge disagreement rate quantify the residual LLM-judged fraction.
 - **6 prevents a false sense of security.** A high pass rate over three routes says nothing
   about the other twenty-seven. Coverage is a vector, never a single percentage.
-- **7 is the difference between a demo and a service.** Continuous testing is only viable
+- **7 is the difference between a one-off experiment and a service.** Continuous testing is only viable
   if cost per finding stays bounded as run volume grows — hence the 100/1K/10K/100K
   projection (AI Cost Analysis), not per-token × n.
 

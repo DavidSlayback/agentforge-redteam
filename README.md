@@ -26,7 +26,7 @@ regression run). One SQLite store is the audit trail, the regression suite, and 
 observability substrate; it is not a work queue. Details, diagram, and tradeoffs:
 [ARCHITECTURE.md](ARCHITECTURE.md); decisions: [docs/adr/](docs/adr/).
 
-## Submission deliverables
+## Deliverables
 
 | Deliverable | Where |
 |---|---|
@@ -38,7 +38,6 @@ observability substrate; it is not a work queue. Details, diagram, and tradeoffs
 | Vulnerability reports | [docs/findings/](docs/findings/) |
 | AI cost analysis (token-based estimate; billed USD is `OWNER TO SUPPLY`) | [docs/COST_ANALYSIS.md](docs/COST_ANALYSIS.md) |
 | AI-use disclosure (agent roles + development-time AI use) | [ARCHITECTURE.md](ARCHITECTURE.md#ai-use-disclosure) |
-| Demo video (3–5 min) | Submitted through the Gauntlet portal, not stored in this repo; see [docs/PLAN.md](docs/PLAN.md) "Deliverables audit" |
 | Inter-agent contracts (v1 JSON Schema) | [contracts/](contracts/) |
 | Integration packet (solo adaptation; no peer integration) | [docs/INTEGRATION_PACKET.md](docs/INTEGRATION_PACKET.md) |
 | Observability snapshot | [dashboard.html](dashboard.html) (regenerate with `redteam dashboard`) |

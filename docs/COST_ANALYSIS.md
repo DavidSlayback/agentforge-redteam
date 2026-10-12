@@ -54,7 +54,7 @@ The owner has no billing export to supply and asked for a token-based estimate i
 
 | # | Number needed | Where to find it | Already known (from the store) | USD |
 |---|---|---|---|---|
-| 1 | Attacker model spend: input and output tokens and charge for `qwen3.8-flash` and `qwen3.8-max`, 2026-09-28 to submission | Alibaba Model Studio (Bailian) console, usage and billing, filtered by model and date | 43 metered calls (floor) | OWNER |
+| 1 | Attacker model spend: input and output tokens and charge for `qwen3.8-flash` and `qwen3.8-max`, 2026-09-28 to 2026-10-01 | Alibaba Model Studio (Bailian) console, usage and billing, filtered by model and date | 43 metered calls (floor) | OWNER |
 | 2 | Rubric and Discovery spend for `deepseek-v4-pro` (and Qwen Max when used for discovery) | Same console, filtered by model | 12 rubric-carrying verdicts; 81 discovery reviews | OWNER |
 | 3 | Plan or subscription fee, prorated to the dev window, if the Qwen key bills through a plan | Bailian plan page; the plan notes say it bills in plan credits | n/a | OWNER |
 | 4 | Jev (TypeSafe) usage, if any | TypeSafe dashboard | 0 selections | OWNER |
