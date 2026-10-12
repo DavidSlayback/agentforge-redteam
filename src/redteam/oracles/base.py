@@ -11,7 +11,7 @@ the Judge can exclude it rather than count it as a clean pass.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol
 
